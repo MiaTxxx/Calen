@@ -1,4 +1,5 @@
 use super::*;
+use super::ports::*;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use rusqlite::Connection;
 
@@ -361,7 +362,7 @@ fn csv_round_trip_preserves_all_ledger_fields_and_quoted_notes() {
         .list_csv_import_records(&target_portfolio.id)
         .expect("list CSV import records");
     assert_eq!(imports.len(), 1);
-    assert_eq!(imports[0].source_label, DEFAULT_CSV_IMPORT_SOURCE);
+    assert_eq!(imports[0].source_label, "Calen CSV import");
     assert_eq!(imports[0].total_rows, 1);
     assert_eq!(imports[0].success_count, 1);
     assert_eq!(imports[0].failure_count, 0);

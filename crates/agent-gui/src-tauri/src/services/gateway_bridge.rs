@@ -1190,7 +1190,7 @@ fn redact_stock_portfolio_gateway_history_message(message: &mut Value, redact_te
                 return;
             };
             let mut notice_inserted = false;
-            for block in blocks {
+            for block in blocks.iter_mut() {
                 let block_type = block
                     .as_object()
                     .and_then(|record| record.get("type"))
