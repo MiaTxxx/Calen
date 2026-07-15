@@ -24,20 +24,15 @@ type StockToolDefinition = {
 
 const MARKET = Type.Optional(
   Type.Union([Type.Literal("CN"), Type.Literal("HK"), Type.Literal("US")], {
-    description:
-      "Market hint. CN is the deep-coverage default; HK and US have limited coverage.",
-  })
+    description: "Market hint. CN is the deep-coverage default; HK and US have limited coverage.",
+  }),
 );
 
 const INSTRUMENT = Type.Object({
   id: Type.Optional(Type.String()),
   canonicalId: Type.Optional(Type.String()),
   symbol: Type.String({ minLength: 1 }),
-  market: Type.Union([
-    Type.Literal("CN"),
-    Type.Literal("HK"),
-    Type.Literal("US"),
-  ]),
+  market: Type.Union([Type.Literal("CN"), Type.Literal("HK"), Type.Literal("US")]),
   exchange: Type.Optional(Type.String()),
   assetType: Type.Optional(
     Type.Union([
@@ -49,12 +44,12 @@ const INSTRUMENT = Type.Object({
       Type.Literal("EQUITY"),
       Type.Literal("ETF"),
       Type.Literal("INDEX"),
-    ])
+    ]),
   ),
   name: Type.Optional(Type.String()),
   displayName: Type.Optional(Type.String()),
   currency: Type.Optional(
-    Type.Union([Type.Literal("CNY"), Type.Literal("HKD"), Type.Literal("USD")])
+    Type.Union([Type.Literal("CNY"), Type.Literal("HKD"), Type.Literal("USD")]),
   ),
 });
 
@@ -71,12 +66,8 @@ const DEFINITIONS: readonly StockToolDefinition[] = [
         description: "Company, ETF, ticker, or Chinese security name.",
       }),
       market: MARKET,
-      limit: Type.Optional(
-        Type.Integer({ minimum: 1, maximum: 20, default: 8 })
-      ),
-      deadlineMs: Type.Optional(
-        Type.Integer({ minimum: 1000, maximum: 30000 })
-      ),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, default: 8 })),
+      deadlineMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 30000 })),
     }),
     scopes: ["chat", "cron_auto_prompt"],
   },
@@ -88,12 +79,8 @@ const DEFINITIONS: readonly StockToolDefinition[] = [
       "Get a bounded, source-labelled snapshot for one resolved stock or ETF: quote, profile, key metrics and limited price history.",
     parameters: Type.Object({
       instrument: INSTRUMENT,
-      historyDays: Type.Optional(
-        Type.Integer({ minimum: 1, maximum: 365, default: 30 })
-      ),
-      deadlineMs: Type.Optional(
-        Type.Integer({ minimum: 1000, maximum: 60000 })
-      ),
+      historyDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 365, default: 30 })),
+      deadlineMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 60000 })),
     }),
     scopes: ["chat", "cron_auto_prompt"],
   },
@@ -122,20 +109,12 @@ const DEFINITIONS: readonly StockToolDefinition[] = [
           Type.Literal("strategy"),
           Type.Literal("evaluator"),
         ]),
-        { minItems: 1, maxItems: 12 }
+        { minItems: 1, maxItems: 12 },
       ),
-      startDate: Type.Optional(
-        Type.String({ description: "ISO date; bounded by the sidecar." })
-      ),
-      endDate: Type.Optional(
-        Type.String({ description: "ISO date; bounded by the sidecar." })
-      ),
-      maxItems: Type.Optional(
-        Type.Integer({ minimum: 1, maximum: 100, default: 30 })
-      ),
-      deadlineMs: Type.Optional(
-        Type.Integer({ minimum: 1000, maximum: 120000 })
-      ),
+      startDate: Type.Optional(Type.String({ description: "ISO date; bounded by the sidecar." })),
+      endDate: Type.Optional(Type.String({ description: "ISO date; bounded by the sidecar." })),
+      maxItems: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 30 })),
+      deadlineMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 120000 })),
     }),
     scopes: ["chat", "cron_auto_prompt"],
     experimental: true,
@@ -148,21 +127,15 @@ const DEFINITIONS: readonly StockToolDefinition[] = [
       "Build an on-demand CN market brief covering market state, sectors, flows, limit-up/down, hot stocks, unusual moves and sentiment with partial-data warnings.",
     parameters: Type.Object({
       session: Type.Optional(
-        Type.Union([
-          Type.Literal("preMarket"),
-          Type.Literal("intraday"),
-          Type.Literal("close"),
-        ])
+        Type.Union([Type.Literal("preMarket"), Type.Literal("intraday"), Type.Literal("close")]),
       ),
       tradeDate: Type.Optional(
         Type.String({
           description: "ISO date; defaults to the current market date.",
-        })
+        }),
       ),
       sections: Type.Optional(Type.Array(Type.String(), { maxItems: 12 })),
-      deadlineMs: Type.Optional(
-        Type.Integer({ minimum: 1000, maximum: 120000 })
-      ),
+      deadlineMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 120000 })),
     }),
     scopes: ["chat", "cron_auto_prompt"],
   },
@@ -179,12 +152,8 @@ const DEFINITIONS: readonly StockToolDefinition[] = [
       endDate: Type.String({ minLength: 10 }),
       parameters: Type.Optional(Type.Record(Type.String(), Type.Any())),
       benchmark: Type.Optional(Type.String()),
-      feeRate: Type.Optional(
-        Type.Number({ minimum: 0, maximum: 0.05, default: 0.001 })
-      ),
-      deadlineMs: Type.Optional(
-        Type.Integer({ minimum: 1000, maximum: 180000 })
-      ),
+      feeRate: Type.Optional(Type.Number({ minimum: 0, maximum: 0.05, default: 0.001 })),
+      deadlineMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 180000 })),
     }),
     scopes: ["chat"],
     experimental: true,
@@ -230,7 +199,7 @@ function asWarnings(value: unknown) {
 function resultDetails(
   definition: StockToolDefinition,
   requestId: string,
-  result: unknown
+  result: unknown,
 ): StockToolResultDetails {
   const record = asRecord(result);
   const evidence = asRecord(record.evidence ?? record);
@@ -240,9 +209,7 @@ function resultDetails(
     operation: definition.operation,
     requestId,
     status:
-      evidence.status === "ok" ||
-      evidence.status === "partial" ||
-      evidence.status === "unavailable"
+      evidence.status === "ok" || evidence.status === "partial" || evidence.status === "unavailable"
         ? evidence.status
         : undefined,
     instrument:
@@ -269,8 +236,7 @@ function resultDetails(
         })
       : [],
     warnings: asWarnings(evidence.warnings),
-    experimental:
-      definition.experimental === true || evidence.experimental === true,
+    experimental: definition.experimental === true || evidence.experimental === true,
     result,
   };
 }
@@ -292,12 +258,9 @@ export function createStockResearchTools(params: {
   const active = DEFINITIONS.filter(
     (definition) =>
       definition.scopes.includes(params.runtimeScope) &&
-      (definition.operation !== "portfolio" ||
-        params.portfolioReadAuthorized === true)
+      (definition.operation !== "portfolio" || params.portfolioReadAuthorized === true),
   );
-  const definitionsByName = new Map(
-    active.map((definition) => [definition.name, definition])
-  );
+  const definitionsByName = new Map(active.map((definition) => [definition.name, definition]));
 
   return {
     groupId: "stock",
@@ -315,12 +278,9 @@ export function createStockResearchTools(params: {
           isReadOnly: true,
           displayCategory: "stock" as const,
         },
-      ])
+      ]),
     ),
-    async executeToolCall(
-      toolCall: ToolCall,
-      signal?: AbortSignal
-    ): Promise<ToolResultMessage> {
+    async executeToolCall(toolCall: ToolCall, signal?: AbortSignal): Promise<ToolResultMessage> {
       const timestamp = Date.now();
       const definition = definitionsByName.get(toolCall.name);
       if (!definition) {
@@ -328,9 +288,7 @@ export function createStockResearchTools(params: {
           role: "toolResult",
           toolCallId: toolCall.id,
           toolName: toolCall.name,
-          content: [
-            { type: "text", text: `Unknown stock tool: ${toolCall.name}` },
-          ],
+          content: [{ type: "text", text: `Unknown stock tool: ${toolCall.name}` }],
           details: {},
           isError: true,
           timestamp,
@@ -371,9 +329,7 @@ export function createStockResearchTools(params: {
             result = await invoke("ai_stock_portfolio_list");
           } else {
             if (!portfolioId)
-              throw new Error(
-                `StockPortfolioRead action=${action} requires portfolioId.`
-              );
+              throw new Error(`StockPortfolioRead action=${action} requires portfolioId.`);
             result =
               action === "transactions"
                 ? await invoke("ai_stock_portfolio_transactions", {
@@ -396,9 +352,7 @@ export function createStockResearchTools(params: {
         if (definition.operation === "portfolio") {
           const action = asString(payload.action) ?? "list";
           details.status = action === "snapshot" ? "partial" : "ok";
-          details.sources = [
-            { provider: "calen-local", label: "Calen 本地资产账本" },
-          ];
+          details.sources = [{ provider: "calen-local", label: "Calen 本地资产账本" }];
           details.retrievedAt = new Date().toISOString();
           if (action === "snapshot") {
             details.warnings = [
@@ -422,9 +376,7 @@ export function createStockResearchTools(params: {
           role: "toolResult",
           toolCallId: toolCall.id,
           toolName: toolCall.name,
-          content: [
-            { type: "text", text: `Stock research failed: ${message}` },
-          ],
+          content: [{ type: "text", text: `Stock research failed: ${message}` }],
           details: {
             kind: "stock_result",
             operation: definition.operation,

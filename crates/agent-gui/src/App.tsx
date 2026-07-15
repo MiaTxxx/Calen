@@ -48,6 +48,7 @@ const GATEWAY_SETTINGS_SYNC_EVENT = "gateway:settings-sync";
 
 function AppChrome(props: { children: ReactNode; appUpdate?: AppUpdateController }) {
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the application shell suppresses the native context menu globally.
     <div
       className="relative flex h-full w-full flex-col overflow-hidden bg-background"
       onContextMenu={(event) => {
@@ -79,7 +80,10 @@ function hasSensitiveSettingsUpdates(settings: AppSettings) {
 function hasSensitiveSettingsUpdatesPayload(payload: unknown) {
   const source =
     payload && typeof payload === "object" && !Array.isArray(payload)
-      ? (payload as { providerApiKeyUpdates?: unknown; sshSecretUpdates?: unknown })
+      ? (payload as {
+          providerApiKeyUpdates?: unknown;
+          sshSecretUpdates?: unknown;
+        })
       : {};
   const providerUpdates = source.providerApiKeyUpdates;
   if (
@@ -144,11 +148,8 @@ export default function App() {
   // crypto.randomUUID() inside caller updaters) twice per call.
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
-  const [systemThemeVersion, setSystemThemeVersion] = useState(0);
-  const effectiveTheme = useMemo(
-    () => resolveEffectiveTheme(settings.theme),
-    [settings.theme, systemThemeVersion],
-  );
+  const [, setSystemThemeVersion] = useState(0);
+  const effectiveTheme = resolveEffectiveTheme(settings.theme);
 
   useEffect(() => {
     if (settings.theme !== "system") return;

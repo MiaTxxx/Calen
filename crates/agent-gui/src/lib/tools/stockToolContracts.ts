@@ -17,9 +17,7 @@ function string(value: unknown) {
 }
 
 function finiteNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function normalizeToolInstrument(value: unknown): Record<string, unknown> {
@@ -49,22 +47,20 @@ function normalizeToolInstrument(value: unknown): Record<string, unknown> {
             ? "unknown"
             : "stock";
   return {
-    id:
-      string(instrument.id ?? instrument.canonicalId) ?? `${market}:${symbol}`,
+    id: string(instrument.id ?? instrument.canonicalId) ?? `${market}:${symbol}`,
     symbol,
     name: string(instrument.name ?? instrument.displayName) ?? symbol,
     market,
     exchange,
     assetType,
     currency:
-      string(instrument.currency) ??
-      (market === "HK" ? "HKD" : market === "US" ? "USD" : "CNY"),
+      string(instrument.currency) ?? (market === "HK" ? "HKD" : market === "US" ? "USD" : "CNY"),
   };
 }
 
 export function toStockSidecarToolPayload(
   operation: StockSidecarToolOperation,
-  rawPayload: Record<string, unknown>
+  rawPayload: Record<string, unknown>,
 ): Record<string, unknown> {
   if (operation === "resolve" || operation === "portfolio") return rawPayload;
   if (operation === "marketBrief") return { market: "CN", ...rawPayload };
@@ -86,9 +82,7 @@ export function toStockSidecarToolPayload(
       dividends: "dividend",
     };
     const capabilities = Array.isArray(rawPayload.capabilities)
-      ? rawPayload.capabilities.map(
-          (value) => capabilityMap[String(value)] ?? String(value)
-        )
+      ? rawPayload.capabilities.map((value) => capabilityMap[String(value)] ?? String(value))
       : undefined;
     return {
       ...rawPayload,
@@ -96,7 +90,7 @@ export function toStockSidecarToolPayload(
       ...(capabilities ? { capabilities } : {}),
       historyLimit: Math.min(
         Math.max(Math.trunc(finiteNumber(rawPayload.maxItems) ?? 120), 20),
-        2_000
+        2_000,
       ),
     };
   }
@@ -109,7 +103,7 @@ export function toStockSidecarToolPayload(
   const normalizedLongWindow = Math.max(2, Math.trunc(longWindow));
   const normalizedShortWindow = Math.max(
     1,
-    Math.min(Math.trunc(shortWindow), normalizedLongWindow - 1)
+    Math.min(Math.trunc(shortWindow), normalizedLongWindow - 1),
   );
   return {
     ...rawPayload,

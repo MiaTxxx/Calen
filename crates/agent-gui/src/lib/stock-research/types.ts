@@ -50,9 +50,7 @@ export interface StockEvidenceMetadata {
   warnings: string[];
 }
 
-export interface StockEvidenceResult<
-  T = unknown,
-> extends StockEvidenceMetadata {
+export interface StockEvidenceResult<T = unknown> extends StockEvidenceMetadata {
   data: T | null;
 }
 
@@ -80,8 +78,7 @@ export interface QuoteSnapshot {
   facts?: Array<{ label: string; value: string; hint?: string }>;
 }
 
-export type ResearchExperimentalCapability =
-  "technical" | "score" | "strategy" | "evaluator";
+export type ResearchExperimentalCapability = "technical" | "score" | "strategy" | "evaluator";
 
 export interface ResearchExperimentalAnalysis {
   capability: ResearchExperimentalCapability;
@@ -183,9 +180,7 @@ export interface StockSettings {
 }
 
 export interface StockSettingsSavePayload extends StockSettings {
-  providerKeyUpdates?: Partial<
-    Record<"zzshare" | "tushare" | "tickflow" | "fuyao", string | null>
-  >;
+  providerKeyUpdates?: Partial<Record<"zzshare" | "tushare" | "tickflow" | "fuyao", string | null>>;
 }
 
 export type StockBackupRestoreMode = "replaceAll" | "merge";
@@ -250,32 +245,20 @@ export interface StockBacktestRequest {
 
 export interface StockResearchPort {
   resolve(request: StockResolveRequest): Promise<InstrumentSearchResult>;
-  snapshot(
-    request: StockSnapshotRequest
-  ): Promise<StockEvidenceResult<QuoteSnapshot>>;
-  research(
-    request: StockResearchRequest
-  ): Promise<StockEvidenceResult<ResearchBundle>>;
-  marketBrief(
-    request: MarketBriefRequest
-  ): Promise<StockEvidenceResult<MarketBrief>>;
-  backtest(
-    request: StockBacktestRequest
-  ): Promise<StockEvidenceResult<BacktestResult>>;
+  snapshot(request: StockSnapshotRequest): Promise<StockEvidenceResult<QuoteSnapshot>>;
+  research(request: StockResearchRequest): Promise<StockEvidenceResult<ResearchBundle>>;
+  marketBrief(request: MarketBriefRequest): Promise<StockEvidenceResult<MarketBrief>>;
+  backtest(request: StockBacktestRequest): Promise<StockEvidenceResult<BacktestResult>>;
   status(): Promise<StockServiceStatus>;
   settingsGet(): Promise<StockSettings>;
   settingsSave(payload: StockSettingsSavePayload): Promise<StockSettings>;
   portfolioRead(): Promise<PortfolioSnapshot>;
   portfolioImportCsv(csv: string): Promise<PortfolioSnapshot>;
-  portfolioExportCsv(
-    portfolioId?: string
-  ): Promise<{ fileName: string; csv: string }>;
-  portfolioExportEncryptedBackup(
-    password: string
-  ): Promise<EncryptedStockBackupEnvelope>;
+  portfolioExportCsv(portfolioId?: string): Promise<{ fileName: string; csv: string }>;
+  portfolioExportEncryptedBackup(password: string): Promise<EncryptedStockBackupEnvelope>;
   portfolioRestoreEncryptedBackup(
     envelope: EncryptedStockBackupEnvelope,
     password: string,
-    mode: StockBackupRestoreMode
+    mode: StockBackupRestoreMode,
   ): Promise<void>;
 }

@@ -54,8 +54,7 @@ function CandlestickChart(props: {
     const host = hostRef.current;
     if (!host) return;
     const styles = getComputedStyle(document.documentElement);
-    const foreground =
-      styles.getPropertyValue("--foreground").trim() || "#71717a";
+    const foreground = styles.getPropertyValue("--foreground").trim() || "#71717a";
     const border = styles.getPropertyValue("--border").trim() || "#d4d4d8";
     const chart = createChart(host, {
       width: Math.max(host.clientWidth, 1),
@@ -85,8 +84,7 @@ function CandlestickChart(props: {
     chart.timeScale().fitContent();
     const resize = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width;
-      if (width && Number.isFinite(width))
-        chart.applyOptions({ width, height });
+      if (width && Number.isFinite(width)) chart.applyOptions({ width, height });
     });
     resize.observe(host);
     return () => {
@@ -143,10 +141,7 @@ function SparklineChart(props: {
           strokeOpacity="0.08"
         />
       ))}
-      <path
-        d={`${path} L${width},${height} L0,${height} Z`}
-        fill="url(#calen-stock-chart-fill)"
-      />
+      <path d={`${path} L${width},${height} L0,${height} Z`} fill="url(#calen-stock-chart-fill)" />
       <path
         d={path}
         fill="none"
@@ -179,14 +174,7 @@ export function StockChart(props: {
   const candles = useMemo(() => candleData(bars), [bars]);
 
   if (candles.length) {
-    return (
-      <CandlestickChart
-        data={candles}
-        height={height}
-        className={className}
-        label={label}
-      />
-    );
+    return <CandlestickChart data={candles} height={height} className={className} label={label} />;
   }
 
   const path = buildSparklinePath(values, 720, height - 24);
@@ -195,7 +183,7 @@ export function StockChart(props: {
       <div
         className={cn(
           "flex items-center justify-center rounded-xl border border-dashed border-border/50 text-xs text-muted-foreground",
-          className
+          className,
         )}
         style={{ height }}
       >

@@ -25,17 +25,13 @@ export type AsyncResource<T> =
   | { state: "ready"; data: T }
   | { state: "error"; message: string };
 
-export function isStockResultStatus(
-  value: unknown
-): value is "ok" | "partial" | "unavailable" {
+export function isStockResultStatus(value: unknown): value is "ok" | "partial" | "unavailable" {
   return value === "ok" || value === "partial" || value === "unavailable";
 }
 
 export function normalizeWarnings(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter(
-    (item): item is string => typeof item === "string" && item.trim().length > 0
-  );
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
 export function formatStockError(error: unknown): string {
@@ -61,7 +57,7 @@ export function parseFiniteNumber(value: string): number | null {
 export function buildSparklinePath(
   values: readonly number[],
   width: number,
-  height: number
+  height: number,
 ): string {
   if (values.length === 0 || width <= 0 || height <= 0) return "";
   const finiteValues = values.filter(Number.isFinite);
@@ -82,15 +78,11 @@ export function buildSparklinePath(
 type AnyRecord = Record<string, unknown>;
 
 function asRecord(value: unknown): AnyRecord {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as AnyRecord)
-    : {};
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as AnyRecord) : {};
 }
 
 function strictRecord(value: unknown): AnyRecord | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as AnyRecord)
-    : null;
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as AnyRecord) : null;
 }
 
 function asString(value: unknown): string | undefined {
@@ -103,10 +95,7 @@ function asNumber(value: unknown): number | null {
 
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value)
-    ? value.filter(
-        (item): item is string =>
-          typeof item === "string" && item.trim().length > 0
-      )
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
 }
 
@@ -117,7 +106,7 @@ function evidenceRecord(raw: unknown): AnyRecord {
 
 function normalizeEvidenceStatus(
   value: unknown,
-  hasData: boolean
+  hasData: boolean,
 ): "ok" | "partial" | "unavailable" {
   if (value === "ok" || value === "complete") return "ok";
   if (value === "partial") return "partial";
@@ -131,9 +120,7 @@ function mapInstrument(value: unknown): InstrumentRef | null {
   const symbol = asString(item.symbol);
   const name = asString(item.name ?? item.displayName);
   const market =
-    item.market === "CN" || item.market === "HK" || item.market === "US"
-      ? item.market
-      : "UNKNOWN";
+    item.market === "CN" || item.market === "HK" || item.market === "US" ? item.market : "UNKNOWN";
   if (!id || !symbol || !name) return null;
   return {
     id,
@@ -166,29 +153,23 @@ function mapSource(value: unknown): EvidenceSource | null {
     name,
     ...(provider ? { provider } : {}),
     ...(asString(item.url) ? { url: asString(item.url) } : {}),
-    ...(asString(item.capability)
-      ? { capability: asString(item.capability) }
-      : {}),
+    ...(asString(item.capability) ? { capability: asString(item.capability) } : {}),
     ...(asString(item.asOf) ? { asOf: asString(item.asOf) } : {}),
-    ...(asString(item.retrievedAt)
-      ? { retrievedAt: asString(item.retrievedAt) }
-      : {}),
+    ...(asString(item.retrievedAt) ? { retrievedAt: asString(item.retrievedAt) } : {}),
     ...(typeof item.cached === "boolean" ? { cached: item.cached } : {}),
   };
 }
 
 function mapSources(value: unknown): EvidenceSource[] {
   return Array.isArray(value)
-    ? value
-        .map(mapSource)
-        .filter((item): item is EvidenceSource => item !== null)
+    ? value.map(mapSource).filter((item): item is EvidenceSource => item !== null)
     : [];
 }
 
 function mapEnvelope<T>(
   raw: unknown,
   data: T | null,
-  extraWarnings: string[] = []
+  extraWarnings: string[] = [],
 ): StockEvidenceResult<T> {
   const record = evidenceRecord(raw);
   const warnings = [...normalizeWarnings(record.warnings), ...extraWarnings];
@@ -227,11 +208,7 @@ export function mapStockResolveEnvelope(raw: unknown): InstrumentSearchResult {
 
 function mapChart(value: unknown): NonNullable<QuoteSnapshot["chart"]> {
   const record = asRecord(value);
-  const values = Array.isArray(record.bars)
-    ? record.bars
-    : Array.isArray(value)
-      ? value
-      : [];
+  const values = Array.isArray(record.bars) ? record.bars : Array.isArray(value) ? value : [];
   return values.flatMap((entry) => {
     const item = asRecord(entry);
     const time = asString(item.time);
@@ -263,34 +240,31 @@ const FACT_RESEARCH_CAPABILITIES = new Set([
   "etf",
 ]);
 
-const EXPERIMENTAL_RESEARCH_CAPABILITIES: readonly ResearchExperimentalCapability[] =
-  ["technical", "score", "strategy", "evaluator"];
+const EXPERIMENTAL_RESEARCH_CAPABILITIES: readonly ResearchExperimentalCapability[] = [
+  "technical",
+  "score",
+  "strategy",
+  "evaluator",
+];
 
 function summarizeResearchData(value: unknown): string | null {
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
   if (Array.isArray(value)) return `items=${value.length}`;
   const parts: string[] = [];
-  const pending: Array<{ path: string; value: unknown; depth: number }> =
-    Object.entries(asRecord(value)).map(([path, item]) => ({
-      path,
-      value: item,
-      depth: 0,
-    }));
+  const pending: Array<{ path: string; value: unknown; depth: number }> = Object.entries(
+    asRecord(value),
+  ).map(([path, item]) => ({
+    path,
+    value: item,
+    depth: 0,
+  }));
   while (pending.length && parts.length < 5) {
     const current = pending.shift();
     if (!current) break;
     const item = current.value;
-    if (
-      typeof item === "string" ||
-      typeof item === "number" ||
-      typeof item === "boolean"
-    ) {
+    if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
       parts.push(`${current.path}=${String(item)}`);
     } else if (Array.isArray(item)) {
       parts.push(`${current.path}[${item.length}]`);
@@ -309,16 +283,13 @@ function summarizeResearchData(value: unknown): string | null {
   return summary.length > 240 ? `${summary.slice(0, 237)}...` : summary;
 }
 
-function mapResearchAnalysisMetadata(
-  value: unknown
-): ResearchAnalysisMetadata | undefined {
+function mapResearchAnalysisMetadata(value: unknown): ResearchAnalysisMetadata | undefined {
   const metadata = strictRecord(value);
   const algorithm = strictRecord(metadata?.algorithm);
   const parameters = strictRecord(algorithm?.parameters);
   const sample = strictRecord(metadata?.sample);
   const benchmark = strictRecord(metadata?.benchmark);
-  if (!metadata || !algorithm || !parameters || !sample || !benchmark)
-    return undefined;
+  if (!metadata || !algorithm || !parameters || !sample || !benchmark) return undefined;
 
   const algorithmId = asString(algorithm.id);
   const algorithmVersion = asString(algorithm.version);
@@ -333,9 +304,7 @@ function mapResearchAnalysisMetadata(
   const benchmarkReturn =
     benchmark.returnPercent === null ? null : asNumber(benchmark.returnPercent);
   const limitations = Array.isArray(metadata.limitations)
-    ? metadata.limitations.every(
-        (item) => typeof item === "string" && item.trim().length > 0
-      )
+    ? metadata.limitations.every((item) => typeof item === "string" && item.trim().length > 0)
       ? metadata.limitations.map((item) => String(item).trim())
       : undefined
     : undefined;
@@ -381,9 +350,7 @@ function mapResearchAnalysisMetadata(
   };
 }
 
-function mapExperimentalAnalysis(
-  capabilities: AnyRecord
-): ResearchExperimentalAnalysis[] {
+function mapExperimentalAnalysis(capabilities: AnyRecord): ResearchExperimentalAnalysis[] {
   return EXPERIMENTAL_RESEARCH_CAPABILITIES.flatMap((capability) => {
     const section = strictRecord(capabilities[capability]);
     if (!section || !isStockResultStatus(section.status)) return [];
@@ -401,27 +368,18 @@ function mapExperimentalAnalysis(
   });
 }
 
-export function mapStockSnapshotResult(
-  raw: unknown
-): StockEvidenceResult<QuoteSnapshot> {
+export function mapStockSnapshotResult(raw: unknown): StockEvidenceResult<QuoteSnapshot> {
   const envelope = evidenceRecord(raw);
   const dataRecord = asRecord(envelope.data);
-  const instrument = mapInstrument(
-    dataRecord.instrument ?? envelope.instrument
-  );
-  if (!instrument)
-    return mapEnvelope<QuoteSnapshot>(raw, null, [
-      "snapshot 缺少有效 instrument",
-    ]);
+  const instrument = mapInstrument(dataRecord.instrument ?? envelope.instrument);
+  if (!instrument) return mapEnvelope<QuoteSnapshot>(raw, null, ["snapshot 缺少有效 instrument"]);
   const chart = mapChart(dataRecord.chart ?? dataRecord.history);
   const facts = Array.isArray(dataRecord.facts)
     ? dataRecord.facts.flatMap((entry) => {
         const item = asRecord(entry);
         const label = asString(item.label);
         const value = asString(item.value);
-        return label && value
-          ? [{ label, value, hint: asString(item.hint) }]
-          : [];
+        return label && value ? [{ label, value, hint: asString(item.hint) }] : [];
       })
     : undefined;
   const data: QuoteSnapshot = {
@@ -449,27 +407,23 @@ function mapResearchBundle(raw: unknown): ResearchBundle | null {
     ? mapStockSnapshotResult({ ...envelope, data: snapshotRaw })
     : null;
   const instrument = mapInstrument(
-    envelope.instrument ?? data.instrument ?? asRecord(snapshotRaw).instrument
+    envelope.instrument ?? data.instrument ?? asRecord(snapshotRaw).instrument,
   );
   if (!instrument) return null;
   const title = asString(data.title) ?? instrument.name;
   const summary = asString(data.summary) ?? "";
   const facts = asStringArray(data.facts);
-  if (
-    typeof factsRecord.historyBars === "number" &&
-    Number.isFinite(factsRecord.historyBars)
-  ) {
+  if (typeof factsRecord.historyBars === "number" && Number.isFinite(factsRecord.historyBars)) {
     facts.push(`historyBars: ${factsRecord.historyBars}`);
   }
   const positiveCases = asStringArray(data.positiveCases ?? data.positives);
   const risks = asStringArray(data.risks);
   const openQuestions = asStringArray(data.openQuestions);
   for (const warning of normalizeWarnings(envelope.warnings)) {
-    const experimentalWarning = EXPERIMENTAL_RESEARCH_CAPABILITIES.some(
-      (capability) => warning.startsWith(`${capability}:`)
+    const experimentalWarning = EXPERIMENTAL_RESEARCH_CAPABILITIES.some((capability) =>
+      warning.startsWith(`${capability}:`),
     );
-    if (!experimentalWarning && !openQuestions.includes(warning))
-      openQuestions.push(warning);
+    if (!experimentalWarning && !openQuestions.includes(warning)) openQuestions.push(warning);
   }
   const capabilities = asRecord(data.capabilities);
   for (const [capability, rawSection] of Object.entries(capabilities)) {
@@ -477,19 +431,13 @@ function mapResearchBundle(raw: unknown): ResearchBundle | null {
     const section = asRecord(rawSection);
     const status = section.status;
     const sectionWarnings = normalizeWarnings(section.warnings);
-    if (
-      status === "ok" &&
-      section.data !== null &&
-      section.data !== undefined
-    ) {
+    if (status === "ok" && section.data !== null && section.data !== undefined) {
       const summaryText = summarizeResearchData(section.data);
       if (summaryText) facts.push(`${capability}: ${summaryText}`);
     } else if (status === "partial" || status === "unavailable") {
       risks.push(`${capability}: ${status}`);
     }
-    openQuestions.push(
-      ...sectionWarnings.map((warning) => `${capability}: ${warning}`)
-    );
+    openQuestions.push(...sectionWarnings.map((warning) => `${capability}: ${warning}`));
   }
   const experimentalAnalysis = mapExperimentalAnalysis(capabilities);
   const analysisMetadata = mapResearchAnalysisMetadata(data.analysisMetadata);
@@ -507,20 +455,14 @@ function mapResearchBundle(raw: unknown): ResearchBundle | null {
   };
 }
 
-export function mapStockResearchResult(
-  raw: unknown
-): StockEvidenceResult<ResearchBundle> {
+export function mapStockResearchResult(raw: unknown): StockEvidenceResult<ResearchBundle> {
   const data = mapResearchBundle(raw);
-  return mapEnvelope(
-    raw,
-    data,
-    data ? [] : ["research 缺少可展示的 instrument"]
-  );
+  return mapEnvelope(raw, data, data ? [] : ["research 缺少可展示的 instrument"]);
 }
 
 export function mapStockMarketBriefResult(
   raw: unknown,
-  fallbackSession: MarketBrief["generatedFor"] = "on_demand"
+  fallbackSession: MarketBrief["generatedFor"] = "on_demand",
 ): StockEvidenceResult<MarketBrief> {
   const envelope = evidenceRecord(raw);
   const data = asRecord(envelope.data);
@@ -583,18 +525,14 @@ export function mapStockMarketBriefResult(
   if (!market && !highlights.length)
     return mapEnvelope<MarketBrief>(raw, null, ["marketBrief 缺少可展示数据"]);
   return mapEnvelope(raw, {
-    title:
-      asString(data.title) ??
-      (market ? `${market} market brief` : "Market brief"),
+    title: asString(data.title) ?? (market ? `${market} market brief` : "Market brief"),
     summary: asString(data.summary) ?? "",
     highlights,
     generatedFor: fallbackSession,
   });
 }
 
-export function mapStockBacktestResult(
-  raw: unknown
-): StockEvidenceResult<BacktestResult> {
+export function mapStockBacktestResult(raw: unknown): StockEvidenceResult<BacktestResult> {
   const envelope = evidenceRecord(raw);
   const data = asRecord(envelope.data ?? raw);
   const algorithm = asRecord(data.algorithm);
@@ -617,8 +555,7 @@ export function mapStockBacktestResult(
     trades: Array.isArray(data.trades)
       ? data.trades.flatMap((entry) => {
           const item = asRecord(entry);
-          const side =
-            item.side === "buy" || item.side === "sell" ? item.side : null;
+          const side = item.side === "buy" || item.side === "sell" ? item.side : null;
           const time = asString(item.executionTime ?? item.signalTime);
           const price = asNumber(item.price);
           const quantity = asNumber(item.quantity);
@@ -680,7 +617,7 @@ export function mapStockServiceStatus(raw: unknown): StockServiceStatus {
                     backtest: 1,
                     market_topic: 1,
                   },
-                  String(capability)
+                  String(capability),
                 )
                   ? (String(capability) as StockCapability)
                   : null)
@@ -727,7 +664,7 @@ export function toSidecarResolveRequest(request: {
 }): Record<string, unknown> {
   const market = request.markets?.find(
     (value): value is Exclude<StockMarket, "UNKNOWN"> =>
-      value === "CN" || value === "HK" || value === "US"
+      value === "CN" || value === "HK" || value === "US",
   );
   return {
     query: request.query,
@@ -736,9 +673,7 @@ export function toSidecarResolveRequest(request: {
   };
 }
 
-export function toSidecarSnapshotRequest(
-  request: StockSnapshotRequest
-): Record<string, unknown> {
+export function toSidecarSnapshotRequest(request: StockSnapshotRequest): Record<string, unknown> {
   return {
     instrument: request.instrument,
     ...(request.includeHistory
@@ -747,9 +682,7 @@ export function toSidecarSnapshotRequest(
   };
 }
 
-export function toSidecarResearchRequest(
-  request: StockResearchRequest
-): Record<string, unknown> {
+export function toSidecarResearchRequest(request: StockResearchRequest): Record<string, unknown> {
   const capabilityMap: Partial<Record<StockCapability, string>> = {
     quote: "snapshot",
     dividends: "dividend",
@@ -764,43 +697,35 @@ export function toSidecarResearchRequest(
   };
 }
 
-export function toSidecarMarketBriefRequest(
-  request: MarketBriefRequest
-): Record<string, unknown> {
+export function toSidecarMarketBriefRequest(request: MarketBriefRequest): Record<string, unknown> {
   return {
     market: request.market,
     ...(request.session ? { session: request.session } : {}),
   };
 }
 
-export function toSidecarBacktestRequest(
-  request: StockBacktestRequest
-): Record<string, unknown> {
+export function toSidecarBacktestRequest(request: StockBacktestRequest): Record<string, unknown> {
   const parameters = request.parameters ?? {};
   const period =
     typeof parameters.period === "number" && Number.isInteger(parameters.period)
       ? parameters.period
       : undefined;
   const shortWindow =
-    typeof parameters.shortWindow === "number" &&
-    Number.isInteger(parameters.shortWindow)
+    typeof parameters.shortWindow === "number" && Number.isInteger(parameters.shortWindow)
       ? parameters.shortWindow
       : period === undefined
         ? undefined
         : Math.max(1, Math.floor(period / 4));
   const longWindow =
-    typeof parameters.longWindow === "number" &&
-    Number.isInteger(parameters.longWindow)
+    typeof parameters.longWindow === "number" && Number.isInteger(parameters.longWindow)
       ? parameters.longWindow
       : period;
   const initialCash =
-    typeof parameters.initialCash === "number" &&
-    Number.isFinite(parameters.initialCash)
+    typeof parameters.initialCash === "number" && Number.isFinite(parameters.initialCash)
       ? parameters.initialCash
       : undefined;
   const feeRate =
-    typeof parameters.feeRate === "number" &&
-    Number.isFinite(parameters.feeRate)
+    typeof parameters.feeRate === "number" && Number.isFinite(parameters.feeRate)
       ? parameters.feeRate
       : undefined;
   const strategy =

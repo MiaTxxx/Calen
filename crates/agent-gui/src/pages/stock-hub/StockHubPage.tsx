@@ -1,15 +1,5 @@
-import {
-  type ChangeEvent,
-  type FormEvent,
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
-import {
-  GlassPanel,
-  HubBackdrop,
-  HubHeader,
-} from "../../components/hub/HubChrome";
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useState } from "react";
+import { GlassPanel, HubBackdrop, HubHeader } from "../../components/hub/HubChrome";
 import {
   AlertTriangle,
   Key,
@@ -50,8 +40,7 @@ import {
 } from "../../lib/stock-research";
 import { StockChart } from "./StockChart";
 
-export type StockHubView =
-  "research" | "market" | "portfolio" | "lab" | "sources";
+export type StockHubView = "research" | "market" | "portfolio" | "lab" | "sources";
 
 type Props = {
   sidebarOpen: boolean;
@@ -67,11 +56,7 @@ const views: Array<{ value: StockHubView; label: string; hint: string }> = [
   { value: "sources", label: "数据源", hint: "服务状态与能力" },
 ];
 
-export function StockHubPage({
-  sidebarOpen,
-  onOpenSidebar,
-  initialView = "research",
-}: Props) {
+export function StockHubPage({ sidebarOpen, onOpenSidebar, initialView = "research" }: Props) {
   const [view, setView] = useState<StockHubView>(initialView);
   const [status, setStatus] = useState<AsyncResource<StockServiceStatus>>({
     state: "idle",
@@ -114,12 +99,10 @@ export function StockHubPage({
                     "rounded-xl px-3 py-2 text-left transition-all",
                     view === item.value
                       ? "bg-background/90 text-foreground shadow-sm ring-1 ring-border/45 dark:bg-white/[0.08]"
-                      : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                      : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
                   )}
                 >
-                  <div className="text-[12.5px] font-semibold">
-                    {item.label}
-                  </div>
+                  <div className="text-[12.5px] font-semibold">{item.label}</div>
                   <div className="mt-0.5 hidden truncate text-[10.5px] opacity-75 lg:block">
                     {item.hint}
                   </div>
@@ -140,11 +123,7 @@ export function StockHubPage({
   );
 }
 
-function ServicePill({
-  resource,
-}: {
-  resource: AsyncResource<StockServiceStatus>;
-}) {
+function ServicePill({ resource }: { resource: AsyncResource<StockServiceStatus> }) {
   const ready = resource.state === "ready" && resource.data.state === "ready";
   return (
     <div
@@ -152,7 +131,7 @@ function ServicePill({
         "hidden items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] sm:flex",
         ready
           ? "border-emerald-500/25 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300"
-          : "border-border/45 bg-background/60 text-muted-foreground"
+          : "border-border/45 bg-background/60 text-muted-foreground",
       )}
     >
       <span
@@ -162,32 +141,22 @@ function ServicePill({
             ? "bg-emerald-500"
             : resource.state === "loading"
               ? "animate-pulse bg-amber-500"
-              : "bg-muted-foreground/50"
+              : "bg-muted-foreground/50",
         )}
       />
-      {ready
-        ? "股票服务已就绪"
-        : resource.state === "loading"
-          ? "正在连接"
-          : "服务未就绪"}
+      {ready ? "股票服务已就绪" : resource.state === "loading" ? "正在连接" : "服务未就绪"}
     </div>
   );
 }
 
 function ResearchView() {
   const [query, setQuery] = useState("");
-  const [matches, setMatches] = useState<AsyncResource<InstrumentSearchResult>>(
-    { state: "idle" }
-  );
+  const [matches, setMatches] = useState<AsyncResource<InstrumentSearchResult>>({ state: "idle" });
   const [selected, setSelected] = useState<InstrumentRef | null>(null);
-  const [snapshot, setSnapshot] = useState<
-    AsyncResource<StockEvidenceResult<QuoteSnapshot>>
-  >({
+  const [snapshot, setSnapshot] = useState<AsyncResource<StockEvidenceResult<QuoteSnapshot>>>({
     state: "idle",
   });
-  const [research, setResearch] = useState<
-    AsyncResource<StockEvidenceResult<ResearchBundle>>
-  >({
+  const [research, setResearch] = useState<AsyncResource<StockEvidenceResult<ResearchBundle>>>({
     state: "idle",
   });
 
@@ -264,11 +233,7 @@ function ResearchView() {
             placeholder="代码、公司名或 ETF"
             aria-label="股票搜索"
           />
-          <Button
-            type="submit"
-            size="icon"
-            disabled={matches.state === "loading"}
-          >
+          <Button type="submit" size="icon" disabled={matches.state === "loading"}>
             {matches.state === "loading" ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -291,21 +256,16 @@ function ResearchView() {
                     onClick={() => void inspect(item)}
                     className={cn(
                       "flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left hover:bg-muted/55",
-                      selected?.id === item.id &&
-                        "bg-muted/70 ring-1 ring-border/50"
+                      selected?.id === item.id && "bg-muted/70 ring-1 ring-border/50",
                     )}
                   >
                     <span className="min-w-0">
-                      <span className="block truncate text-[13px] font-medium">
-                        {item.name}
-                      </span>
+                      <span className="block truncate text-[13px] font-medium">{item.name}</span>
                       <span className="text-[10.5px] text-muted-foreground">
                         {item.market} · {item.exchange}
                       </span>
                     </span>
-                    <span className="ml-3 font-mono text-xs">
-                      {item.symbol}
-                    </span>
+                    <span className="ml-3 font-mono text-xs">{item.symbol}</span>
                   </button>
                 ))}
               </div>
@@ -315,9 +275,7 @@ function ResearchView() {
       </GlassPanel>
       <div className="space-y-4">
         {snapshot.state === "idle" ? <WelcomeCard /> : null}
-        {snapshot.state === "loading" ? (
-          <LoadingCard text="正在聚合行情与来源…" />
-        ) : null}
+        {snapshot.state === "loading" ? <LoadingCard text="正在聚合行情与来源…" /> : null}
         <ResourceError resource={snapshot} panel />
         {snapshot.state === "ready" ? (
           <SnapshotCard
@@ -330,9 +288,7 @@ function ResearchView() {
           <LoadingCard text="正在整理事实、风险与待验证事项…" />
         ) : null}
         <ResourceError resource={research} panel />
-        {research.state === "ready" ? (
-          <ResearchCard result={research.data} />
-        ) : null}
+        {research.state === "ready" ? <ResearchCard result={research.data} /> : null}
       </div>
     </div>
   );
@@ -344,8 +300,7 @@ function WelcomeCard() {
       <Sparkles className="h-8 w-8 text-foreground/45" />
       <h2 className="mt-4 text-base font-semibold">从一个标的开始研究</h2>
       <p className="mt-2 max-w-md text-xs leading-5 text-muted-foreground">
-        Calen
-        会先展示可核验的行情与来源，再按需生成研究简报。缺失数据会明确标注，不会由模型补造。
+        Calen 会先展示可核验的行情与来源，再按需生成研究简报。缺失数据会明确标注，不会由模型补造。
       </p>
     </GlassPanel>
   );
@@ -371,39 +326,24 @@ function SnapshotCard({
         title={`${data.instrument.name} · ${data.instrument.symbol}`}
       />
       <div className="mt-4 flex flex-wrap items-end gap-x-4 gap-y-2">
-        <span className="text-3xl font-semibold tabular-nums">
-          {data.price ?? "—"}
-        </span>
+        <span className="text-3xl font-semibold tabular-nums">{data.price ?? "—"}</span>
         <span
           className={cn(
             "pb-1 text-sm font-medium",
-            up
-              ? "text-red-600 dark:text-red-400"
-              : "text-emerald-600 dark:text-emerald-400"
+            up ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400",
           )}
         >
           {data.change === null ? "" : `${up ? "+" : ""}${data.change}`}{" "}
-          {data.changePercent === null
-            ? ""
-            : `(${up ? "+" : ""}${data.changePercent}%)`}
+          {data.changePercent === null ? "" : `(${up ? "+" : ""}${data.changePercent}%)`}
         </span>
-        <span className="pb-1 text-xs text-muted-foreground">
-          {data.instrument.currency}
-        </span>
+        <span className="pb-1 text-xs text-muted-foreground">{data.instrument.currency}</span>
       </div>
-      <StockChart
-        values={chart}
-        bars={data.chart}
-        positive={up}
-        className="mt-4"
-      />
+      <StockChart values={chart} bars={data.chart} positive={up} className="mt-4" />
       {data.facts?.length ? (
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           {data.facts.map((fact) => (
             <div key={fact.label} className="rounded-xl bg-muted/40 px-3 py-2">
-              <div className="text-[10.5px] text-muted-foreground">
-                {fact.label}
-              </div>
+              <div className="text-[10.5px] text-muted-foreground">{fact.label}</div>
               <div className="mt-1 text-xs font-medium">{fact.value}</div>
             </div>
           ))}
@@ -423,25 +363,17 @@ function SnapshotCard({
   );
 }
 
-function ResearchCard({
-  result,
-}: {
-  result: StockEvidenceResult<ResearchBundle>;
-}) {
+function ResearchCard({ result }: { result: StockEvidenceResult<ResearchBundle> }) {
   if (!result.data) return <UnavailableCard result={result} />;
   const data = result.data;
   return (
     <GlassPanel>
       <EvidenceHeader result={result} title={data.title} />
-      <p className="mt-3 text-[13px] leading-6 text-foreground/85">
-        {data.summary}
-      </p>
+      <p className="mt-3 text-[13px] leading-6 text-foreground/85">{data.summary}</p>
       <div className="mt-4">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-xs font-semibold">事实与证据</h3>
-          <span className="text-[10px] text-muted-foreground">
-            Provider 返回的事实数据
-          </span>
+          <span className="text-[10px] text-muted-foreground">Provider 返回的事实数据</span>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <BulletSection title="关键事实" items={data.facts} />
@@ -505,9 +437,7 @@ function ExperimentalResearchSection({ data }: { data: ResearchBundle }) {
             />
           </div>
           <details className="mt-3 rounded-xl border border-violet-500/15 bg-background/45 px-3 py-2">
-            <summary className="cursor-pointer text-[11px] font-medium">
-              算法参数
-            </summary>
+            <summary className="cursor-pointer text-[11px] font-medium">算法参数</summary>
             <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-5 text-muted-foreground">
               {JSON.stringify(metadata.algorithm.parameters, null, 2)}
             </pre>
@@ -548,27 +478,17 @@ function ExperimentalResearchSection({ data }: { data: ResearchBundle }) {
   );
 }
 
-function ResearchMetadataItem({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function ResearchMetadataItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-violet-500/15 bg-background/55 p-3">
-      <div className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground">
-        {label}
-      </div>
+      <div className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground">{label}</div>
       <div className="mt-1 break-words text-[11px] font-medium">{value}</div>
     </div>
   );
 }
 
 function MarketView() {
-  const [brief, setBrief] = useState<
-    AsyncResource<StockEvidenceResult<MarketBrief>>
-  >({
+  const [brief, setBrief] = useState<AsyncResource<StockEvidenceResult<MarketBrief>>>({
     state: "idle",
   });
   const load = useCallback(async () => {
@@ -598,25 +518,16 @@ function MarketView() {
           disabled={brief.state === "loading"}
           className="gap-2"
         >
-          <RefreshCw
-            className={cn(
-              "h-3.5 w-3.5",
-              brief.state === "loading" && "animate-spin"
-            )}
-          />
+          <RefreshCw className={cn("h-3.5 w-3.5", brief.state === "loading" && "animate-spin")} />
           刷新市场
         </Button>
       </div>
-      {brief.state === "loading" ? (
-        <LoadingCard text="正在生成 A 股市场概览…" />
-      ) : null}
+      {brief.state === "loading" ? <LoadingCard text="正在生成 A 股市场概览…" /> : null}
       <ResourceError resource={brief} panel />
       {brief.state === "ready" && brief.data.data ? (
         <GlassPanel>
           <EvidenceHeader result={brief.data} title={brief.data.data.title} />
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            {brief.data.data.summary}
-          </p>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">{brief.data.data.summary}</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {brief.data.data.highlights.map((item) => (
               <div
@@ -633,25 +544,21 @@ function MarketView() {
                           ? "text-red-600"
                           : item.tone === "down"
                             ? "text-emerald-600"
-                            : ""
+                            : "",
                       )}
                     >
                       {item.value}
                     </span>
                   ) : null}
                 </div>
-                <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                  {item.detail}
-                </p>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">{item.detail}</p>
               </div>
             ))}
           </div>
           <Disclaimer />
         </GlassPanel>
       ) : null}
-      {brief.state === "ready" && !brief.data.data ? (
-        <UnavailableCard result={brief.data} />
-      ) : null}
+      {brief.state === "ready" && !brief.data.data ? <UnavailableCard result={brief.data} /> : null}
     </div>
   );
 }
@@ -694,9 +601,7 @@ function PortfolioView() {
   async function exportCsv() {
     try {
       const result = await stockResearch.portfolioExportCsv();
-      const url = URL.createObjectURL(
-        new Blob([result.csv], { type: "text/csv;charset=utf-8" })
-      );
+      const url = URL.createObjectURL(new Blob([result.csv], { type: "text/csv;charset=utf-8" }));
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = sanitizeCsvFileName(result.fileName);
@@ -712,11 +617,7 @@ function PortfolioView() {
         <GlassPanel>
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold">持仓概览</h2>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void exportCsv()}
-            >
+            <Button variant="outline" size="sm" onClick={() => void exportCsv()}>
               导出 CSV
             </Button>
           </div>
@@ -741,32 +642,22 @@ function PortfolioView() {
                   </thead>
                   <tbody className="divide-y divide-border/35">
                     {portfolio.data.positions.map((position) => (
-                      <tr
-                        key={`${position.portfolioId}-${position.instrument.id}`}
-                      >
+                      <tr key={`${position.portfolioId}-${position.instrument.id}`}>
                         <td className="py-3">
-                          <div className="font-medium">
-                            {position.instrument.name}
-                          </div>
+                          <div className="font-medium">{position.instrument.name}</div>
                           <div className="text-[10px] text-muted-foreground">
                             {position.instrument.symbol}
                           </div>
                         </td>
-                        <td className="py-3 tabular-nums">
-                          {position.quantity}
-                        </td>
-                        <td className="py-3 tabular-nums">
-                          {position.averageCost}
-                        </td>
-                        <td className="py-3 tabular-nums">
-                          {position.marketValue ?? "—"}
-                        </td>
+                        <td className="py-3 tabular-nums">{position.quantity}</td>
+                        <td className="py-3 tabular-nums">{position.averageCost}</td>
+                        <td className="py-3 tabular-nums">{position.marketValue ?? "—"}</td>
                         <td
                           className={cn(
                             "py-3 tabular-nums",
                             (position.unrealizedPnl ?? 0) >= 0
                               ? "text-red-600"
-                              : "text-emerald-600"
+                              : "text-emerald-600",
                           )}
                         >
                           {position.unrealizedPnl ?? "—"}
@@ -789,8 +680,7 @@ function PortfolioView() {
             <h2 className="text-sm font-semibold">导入交易流水</h2>
           </div>
           <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-            CSV
-            字段：组合、市场、代码、交易类型、日期、数量、价格、费用、币种、备注。
+            CSV 字段：组合、市场、代码、交易类型、日期、数量、价格、费用、币种、备注。
           </p>
           <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border/55 bg-background/45 px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground">
             <Upload className="h-3.5 w-3.5" />
@@ -813,9 +703,7 @@ function PortfolioView() {
             onClick={() => void importCsv()}
             disabled={!csv.trim() || importing}
           >
-            {importing ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : null}
+            {importing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             校验并导入
           </Button>
           <p className="mt-3 text-[10.5px] text-muted-foreground">
@@ -828,11 +716,7 @@ function PortfolioView() {
   );
 }
 
-function EncryptedBackupPanel({
-  onRestored,
-}: {
-  onRestored: () => Promise<void>;
-}) {
+function EncryptedBackupPanel({ onRestored }: { onRestored: () => Promise<void> }) {
   const [exportPassword, setExportPassword] = useState("");
   const [restorePassword, setRestorePassword] = useState("");
   const [envelopeText, setEnvelopeText] = useState("");
@@ -847,12 +731,9 @@ function EncryptedBackupPanel({
     setError(null);
     setMessage(null);
     try {
-      const envelope =
-        await stockResearch.portfolioExportEncryptedBackup(exportPassword);
+      const envelope = await stockResearch.portfolioExportEncryptedBackup(exportPassword);
       const json = JSON.stringify(envelope, null, 2);
-      const url = URL.createObjectURL(
-        new Blob([json], { type: "application/json;charset=utf-8" })
-      );
+      const url = URL.createObjectURL(new Blob([json], { type: "application/json;charset=utf-8" }));
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = `calen-stock-backup-${new Date().toISOString().slice(0, 10)}.json`;
@@ -873,9 +754,7 @@ function EncryptedBackupPanel({
     setError(null);
     setMessage(null);
     try {
-      const parsed = JSON.parse(
-        envelopeText
-      ) as Partial<EncryptedStockBackupEnvelope>;
+      const parsed = JSON.parse(envelopeText) as Partial<EncryptedStockBackupEnvelope>;
       if (
         typeof parsed.formatVersion !== "number" ||
         typeof parsed.cipher !== "string" ||
@@ -886,14 +765,14 @@ function EncryptedBackupPanel({
       await stockResearch.portfolioRestoreEncryptedBackup(
         parsed as EncryptedStockBackupEnvelope,
         restorePassword,
-        mode
+        mode,
       );
       await onRestored();
       setEnvelopeText("");
       setMessage(
         mode === "replaceAll"
           ? "备份已恢复，并替换现有股票资产数据。"
-          : "备份已合并到现有股票资产数据。"
+          : "备份已合并到现有股票资产数据。",
       );
     } catch (nextError) {
       setError(formatStockError(nextError));
@@ -931,9 +810,7 @@ function EncryptedBackupPanel({
             onClick={() => void exportBackup()}
             disabled={!exportPassword || busy !== null}
           >
-            {busy === "export" ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : null}
+            {busy === "export" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             下载加密 JSON
           </Button>
         </div>
@@ -967,9 +844,7 @@ function EncryptedBackupPanel({
             <Field label="恢复方式">
               <select
                 value={mode}
-                onChange={(event) =>
-                  setMode(event.target.value as StockBackupRestoreMode)
-                }
+                onChange={(event) => setMode(event.target.value as StockBackupRestoreMode)}
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
               >
                 <option value="merge">合并现有数据</option>
@@ -983,9 +858,7 @@ function EncryptedBackupPanel({
             onClick={() => void restoreBackup()}
             disabled={!restorePassword || !envelopeText.trim() || busy !== null}
           >
-            {busy === "restore" ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : null}
+            {busy === "restore" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {mode === "replaceAll" ? "确认替换并恢复" : "合并并恢复"}
           </Button>
           {mode === "replaceAll" ? (
@@ -1014,9 +887,7 @@ function LabView() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [period, setPeriod] = useState("20");
-  const [result, setResult] = useState<
-    AsyncResource<StockEvidenceResult<BacktestResult>>
-  >({
+  const [result, setResult] = useState<AsyncResource<StockEvidenceResult<BacktestResult>>>({
     state: "idle",
   });
   async function run(event: FormEvent) {
@@ -1064,18 +935,10 @@ function LabView() {
           </Field>
           <div className="grid grid-cols-2 gap-2">
             <Field label="开始日期">
-              <Input
-                type="date"
-                value={from}
-                onChange={(event) => setFrom(event.target.value)}
-              />
+              <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
             </Field>
             <Field label="结束日期">
-              <Input
-                type="date"
-                value={to}
-                onChange={(event) => setTo(event.target.value)}
-              />
+              <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
             </Field>
           </div>
           <Field label="均线周期">
@@ -1085,14 +948,8 @@ function LabView() {
               onChange={(event) => setPeriod(event.target.value)}
             />
           </Field>
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={result.state === "loading"}
-          >
-            {result.state === "loading" ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : null}
+          <Button type="submit" className="w-full" disabled={result.state === "loading"}>
+            {result.state === "loading" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             运行回测
           </Button>
         </form>
@@ -1119,11 +976,7 @@ function LabView() {
   );
 }
 
-function BacktestCard({
-  result,
-}: {
-  result: StockEvidenceResult<BacktestResult>;
-}) {
+function BacktestCard({ result }: { result: StockEvidenceResult<BacktestResult> }) {
   const data = result.data;
   if (!data) return null;
   return (
@@ -1136,24 +989,13 @@ function BacktestCard({
         />
         <Metric
           label="基准收益"
-          value={
-            data.benchmarkReturnPercent === null
-              ? "—"
-              : `${data.benchmarkReturnPercent}%`
-          }
+          value={data.benchmarkReturnPercent === null ? "—" : `${data.benchmarkReturnPercent}%`}
         />
         <Metric
           label="最大回撤"
-          value={
-            data.maxDrawdownPercent === null
-              ? "—"
-              : `${data.maxDrawdownPercent}%`
-          }
+          value={data.maxDrawdownPercent === null ? "—" : `${data.maxDrawdownPercent}%`}
         />
-        <Metric
-          label="数据覆盖"
-          value={`${Math.round(data.coverage * 100)}%`}
-        />
+        <Metric label="数据覆盖" value={`${Math.round(data.coverage * 100)}%`} />
       </div>
       <StockChart
         values={data.equityCurve ?? []}
@@ -1162,8 +1004,8 @@ function BacktestCard({
         label="回测权益曲线"
       />
       <div className="mt-3 text-[11px] text-muted-foreground">
-        {data.algorithmId} v{data.algorithmVersion} · {data.sample.from} 至{" "}
-        {data.sample.to} · {data.sample.points} 个样本 · 基准 {data.benchmark}
+        {data.algorithmId} v{data.algorithmVersion} · {data.sample.from} 至 {data.sample.to} ·{" "}
+        {data.sample.points} 个样本 · 基准 {data.benchmark}
       </div>
       {data.limitations.length ? (
         <BulletSection title="限制说明" items={data.limitations} warning />
@@ -1203,17 +1045,14 @@ function SourcesView({
 
   function updateSettings(updater: (current: StockSettings) => StockSettings) {
     setSettings((current) =>
-      current.state === "ready"
-        ? { state: "ready", data: updater(current.data) }
-        : current
+      current.state === "ready" ? { state: "ready", data: updater(current.data) } : current,
     );
     setSaved(false);
   }
 
   async function saveSettings() {
     if (settings.state !== "ready") return;
-    const providerKeyUpdates: StockSettingsSavePayload["providerKeyUpdates"] =
-      {};
+    const providerKeyUpdates: StockSettingsSavePayload["providerKeyUpdates"] = {};
     for (const provider of keyedProviders) {
       const draft = keyDrafts[provider.id]?.trim();
       if (clearKeys[provider.id]) providerKeyUpdates[provider.id] = null;
@@ -1250,22 +1089,15 @@ function SourcesView({
           className="gap-2"
         >
           <RefreshCw
-            className={cn(
-              "h-3.5 w-3.5",
-              resource.state === "loading" && "animate-spin"
-            )}
+            className={cn("h-3.5 w-3.5", resource.state === "loading" && "animate-spin")}
           />
           刷新状态
         </Button>
       </div>
-      {resource.state === "loading" ? (
-        <LoadingCard text="检查 sidecar 与 Provider…" />
-      ) : null}
+      {resource.state === "loading" ? <LoadingCard text="检查 sidecar 与 Provider…" /> : null}
       <ResourceError resource={resource} panel />
       <ResourceError resource={settings} panel />
-      {settings.state === "loading" ? (
-        <LoadingCard text="正在读取本地股票设置…" />
-      ) : null}
+      {settings.state === "loading" ? <LoadingCard text="正在读取本地股票设置…" /> : null}
       {settings.state === "ready" ? (
         <StockSettingsPanel
           settings={settings.data}
@@ -1294,9 +1126,7 @@ function SourcesView({
               <Server className="mt-0.5 h-5 w-5" />
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold">
-                    Stock Research Sidecar
-                  </h2>
+                  <h2 className="text-sm font-semibold">Stock Research Sidecar</h2>
                   <StatusBadge
                     status={
                       resource.data.state === "ready"
@@ -1320,9 +1150,7 @@ function SourcesView({
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <Key className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-semibold">
-                      {provider.name}
-                    </span>
+                    <span className="text-sm font-semibold">{provider.name}</span>
                   </div>
                   <StatusBadge
                     status={
@@ -1354,9 +1182,7 @@ function SourcesView({
                   ))}
                 </div>
                 {provider.message ? (
-                  <p className="mt-3 text-[11px] text-muted-foreground">
-                    {provider.message}
-                  </p>
+                  <p className="mt-3 text-[11px] text-muted-foreground">{provider.message}</p>
                 ) : null}
               </GlassPanel>
             ))}
@@ -1427,8 +1253,7 @@ function StockSettingsPanel(props: {
             onChange={(event) =>
               onChange((current) => ({
                 ...current,
-                defaultMarket: event.target
-                  .value as StockSettings["defaultMarket"],
+                defaultMarket: event.target.value as StockSettings["defaultMarket"],
               }))
             }
             className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
@@ -1479,9 +1304,7 @@ function StockSettingsPanel(props: {
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <Key className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-xs font-semibold">
-                    {keyed?.label ?? provider.id}
-                  </span>
+                  <span className="text-xs font-semibold">{keyed?.label ?? provider.id}</span>
                   {provider.keyConfigured ? (
                     <StatusBadge status="ok" label="Key 已配置" />
                   ) : keyed ? (
@@ -1498,7 +1321,7 @@ function StockSettingsPanel(props: {
                         providers: current.providers.map((item) =>
                           item.id === provider.id
                             ? { ...item, enabled: event.target.checked }
-                            : item
+                            : item,
                         ),
                       }))
                     }
@@ -1514,14 +1337,8 @@ function StockSettingsPanel(props: {
                     autoComplete="new-password"
                     value={keyDrafts[provider.id] ?? ""}
                     disabled={Boolean(clearKeys[provider.id])}
-                    onChange={(event) =>
-                      onKeyDraft(provider.id, event.target.value)
-                    }
-                    placeholder={
-                      provider.keyConfigured
-                        ? "输入新 Key 以替换"
-                        : "输入新 Key"
-                    }
+                    onChange={(event) => onKeyDraft(provider.id, event.target.value)}
+                    placeholder={provider.keyConfigured ? "输入新 Key 以替换" : "输入新 Key"}
                     aria-label={`${keyed.label} 新 Key`}
                   />
                   <Button
@@ -1530,8 +1347,7 @@ function StockSettingsPanel(props: {
                     size="sm"
                     className={cn(
                       "shrink-0",
-                      clearKeys[provider.id] &&
-                        "border-destructive/30 text-destructive"
+                      clearKeys[provider.id] && "border-destructive/30 text-destructive",
                     )}
                     onClick={() => onClearKey(provider.id)}
                   >
@@ -1554,9 +1370,7 @@ function StockSettingsPanel(props: {
       </div>
       <div className="mt-4 flex items-center justify-end gap-3">
         {saved ? (
-          <span className="text-[11px] text-emerald-600">
-            设置已保存，股票服务已重启
-          </span>
+          <span className="text-[11px] text-emerald-600">设置已保存，股票服务已重启</span>
         ) : null}
         <Button onClick={onSave} disabled={saving}>
           {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
@@ -1567,13 +1381,7 @@ function StockSettingsPanel(props: {
   );
 }
 
-function EvidenceHeader({
-  result,
-  title,
-}: {
-  result: StockEvidenceMetadata;
-  title: string;
-}) {
+function EvidenceHeader({ result, title }: { result: StockEvidenceMetadata; title: string }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-2">
       <div>
@@ -1605,16 +1413,8 @@ function EvidenceHeader({
     </div>
   );
 }
-function StatusBadge({
-  status,
-  label,
-}: {
-  status: StockResultStatus;
-  label?: string;
-}) {
-  const text =
-    label ??
-    (status === "ok" ? "完整" : status === "partial" ? "部分可用" : "不可用");
+function StatusBadge({ status, label }: { status: StockResultStatus; label?: string }) {
+  const text = label ?? (status === "ok" ? "完整" : status === "partial" ? "部分可用" : "不可用");
   return (
     <span
       className={cn(
@@ -1623,7 +1423,7 @@ function StatusBadge({
           ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
           : status === "partial"
             ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
-            : "bg-destructive/10 text-destructive"
+            : "bg-destructive/10 text-destructive",
       )}
     >
       {text}
@@ -1699,12 +1499,7 @@ function BulletSection({
 }) {
   return (
     <div className="mt-3 rounded-xl border border-border/35 bg-background/45 p-3">
-      <div
-        className={cn(
-          "text-xs font-semibold",
-          warning && "text-amber-700 dark:text-amber-300"
-        )}
-      >
+      <div className={cn("text-xs font-semibold", warning && "text-amber-700 dark:text-amber-300")}>
         {title}
       </div>
       {items.length ? (
@@ -1730,18 +1525,10 @@ function Disclaimer() {
     </div>
   );
 }
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="block">
-      <span className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
-        {label}
-      </span>
+      <span className="mb-1.5 block text-[11px] font-medium text-muted-foreground">{label}</span>
       {children}
     </div>
   );
@@ -1755,14 +1542,10 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function readCsvFile(
-  event: ChangeEvent<HTMLInputElement>,
-  onRead: (text: string) => void
-) {
+export function readCsvFile(event: ChangeEvent<HTMLInputElement>, onRead: (text: string) => void) {
   const file = event.target.files?.[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () =>
-    onRead(typeof reader.result === "string" ? reader.result : "");
+  reader.onload = () => onRead(typeof reader.result === "string" ? reader.result : "");
   reader.readAsText(file);
 }

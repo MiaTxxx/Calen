@@ -39,8 +39,7 @@ const commands = {
   portfolioImportCsv: "stock_portfolio_import_csv",
   portfolioExportCsv: "stock_portfolio_export_csv",
   portfolioExportEncryptedBackup: "ui_stock_portfolio_export_encrypted_backup",
-  portfolioRestoreEncryptedBackup:
-    "ui_stock_portfolio_restore_encrypted_backup",
+  portfolioRestoreEncryptedBackup: "ui_stock_portfolio_restore_encrypted_backup",
 } as const;
 
 export class TauriStockResearchAdapter implements StockResearchPort {
@@ -70,8 +69,8 @@ export class TauriStockResearchAdapter implements StockResearchPort {
         raw,
         request.session === "pre_open" || request.session === "close"
           ? request.session
-          : "on_demand"
-      )
+          : "on_demand",
+      ),
     );
   }
 
@@ -102,25 +101,19 @@ export class TauriStockResearchAdapter implements StockResearchPort {
   }
 
   portfolioExportCsv(portfolioId?: string) {
-    return invoke<{ fileName: string; csv: string }>(
-      commands.portfolioExportCsv,
-      { portfolioId }
-    );
+    return invoke<{ fileName: string; csv: string }>(commands.portfolioExportCsv, { portfolioId });
   }
 
   portfolioExportEncryptedBackup(password: string) {
-    return invoke<EncryptedStockBackupEnvelope>(
-      commands.portfolioExportEncryptedBackup,
-      {
-        password,
-      }
-    );
+    return invoke<EncryptedStockBackupEnvelope>(commands.portfolioExportEncryptedBackup, {
+      password,
+    });
   }
 
   portfolioRestoreEncryptedBackup(
     envelope: EncryptedStockBackupEnvelope,
     password: string,
-    mode: StockBackupRestoreMode
+    mode: StockBackupRestoreMode,
   ) {
     return invoke<void>(commands.portfolioRestoreEncryptedBackup, {
       envelope,
