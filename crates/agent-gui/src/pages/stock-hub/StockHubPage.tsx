@@ -28,6 +28,7 @@ import { Textarea } from "../../components/ui/textarea";
 import {
   type AsyncResource,
   type BacktestResult,
+  type EncryptedStockBackupEnvelope,
   type InstrumentRef,
   type MarketBrief,
   type PortfolioSnapshot,
@@ -36,6 +37,7 @@ import {
   type StockEvidenceResult,
   type StockResultStatus,
   type StockServiceStatus,
+  type StockBackupRestoreMode,
   type StockSettings,
   type StockSettingsSavePayload,
   formatStockError,
@@ -551,113 +553,305 @@ function PortfolioView() {
     }
   }
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <GlassPanel>
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">持仓概览</h2>
-          <Button variant="outline" size="sm" onClick={() => void exportCsv()}>
-            导出 CSV
+    <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <GlassPanel>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold">持仓概览</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void exportCsv()}
+            >
+              导出 CSV
+            </Button>
+          </div>
+          {portfolio.state === "loading" ? (
+            <div className="py-12">
+              <LoadingInline text="读取本地资产数据…" />
+            </div>
+          ) : null}
+          <ResourceError resource={portfolio} />
+          {portfolio.state === "ready" ? (
+            portfolio.data.positions.length ? (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full min-w-[620px] text-left text-xs">
+                  <thead className="text-muted-foreground">
+                    <tr>
+                      <th className="pb-3 font-medium">标的</th>
+                      <th className="pb-3 font-medium">数量</th>
+                      <th className="pb-3 font-medium">平均成本</th>
+                      <th className="pb-3 font-medium">市值</th>
+                      <th className="pb-3 font-medium">浮动盈亏</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/35">
+                    {portfolio.data.positions.map((position) => (
+                      <tr
+                        key={`${position.portfolioId}-${position.instrument.id}`}
+                      >
+                        <td className="py-3">
+                          <div className="font-medium">
+                            {position.instrument.name}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {position.instrument.symbol}
+                          </div>
+                        </td>
+                        <td className="py-3 tabular-nums">
+                          {position.quantity}
+                        </td>
+                        <td className="py-3 tabular-nums">
+                          {position.averageCost}
+                        </td>
+                        <td className="py-3 tabular-nums">
+                          {position.marketValue ?? "—"}
+                        </td>
+                        <td
+                          className={cn(
+                            "py-3 tabular-nums",
+                            (position.unrealizedPnl ?? 0) >= 0
+                              ? "text-red-600"
+                              : "text-emerald-600"
+                          )}
+                        >
+                          {position.unrealizedPnl ?? "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="py-12">
+                <EmptyLine text="尚未导入持仓或交易流水" />
+              </div>
+            )
+          ) : null}
+        </GlassPanel>
+        <GlassPanel className="h-fit">
+          <div className="flex items-center gap-2">
+            <Upload className="h-4 w-4" />
+            <h2 className="text-sm font-semibold">导入交易流水</h2>
+          </div>
+          <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
+            CSV
+            字段：组合、市场、代码、交易类型、日期、数量、价格、费用、币种、备注。
+          </p>
+          <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border/55 bg-background/45 px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground">
+            <Upload className="h-3.5 w-3.5" />
+            选择 CSV 文件
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              className="sr-only"
+              onChange={(event) => readCsvFile(event, setCsv)}
+            />
+          </label>
+          <Textarea
+            value={csv}
+            onChange={(event) => setCsv(event.target.value)}
+            className="mt-3 min-h-44 font-mono text-[11px]"
+            placeholder="或直接粘贴 CSV 内容…"
+          />
+          <Button
+            className="mt-3 w-full"
+            onClick={() => void importCsv()}
+            disabled={!csv.trim() || importing}
+          >
+            {importing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
+            校验并导入
+          </Button>
+          <p className="mt-3 text-[10.5px] text-muted-foreground">
+            数据仅保存在本机；首版不连接券商、不执行交易。
+          </p>
+        </GlassPanel>
+      </div>
+      <EncryptedBackupPanel onRestored={load} />
+    </div>
+  );
+}
+
+function EncryptedBackupPanel({
+  onRestored,
+}: {
+  onRestored: () => Promise<void>;
+}) {
+  const [exportPassword, setExportPassword] = useState("");
+  const [restorePassword, setRestorePassword] = useState("");
+  const [envelopeText, setEnvelopeText] = useState("");
+  const [mode, setMode] = useState<StockBackupRestoreMode>("merge");
+  const [busy, setBusy] = useState<"export" | "restore" | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function exportBackup() {
+    if (!exportPassword) return;
+    setBusy("export");
+    setError(null);
+    setMessage(null);
+    try {
+      const envelope =
+        await stockResearch.portfolioExportEncryptedBackup(exportPassword);
+      const json = JSON.stringify(envelope, null, 2);
+      const url = URL.createObjectURL(
+        new Blob([json], { type: "application/json;charset=utf-8" })
+      );
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `calen-stock-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setMessage("加密备份已导出，请妥善保管密码。Calen 无法找回遗失的密码。");
+    } catch (nextError) {
+      setError(formatStockError(nextError));
+    } finally {
+      setExportPassword("");
+      setBusy(null);
+    }
+  }
+
+  async function restoreBackup() {
+    if (!restorePassword || !envelopeText.trim()) return;
+    setBusy("restore");
+    setError(null);
+    setMessage(null);
+    try {
+      const parsed = JSON.parse(
+        envelopeText
+      ) as Partial<EncryptedStockBackupEnvelope>;
+      if (
+        typeof parsed.formatVersion !== "number" ||
+        typeof parsed.cipher !== "string" ||
+        typeof parsed.createdAt !== "string" ||
+        typeof parsed.payloadBase64 !== "string"
+      )
+        throw new Error("备份文件格式无效或字段不完整。");
+      await stockResearch.portfolioRestoreEncryptedBackup(
+        parsed as EncryptedStockBackupEnvelope,
+        restorePassword,
+        mode
+      );
+      await onRestored();
+      setEnvelopeText("");
+      setMessage(
+        mode === "replaceAll"
+          ? "备份已恢复，并替换现有股票资产数据。"
+          : "备份已合并到现有股票资产数据。"
+      );
+    } catch (nextError) {
+      setError(formatStockError(nextError));
+    } finally {
+      setRestorePassword("");
+      setBusy(null);
+    }
+  }
+
+  return (
+    <GlassPanel>
+      <div className="flex items-start gap-3">
+        <Key className="mt-0.5 h-5 w-5" />
+        <div>
+          <h2 className="text-sm font-semibold">密码保护的备份与恢复</h2>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            备份包含自选、组合和交易流水。密码仅用于本次操作，不会保存到设置或磁盘。
+          </p>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-5 lg:grid-cols-2">
+        <div className="rounded-2xl border border-border/40 bg-background/45 p-4">
+          <h3 className="text-xs font-semibold">导出加密备份</h3>
+          <Field label="备份密码">
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={exportPassword}
+              onChange={(event) => setExportPassword(event.target.value)}
+              placeholder="输入一个强密码"
+            />
+          </Field>
+          <Button
+            className="mt-3 w-full"
+            onClick={() => void exportBackup()}
+            disabled={!exportPassword || busy !== null}
+          >
+            {busy === "export" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
+            下载加密 JSON
           </Button>
         </div>
-        {portfolio.state === "loading" ? (
-          <div className="py-12">
-            <LoadingInline text="读取本地资产数据…" />
-          </div>
-        ) : null}
-        <ResourceError resource={portfolio} />
-        {portfolio.state === "ready" ? (
-          portfolio.data.positions.length ? (
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full min-w-[620px] text-left text-xs">
-                <thead className="text-muted-foreground">
-                  <tr>
-                    <th className="pb-3 font-medium">标的</th>
-                    <th className="pb-3 font-medium">数量</th>
-                    <th className="pb-3 font-medium">平均成本</th>
-                    <th className="pb-3 font-medium">市值</th>
-                    <th className="pb-3 font-medium">浮动盈亏</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/35">
-                  {portfolio.data.positions.map((position) => (
-                    <tr
-                      key={`${position.portfolioId}-${position.instrument.id}`}
-                    >
-                      <td className="py-3">
-                        <div className="font-medium">
-                          {position.instrument.name}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {position.instrument.symbol}
-                        </div>
-                      </td>
-                      <td className="py-3 tabular-nums">{position.quantity}</td>
-                      <td className="py-3 tabular-nums">
-                        {position.averageCost}
-                      </td>
-                      <td className="py-3 tabular-nums">
-                        {position.marketValue ?? "—"}
-                      </td>
-                      <td
-                        className={cn(
-                          "py-3 tabular-nums",
-                          (position.unrealizedPnl ?? 0) >= 0
-                            ? "text-red-600"
-                            : "text-emerald-600"
-                        )}
-                      >
-                        {position.unrealizedPnl ?? "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="py-12">
-              <EmptyLine text="尚未导入持仓或交易流水" />
-            </div>
-          )
-        ) : null}
-      </GlassPanel>
-      <GlassPanel className="h-fit">
-        <div className="flex items-center gap-2">
-          <Upload className="h-4 w-4" />
-          <h2 className="text-sm font-semibold">导入交易流水</h2>
-        </div>
-        <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-          CSV
-          字段：组合、市场、代码、交易类型、日期、数量、价格、费用、币种、备注。
-        </p>
-        <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border/55 bg-background/45 px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground">
-          <Upload className="h-3.5 w-3.5" />
-          选择 CSV 文件
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            className="sr-only"
-            onChange={(event) => readCsvFile(event, setCsv)}
+        <div className="rounded-2xl border border-border/40 bg-background/45 p-4">
+          <h3 className="text-xs font-semibold">恢复加密备份</h3>
+          <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border/55 px-3 py-2 text-[11px] text-muted-foreground hover:bg-muted/45">
+            <Upload className="h-3.5 w-3.5" />
+            选择备份 JSON
+            <input
+              type="file"
+              accept=".json,application/json"
+              className="sr-only"
+              onChange={(event) => readCsvFile(event, setEnvelopeText)}
+            />
+          </label>
+          <Textarea
+            value={envelopeText}
+            onChange={(event) => setEnvelopeText(event.target.value)}
+            className="mt-2 min-h-24 font-mono text-[10.5px]"
+            placeholder="或粘贴加密备份 JSON…"
           />
-        </label>
-        <Textarea
-          value={csv}
-          onChange={(event) => setCsv(event.target.value)}
-          className="mt-3 min-h-44 font-mono text-[11px]"
-          placeholder="或直接粘贴 CSV 内容…"
-        />
-        <Button
-          className="mt-3 w-full"
-          onClick={() => void importCsv()}
-          disabled={!csv.trim() || importing}
-        >
-          {importing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          校验并导入
-        </Button>
-        <p className="mt-3 text-[10.5px] text-muted-foreground">
-          数据仅保存在本机；首版不连接券商、不执行交易。
-        </p>
-      </GlassPanel>
-    </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Field label="恢复密码">
+              <Input
+                type="password"
+                autoComplete="current-password"
+                value={restorePassword}
+                onChange={(event) => setRestorePassword(event.target.value)}
+              />
+            </Field>
+            <Field label="恢复方式">
+              <select
+                value={mode}
+                onChange={(event) =>
+                  setMode(event.target.value as StockBackupRestoreMode)
+                }
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                <option value="merge">合并现有数据</option>
+                <option value="replaceAll">全部替换</option>
+              </select>
+            </Field>
+          </div>
+          <Button
+            variant={mode === "replaceAll" ? "destructive" : "default"}
+            className="mt-3 w-full"
+            onClick={() => void restoreBackup()}
+            disabled={!restorePassword || !envelopeText.trim() || busy !== null}
+          >
+            {busy === "restore" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
+            {mode === "replaceAll" ? "确认替换并恢复" : "合并并恢复"}
+          </Button>
+          {mode === "replaceAll" ? (
+            <p className="mt-2 text-[10.5px] text-destructive">
+              全部替换会清除现有自选、组合和流水后再恢复备份。
+            </p>
+          ) : null}
+        </div>
+      </div>
+      {error ? (
+        <div className="mt-3 rounded-xl bg-destructive/5 px-3 py-2 text-[11px] text-destructive">
+          {error}
+        </div>
+      ) : null}
+      {message ? (
+        <div className="mt-3 rounded-xl bg-emerald-500/5 px-3 py-2 text-[11px] text-emerald-700 dark:text-emerald-300">
+          {message}
+        </div>
+      ) : null}
+    </GlassPanel>
   );
 }
 

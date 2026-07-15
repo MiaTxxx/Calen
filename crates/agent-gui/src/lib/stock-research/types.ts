@@ -143,6 +143,15 @@ export interface StockSettingsSavePayload extends StockSettings {
   >;
 }
 
+export type StockBackupRestoreMode = "replaceAll" | "merge";
+
+export interface EncryptedStockBackupEnvelope {
+  formatVersion: number;
+  cipher: string;
+  createdAt: string;
+  payloadBase64: string;
+}
+
 export interface PortfolioSnapshot {
   portfolios: Array<{ id: string; name: string; baseCurrency: string }>;
   positions: Array<{
@@ -216,4 +225,12 @@ export interface StockResearchPort {
   portfolioExportCsv(
     portfolioId?: string
   ): Promise<{ fileName: string; csv: string }>;
+  portfolioExportEncryptedBackup(
+    password: string
+  ): Promise<EncryptedStockBackupEnvelope>;
+  portfolioRestoreEncryptedBackup(
+    envelope: EncryptedStockBackupEnvelope,
+    password: string,
+    mode: StockBackupRestoreMode
+  ): Promise<void>;
 }

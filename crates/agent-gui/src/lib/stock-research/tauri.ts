@@ -16,6 +16,8 @@ import type {
   StockSnapshotRequest,
   MarketBriefRequest,
   BacktestResult,
+  EncryptedStockBackupEnvelope,
+  StockBackupRestoreMode,
 } from "./types";
 
 const commands = {
@@ -30,6 +32,9 @@ const commands = {
   portfolioRead: "stock_portfolio_read",
   portfolioImportCsv: "stock_portfolio_import_csv",
   portfolioExportCsv: "stock_portfolio_export_csv",
+  portfolioExportEncryptedBackup: "ui_stock_portfolio_export_encrypted_backup",
+  portfolioRestoreEncryptedBackup:
+    "ui_stock_portfolio_restore_encrypted_backup",
 } as const;
 
 export class TauriStockResearchAdapter implements StockResearchPort {
@@ -86,6 +91,27 @@ export class TauriStockResearchAdapter implements StockResearchPort {
       commands.portfolioExportCsv,
       { portfolioId }
     );
+  }
+
+  portfolioExportEncryptedBackup(password: string) {
+    return invoke<EncryptedStockBackupEnvelope>(
+      commands.portfolioExportEncryptedBackup,
+      {
+        password,
+      }
+    );
+  }
+
+  portfolioRestoreEncryptedBackup(
+    envelope: EncryptedStockBackupEnvelope,
+    password: string,
+    mode: StockBackupRestoreMode
+  ) {
+    return invoke<void>(commands.portfolioRestoreEncryptedBackup, {
+      envelope,
+      password,
+      mode,
+    });
   }
 }
 
