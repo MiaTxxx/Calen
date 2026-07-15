@@ -36,6 +36,8 @@ import {
   type StockEvidenceResult,
   type StockResultStatus,
   type StockServiceStatus,
+  type StockSettings,
+  type StockSettingsSavePayload,
   formatStockError,
   parseFiniteNumber,
   sanitizeCsvFileName,
@@ -826,13 +828,72 @@ function SourcesView({
   resource: AsyncResource<StockServiceStatus>;
   onRefresh: () => Promise<void>;
 }) {
+  const [settings, setSettings] = useState<AsyncResource<StockSettings>>({
+    state: "idle",
+  });
+  const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
+  const [clearKeys, setClearKeys] = useState<Record<string, boolean>>({});
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const loadSettings = useCallback(async () => {
+    setSettings({ state: "loading" });
+    try {
+      setSettings({ state: "ready", data: await stockResearch.settingsGet() });
+    } catch (error) {
+      setSettings({ state: "error", message: formatStockError(error) });
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
+
+  function updateSettings(updater: (current: StockSettings) => StockSettings) {
+    setSettings((current) =>
+      current.state === "ready"
+        ? { state: "ready", data: updater(current.data) }
+        : current
+    );
+    setSaved(false);
+  }
+
+  async function saveSettings() {
+    if (settings.state !== "ready") return;
+    const providerKeyUpdates: StockSettingsSavePayload["providerKeyUpdates"] =
+      {};
+    for (const provider of keyedProviders) {
+      const draft = keyDrafts[provider.id]?.trim();
+      if (clearKeys[provider.id]) providerKeyUpdates[provider.id] = null;
+      else if (draft) providerKeyUpdates[provider.id] = draft;
+    }
+    const payload: StockSettingsSavePayload = {
+      ...settings.data,
+      ...(Object.keys(providerKeyUpdates).length ? { providerKeyUpdates } : {}),
+    };
+    setSaving(true);
+    setSaved(false);
+    try {
+      const next = await stockResearch.settingsSave(payload);
+      setSettings({ state: "ready", data: next });
+      setKeyDrafts({});
+      setClearKeys({});
+      setSaved(true);
+      await onRefresh();
+    } catch (error) {
+      setSettings({ state: "error", message: formatStockError(error) });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
         <Button
           variant="outline"
           size="sm"
-          onClick={() => void onRefresh()}
+          onClick={() => void Promise.all([onRefresh(), loadSettings()])}
           disabled={resource.state === "loading"}
           className="gap-2"
         >
@@ -849,6 +910,31 @@ function SourcesView({
         <LoadingCard text="检查 sidecar 与 Provider…" />
       ) : null}
       <ResourceError resource={resource} panel />
+      <ResourceError resource={settings} panel />
+      {settings.state === "loading" ? (
+        <LoadingCard text="正在读取本地股票设置…" />
+      ) : null}
+      {settings.state === "ready" ? (
+        <StockSettingsPanel
+          settings={settings.data}
+          keyDrafts={keyDrafts}
+          clearKeys={clearKeys}
+          saving={saving}
+          saved={saved}
+          onChange={updateSettings}
+          onKeyDraft={(id, value) => {
+            setKeyDrafts((current) => ({ ...current, [id]: value }));
+            setClearKeys((current) => ({ ...current, [id]: false }));
+            setSaved(false);
+          }}
+          onClearKey={(id) => {
+            setClearKeys((current) => ({ ...current, [id]: !current[id] }));
+            setKeyDrafts((current) => ({ ...current, [id]: "" }));
+            setSaved(false);
+          }}
+          onSave={() => void saveSettings()}
+        />
+      ) : null}
       {resource.state === "ready" ? (
         <>
           <GlassPanel>
@@ -926,6 +1012,206 @@ function SourcesView({
         </>
       ) : null}
     </div>
+  );
+}
+
+const keyedProviders = [
+  { id: "zzshare", label: "ZZShare" },
+  { id: "tushare", label: "Tushare" },
+  { id: "tickflow", label: "TickFlow" },
+  { id: "fuyao", label: "Fuyao" },
+] as const;
+
+function StockSettingsPanel(props: {
+  settings: StockSettings;
+  keyDrafts: Record<string, string>;
+  clearKeys: Record<string, boolean>;
+  saving: boolean;
+  saved: boolean;
+  onChange: (updater: (current: StockSettings) => StockSettings) => void;
+  onKeyDraft: (id: string, value: string) => void;
+  onClearKey: (id: string) => void;
+  onSave: () => void;
+}) {
+  const {
+    settings,
+    keyDrafts,
+    clearKeys,
+    saving,
+    saved,
+    onChange,
+    onKeyDraft,
+    onClearKey,
+    onSave,
+  } = props;
+  return (
+    <GlassPanel>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">股票服务设置</h2>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            密钥保存在 Windows 凭据管理器；已保存的 Key 永不回显。
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={settings.enabled}
+            onChange={(event) =>
+              onChange((current) => ({
+                ...current,
+                enabled: event.target.checked,
+              }))
+            }
+            className="h-4 w-4 accent-foreground"
+          />
+          启用股票服务
+        </label>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <Field label="默认市场">
+          <select
+            value={settings.defaultMarket}
+            onChange={(event) =>
+              onChange((current) => ({
+                ...current,
+                defaultMarket: event.target
+                  .value as StockSettings["defaultMarket"],
+              }))
+            }
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          >
+            <option value="CN">A 股</option>
+            <option value="HK">港股</option>
+            <option value="US">美股</option>
+          </select>
+        </Field>
+        <Field label="请求超时（毫秒）">
+          <Input
+            type="number"
+            min={1000}
+            max={120000}
+            step={1000}
+            value={settings.timeoutMs}
+            onChange={(event) =>
+              onChange((current) => ({
+                ...current,
+                timeoutMs: Number(event.target.value),
+              }))
+            }
+          />
+        </Field>
+        <Field label="缓存 TTL（分钟）">
+          <Input
+            type="number"
+            min={0}
+            max={1440}
+            value={settings.cacheTtlMinutes}
+            onChange={(event) =>
+              onChange((current) => ({
+                ...current,
+                cacheTtlMinutes: Number(event.target.value),
+              }))
+            }
+          />
+        </Field>
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
+        {settings.providers.map((provider) => {
+          const keyed = keyedProviders.find((item) => item.id === provider.id);
+          return (
+            <div
+              key={provider.id}
+              className="rounded-2xl border border-border/40 bg-background/45 p-3"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Key className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-xs font-semibold">
+                    {keyed?.label ?? provider.id}
+                  </span>
+                  {provider.keyConfigured ? (
+                    <StatusBadge status="ok" label="Key 已配置" />
+                  ) : keyed ? (
+                    <StatusBadge status="unavailable" label="未配置 Key" />
+                  ) : null}
+                </div>
+                <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={provider.enabled}
+                    onChange={(event) =>
+                      onChange((current) => ({
+                        ...current,
+                        providers: current.providers.map((item) =>
+                          item.id === provider.id
+                            ? { ...item, enabled: event.target.checked }
+                            : item
+                        ),
+                      }))
+                    }
+                    className="h-3.5 w-3.5 accent-foreground"
+                  />
+                  启用
+                </label>
+              </div>
+              {keyed ? (
+                <div className="mt-3 flex gap-2">
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    value={keyDrafts[provider.id] ?? ""}
+                    disabled={Boolean(clearKeys[provider.id])}
+                    onChange={(event) =>
+                      onKeyDraft(provider.id, event.target.value)
+                    }
+                    placeholder={
+                      provider.keyConfigured
+                        ? "输入新 Key 以替换"
+                        : "输入新 Key"
+                    }
+                    aria-label={`${keyed.label} 新 Key`}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className={cn(
+                      "shrink-0",
+                      clearKeys[provider.id] &&
+                        "border-destructive/30 text-destructive"
+                    )}
+                    onClick={() => onClearKey(provider.id)}
+                  >
+                    {clearKeys[provider.id] ? "撤销清除" : "清除"}
+                  </Button>
+                </div>
+              ) : (
+                <p className="mt-2 text-[10.5px] text-muted-foreground">
+                  免费数据源，无需配置 Key。
+                </p>
+              )}
+              {clearKeys[provider.id] ? (
+                <p className="mt-2 text-[10.5px] text-destructive">
+                  保存后将从 Windows 凭据管理器删除该 Key。
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-4 flex items-center justify-end gap-3">
+        {saved ? (
+          <span className="text-[11px] text-emerald-600">
+            设置已保存，股票服务已重启
+          </span>
+        ) : null}
+        <Button onClick={onSave} disabled={saving}>
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          保存设置
+        </Button>
+      </div>
+    </GlassPanel>
   );
 }
 

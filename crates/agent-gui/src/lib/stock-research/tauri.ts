@@ -11,6 +11,8 @@ import type {
   StockResearchRequest,
   StockResolveRequest,
   StockServiceStatus,
+  StockSettings,
+  StockSettingsSavePayload,
   StockSnapshotRequest,
   MarketBriefRequest,
   BacktestResult,
@@ -23,6 +25,8 @@ const commands = {
   marketBrief: "stock_research_market_brief",
   backtest: "stock_research_backtest",
   status: "stock_research_status",
+  settingsGet: "stock_settings_get",
+  settingsSave: "stock_settings_save",
   portfolioRead: "stock_portfolio_read",
   portfolioImportCsv: "stock_portfolio_import_csv",
   portfolioExportCsv: "stock_portfolio_export_csv",
@@ -59,6 +63,14 @@ export class TauriStockResearchAdapter implements StockResearchPort {
 
   status() {
     return invoke<StockServiceStatus>(commands.status);
+  }
+
+  settingsGet() {
+    return invoke<StockSettings>(commands.settingsGet);
+  }
+
+  settingsSave(payload: StockSettingsSavePayload) {
+    return invoke<StockSettings>(commands.settingsSave, { payload });
   }
 
   portfolioRead() {

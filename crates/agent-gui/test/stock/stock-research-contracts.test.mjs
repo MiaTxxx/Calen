@@ -54,6 +54,8 @@ test("Tauri adapter exposes only the agreed high-level commands", async () => {
     "stock_research_market_brief",
     "stock_research_backtest",
     "stock_research_status",
+    "stock_settings_get",
+    "stock_settings_save",
     "stock_portfolio_read",
     "stock_portfolio_import_csv",
     "stock_portfolio_export_csv",
@@ -71,4 +73,7 @@ test("stock hub keeps the five product views", async () => {
     assert.match(source, new RegExp(`value: "${view}"`));
   }
   assert.match(source, /不构成投资建议/);
+  assert.match(source, /已保存的 Key 永不回显/);
+  assert.match(source, /autoComplete="new-password"/);
+  assert.doesNotMatch(source, /value=\{provider\.key/);
 });

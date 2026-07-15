@@ -123,6 +123,26 @@ export interface StockServiceStatus {
   }>;
 }
 
+export interface StockProviderSettings {
+  id: string;
+  enabled: boolean;
+  keyConfigured: boolean;
+}
+
+export interface StockSettings {
+  enabled: boolean;
+  defaultMarket: "CN" | "HK" | "US";
+  timeoutMs: number;
+  cacheTtlMinutes: number;
+  providers: StockProviderSettings[];
+}
+
+export interface StockSettingsSavePayload extends StockSettings {
+  providerKeyUpdates?: Partial<
+    Record<"zzshare" | "tushare" | "tickflow" | "fuyao", string | null>
+  >;
+}
+
 export interface PortfolioSnapshot {
   portfolios: Array<{ id: string; name: string; baseCurrency: string }>;
   positions: Array<{
@@ -189,6 +209,8 @@ export interface StockResearchPort {
     request: StockBacktestRequest
   ): Promise<StockEvidenceResult<BacktestResult>>;
   status(): Promise<StockServiceStatus>;
+  settingsGet(): Promise<StockSettings>;
+  settingsSave(payload: StockSettingsSavePayload): Promise<StockSettings>;
   portfolioRead(): Promise<PortfolioSnapshot>;
   portfolioImportCsv(csv: string): Promise<PortfolioSnapshot>;
   portfolioExportCsv(
