@@ -38,6 +38,7 @@ jobs:
         run: node scripts/release/prepare-app-version-from-tag.mjs "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT" --json
 
   macos:
+    if: ${{ vars.CALEN_ENABLE_MACOS_RELEASE == 'true' }}
     name: macOS ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     needs: release-metadata
@@ -346,6 +347,14 @@ jobs:
       - macos
       - windows
       - linux
+    if: >-
+      ${{
+        always() &&
+        needs.release-metadata.result == 'success' &&
+        needs.windows.result == 'success' &&
+        needs.linux.result == 'success' &&
+        (needs.macos.result == 'success' || needs.macos.result == 'skipped')
+      }}
     env:
       LIVEAGENT_APP_VERSION: ${{ needs.release-metadata.outputs.app_version }}
       LIVEAGENT_IS_PRERELEASE: ${{ needs.release-metadata.outputs.is_prerelease }}

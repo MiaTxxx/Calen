@@ -9,7 +9,11 @@ const guiRoot = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const repoRoot = path.resolve(guiRoot, "../..");
 const validationScript = path.join(
   repoRoot,
-  "scripts/release/validate-updater-signing-env.mjs",
+  "scripts/release/validate-updater-signing-env.mjs"
+);
+const releaseWorkflow = readFileSync(
+  path.join(repoRoot, ".github/workflows/desktop-release.yml"),
+  "utf8"
 );
 
 function runValidation(env = {}) {
@@ -27,7 +31,7 @@ function runValidation(env = {}) {
 
 test("base Tauri config does not embed an updater trust root", () => {
   const config = JSON.parse(
-    readFileSync(path.join(guiRoot, "src-tauri/tauri.conf.json"), "utf8"),
+    readFileSync(path.join(guiRoot, "src-tauri/tauri.conf.json"), "utf8")
   );
 
   assert.equal(config.plugins.updater.pubkey, "");
@@ -52,4 +56,17 @@ test("release validation requires explicit updater signing keys", () => {
     CALEN_UPDATER_PUBLIC_KEY: "public-key",
   });
   assert.equal(configured.status, 0, configured.stderr);
+});
+
+test("desktop release treats macOS as an explicit opt-in platform", () => {
+  assert.match(
+    releaseWorkflow,
+    /macos:\s*\n\s+if: \$\{\{ vars\.CALEN_ENABLE_MACOS_RELEASE == 'true' \}\}/
+  );
+  assert.match(
+    releaseWorkflow,
+    /needs\.macos\.result == 'success' \|\| needs\.macos\.result == 'skipped'/
+  );
+  assert.match(releaseWorkflow, /needs\.windows\.result == 'success'/);
+  assert.match(releaseWorkflow, /needs\.linux\.result == 'success'/);
 });

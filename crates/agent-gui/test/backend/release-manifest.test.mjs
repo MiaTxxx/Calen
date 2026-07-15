@@ -10,7 +10,7 @@ const guiRoot = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const repoRoot = path.resolve(guiRoot, "../..");
 const manifestScript = path.join(
   repoRoot,
-  "scripts/release/create-tauri-updater-manifest.mjs",
+  "scripts/release/create-tauri-updater-manifest.mjs"
 );
 
 function writeAssetPair(dir, name, signature) {
@@ -41,13 +41,13 @@ test("release updater manifest embeds generated notes and platform signatures", 
           RELEASE_TAG: "v9.9.9",
         },
         encoding: "utf8",
-      },
+      }
     );
 
     assert.equal(
       result.status,
       0,
-      `manifest script failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+      `manifest script failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
     );
 
     const manifest = JSON.parse(readFileSync(outputPath, "utf8"));
@@ -55,24 +55,75 @@ test("release updater manifest embeds generated notes and platform signatures", 
     assert.equal(manifest.notes, "## What's Changed\n\n- Fix updater checks.");
     assert.equal(
       manifest.platforms["darwin-aarch64-app"].url,
-      "https://github.com/MiaTxxx/Calen/releases/download/v9.9.9/Calen-v9.9.9-macOS-aarch64.app.tar.gz",
+      "https://github.com/MiaTxxx/Calen/releases/download/v9.9.9/Calen-v9.9.9-macOS-aarch64.app.tar.gz"
     );
-    assert.equal(manifest.platforms["darwin-aarch64-app"].signature, "sig-mac-arm");
+    assert.equal(
+      manifest.platforms["darwin-aarch64-app"].signature,
+      "sig-mac-arm"
+    );
     assert.deepEqual(
       manifest.platforms["darwin-aarch64"],
-      manifest.platforms["darwin-aarch64-app"],
+      manifest.platforms["darwin-aarch64-app"]
     );
-    assert.equal(manifest.platforms["darwin-x86_64-app"].signature, "sig-mac-x64");
-    assert.equal(manifest.platforms["windows-x86_64-nsis"].signature, "sig-win");
+    assert.equal(
+      manifest.platforms["darwin-x86_64-app"].signature,
+      "sig-mac-x64"
+    );
+    assert.equal(
+      manifest.platforms["windows-x86_64-nsis"].signature,
+      "sig-win"
+    );
     assert.deepEqual(
       manifest.platforms["windows-x86_64"],
-      manifest.platforms["windows-x86_64-nsis"],
+      manifest.platforms["windows-x86_64-nsis"]
     );
-    assert.equal(manifest.platforms["linux-x86_64-appimage"].signature, "sig-linux");
+    assert.equal(
+      manifest.platforms["linux-x86_64-appimage"].signature,
+      "sig-linux"
+    );
     assert.deepEqual(
       manifest.platforms["linux-x86_64"],
-      manifest.platforms["linux-x86_64-appimage"],
+      manifest.platforms["linux-x86_64-appimage"]
     );
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("release updater manifest supports a Windows and Linux only release", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "calen-release-"));
+  try {
+    writeAssetPair(dir, "Calen-v9.9.9-Windows-x64-Setup.exe", "sig-win");
+    writeAssetPair(dir, "Calen-v9.9.9-Linux-x86_64.AppImage", "sig-linux");
+
+    const outputPath = path.join(dir, "latest.json");
+    const result = spawnSync(
+      process.execPath,
+      [manifestScript, dir, outputPath],
+      {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          GITHUB_REPOSITORY: "MiaTxxx/Calen",
+          RELEASE_TAG: "v9.9.9",
+        },
+        encoding: "utf8",
+      }
+    );
+
+    assert.equal(
+      result.status,
+      0,
+      `manifest script failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+    );
+
+    const manifest = JSON.parse(readFileSync(outputPath, "utf8"));
+    assert.deepEqual(Object.keys(manifest.platforms).sort(), [
+      "linux-x86_64",
+      "linux-x86_64-appimage",
+      "windows-x86_64",
+      "windows-x86_64-nsis",
+    ]);
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
@@ -95,17 +146,20 @@ test("release updater manifest omits generic Linux fallback without an AppImage"
           RELEASE_TAG: "v9.9.9",
         },
         encoding: "utf8",
-      },
+      }
     );
 
     assert.equal(
       result.status,
       0,
-      `manifest script failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+      `manifest script failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
     );
 
     const manifest = JSON.parse(readFileSync(outputPath, "utf8"));
-    assert.equal(manifest.platforms["linux-x86_64-deb"].signature, "sig-linux-deb");
+    assert.equal(
+      manifest.platforms["linux-x86_64-deb"].signature,
+      "sig-linux-deb"
+    );
     // The updater's unknown-bundle install path treats the payload as an
     // AppImage, so the bare key must never alias a deb/rpm package.
     assert.equal(manifest.platforms["linux-x86_64"], undefined);
@@ -131,20 +185,23 @@ test("release updater manifest uses MSI for generic Windows fallback when NSIS i
           RELEASE_TAG: "v9.9.9",
         },
         encoding: "utf8",
-      },
+      }
     );
 
     assert.equal(
       result.status,
       0,
-      `manifest script failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+      `manifest script failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
     );
 
     const manifest = JSON.parse(readFileSync(outputPath, "utf8"));
-    assert.equal(manifest.platforms["windows-x86_64-msi"].signature, "sig-win-msi");
+    assert.equal(
+      manifest.platforms["windows-x86_64-msi"].signature,
+      "sig-win-msi"
+    );
     assert.deepEqual(
       manifest.platforms["windows-x86_64"],
-      manifest.platforms["windows-x86_64-msi"],
+      manifest.platforms["windows-x86_64-msi"]
     );
   } finally {
     rmSync(dir, { force: true, recursive: true });
