@@ -2,10 +2,14 @@ import type {
   BacktestResult,
   EvidenceSource,
   InstrumentRef,
+  InstrumentSearchResult,
   MarketBrief,
   MarketBriefRequest,
   QuoteSnapshot,
+  ResearchAnalysisMetadata,
   ResearchBundle,
+  ResearchExperimentalAnalysis,
+  ResearchExperimentalCapability,
   StockBacktestRequest,
   StockCapability,
   StockEvidenceResult,
@@ -83,6 +87,12 @@ function asRecord(value: unknown): AnyRecord {
     : {};
 }
 
+function strictRecord(value: unknown): AnyRecord | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as AnyRecord)
+    : null;
+}
+
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -151,7 +161,20 @@ function mapSource(value: unknown): EvidenceSource | null {
   const id = asString(item.id) ?? provider;
   const name = asString(item.name ?? item.label) ?? provider;
   if (!id || !name) return null;
-  return { id, name, provider, url: asString(item.url) };
+  return {
+    id,
+    name,
+    ...(provider ? { provider } : {}),
+    ...(asString(item.url) ? { url: asString(item.url) } : {}),
+    ...(asString(item.capability)
+      ? { capability: asString(item.capability) }
+      : {}),
+    ...(asString(item.asOf) ? { asOf: asString(item.asOf) } : {}),
+    ...(asString(item.retrievedAt)
+      ? { retrievedAt: asString(item.retrievedAt) }
+      : {}),
+    ...(typeof item.cached === "boolean" ? { cached: item.cached } : {}),
+  };
 }
 
 function mapSources(value: unknown): EvidenceSource[] {
@@ -180,16 +203,26 @@ function mapEnvelope<T>(
   };
 }
 
-export function mapStockResolveEnvelope(raw: unknown): InstrumentRef[] {
+export function mapStockResolveEnvelope(raw: unknown): InstrumentSearchResult {
   const record = evidenceRecord(raw);
   const values = Array.isArray(record.instruments)
     ? record.instruments
     : Array.isArray(raw)
       ? raw
       : [];
-  return values
+  const instruments = values
     .map(mapInstrument)
     .filter((item): item is InstrumentRef => item !== null);
+  const evidence = mapEnvelope(raw, instruments);
+  return {
+    status: evidence.status,
+    instruments,
+    sources: evidence.sources,
+    asOf: evidence.asOf,
+    retrievedAt: evidence.retrievedAt,
+    cached: evidence.cached,
+    warnings: evidence.warnings,
+  };
 }
 
 function mapChart(value: unknown): NonNullable<QuoteSnapshot["chart"]> {
@@ -219,7 +252,7 @@ function mapChart(value: unknown): NonNullable<QuoteSnapshot["chart"]> {
   });
 }
 
-const RESEARCH_CAPABILITY_LABELS = new Set([
+const FACT_RESEARCH_CAPABILITIES = new Set([
   "profile",
   "financials",
   "shareholders",
@@ -228,11 +261,10 @@ const RESEARCH_CAPABILITY_LABELS = new Set([
   "news",
   "notices",
   "etf",
-  "technical",
-  "score",
-  "evaluator",
-  "strategy",
 ]);
+
+const EXPERIMENTAL_RESEARCH_CAPABILITIES: readonly ResearchExperimentalCapability[] =
+  ["technical", "score", "strategy", "evaluator"];
 
 function summarizeResearchData(value: unknown): string | null {
   if (
@@ -275,6 +307,98 @@ function summarizeResearchData(value: unknown): string | null {
   if (!parts.length) return null;
   const summary = parts.join(", ");
   return summary.length > 240 ? `${summary.slice(0, 237)}...` : summary;
+}
+
+function mapResearchAnalysisMetadata(
+  value: unknown
+): ResearchAnalysisMetadata | undefined {
+  const metadata = strictRecord(value);
+  const algorithm = strictRecord(metadata?.algorithm);
+  const parameters = strictRecord(algorithm?.parameters);
+  const sample = strictRecord(metadata?.sample);
+  const benchmark = strictRecord(metadata?.benchmark);
+  if (!metadata || !algorithm || !parameters || !sample || !benchmark)
+    return undefined;
+
+  const algorithmId = asString(algorithm.id);
+  const algorithmVersion = asString(algorithm.version);
+  const hasSampleStart = Object.hasOwn(sample, "start");
+  const hasSampleEnd = Object.hasOwn(sample, "end");
+  const sampleStart = sample.start === null ? null : asString(sample.start);
+  const sampleEnd = sample.end === null ? null : asString(sample.end);
+  const sampleBars = asNumber(sample.bars);
+  const sampleCoverage = asNumber(sample.coverage);
+  const benchmarkName = asString(benchmark.name);
+  const hasBenchmarkReturn = Object.hasOwn(benchmark, "returnPercent");
+  const benchmarkReturn =
+    benchmark.returnPercent === null ? null : asNumber(benchmark.returnPercent);
+  const limitations = Array.isArray(metadata.limitations)
+    ? metadata.limitations.every(
+        (item) => typeof item === "string" && item.trim().length > 0
+      )
+      ? metadata.limitations.map((item) => String(item).trim())
+      : undefined
+    : undefined;
+
+  if (
+    !algorithmId ||
+    !algorithmVersion ||
+    !hasSampleStart ||
+    sampleStart === undefined ||
+    !hasSampleEnd ||
+    sampleEnd === undefined ||
+    sampleBars === null ||
+    !Number.isInteger(sampleBars) ||
+    sampleBars < 0 ||
+    sampleCoverage === null ||
+    sampleCoverage < 0 ||
+    sampleCoverage > 1 ||
+    !benchmarkName ||
+    !hasBenchmarkReturn ||
+    benchmarkReturn === undefined ||
+    !limitations
+  ) {
+    return undefined;
+  }
+
+  return {
+    algorithm: {
+      id: algorithmId,
+      version: algorithmVersion,
+      parameters,
+    },
+    sample: {
+      start: sampleStart,
+      end: sampleEnd,
+      bars: sampleBars,
+      coverage: sampleCoverage,
+    },
+    benchmark: {
+      name: benchmarkName,
+      returnPercent: benchmarkReturn,
+    },
+    limitations,
+  };
+}
+
+function mapExperimentalAnalysis(
+  capabilities: AnyRecord
+): ResearchExperimentalAnalysis[] {
+  return EXPERIMENTAL_RESEARCH_CAPABILITIES.flatMap((capability) => {
+    const section = strictRecord(capabilities[capability]);
+    if (!section || !isStockResultStatus(section.status)) return [];
+    return [
+      {
+        capability,
+        status: section.status,
+        summary:
+          section.data === null || section.data === undefined
+            ? null
+            : summarizeResearchData(section.data),
+        warnings: normalizeWarnings(section.warnings),
+      },
+    ];
+  });
 }
 
 export function mapStockSnapshotResult(
@@ -341,11 +465,15 @@ function mapResearchBundle(raw: unknown): ResearchBundle | null {
   const risks = asStringArray(data.risks);
   const openQuestions = asStringArray(data.openQuestions);
   for (const warning of normalizeWarnings(envelope.warnings)) {
-    if (!openQuestions.includes(warning)) openQuestions.push(warning);
+    const experimentalWarning = EXPERIMENTAL_RESEARCH_CAPABILITIES.some(
+      (capability) => warning.startsWith(`${capability}:`)
+    );
+    if (!experimentalWarning && !openQuestions.includes(warning))
+      openQuestions.push(warning);
   }
   const capabilities = asRecord(data.capabilities);
   for (const [capability, rawSection] of Object.entries(capabilities)) {
-    if (!RESEARCH_CAPABILITY_LABELS.has(capability)) continue;
+    if (!FACT_RESEARCH_CAPABILITIES.has(capability)) continue;
     const section = asRecord(rawSection);
     const status = section.status;
     const sectionWarnings = normalizeWarnings(section.warnings);
@@ -363,6 +491,8 @@ function mapResearchBundle(raw: unknown): ResearchBundle | null {
       ...sectionWarnings.map((warning) => `${capability}: ${warning}`)
     );
   }
+  const experimentalAnalysis = mapExperimentalAnalysis(capabilities);
+  const analysisMetadata = mapResearchAnalysisMetadata(data.analysisMetadata);
   return {
     instrument,
     title,
@@ -371,6 +501,8 @@ function mapResearchBundle(raw: unknown): ResearchBundle | null {
     positiveCases,
     risks,
     openQuestions,
+    experimentalAnalysis,
+    ...(analysisMetadata ? { analysisMetadata } : {}),
     ...(snapshotResult?.data ? { snapshot: snapshotResult.data } : {}),
   };
 }

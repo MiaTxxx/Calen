@@ -77,16 +77,36 @@ test("research combines facts with versioned technical score and evaluator outpu
   const result = await service.research({ instrument, historyLimit: 30 });
   const data = result.data as {
     technical: { rsi14: number; trend: string };
-    score: { value: number; algorithm: string };
-    evaluator: { rating: string };
+    score: {
+      value: number;
+      algorithm: { id: string; version: string; parameters: unknown };
+    };
+    evaluator: { rating: string; parameters: unknown };
+    analysisMetadata: {
+      algorithm: { id: string; version: string; parameters: unknown };
+      sample: { bars: number; coverage: number };
+      benchmark: { name: string; returnPercent: number | null };
+      limitations: string[];
+    };
   };
 
   assert.equal(result.status, "ok");
   assert.equal(data.technical.rsi14, 100);
   assert.equal(data.technical.trend, "bullish");
-  assert.equal(data.score.algorithm, "calen.technical-score@1.0.0");
+  assert.equal(data.score.algorithm.id, "calen.technical-score");
+  assert.equal(data.score.algorithm.version, "1.0.0");
+  assert.ok(data.score.algorithm.parameters);
   assert.ok(data.score.value >= 70);
   assert.equal(data.evaluator.rating, "positive");
+  assert.ok(data.evaluator.parameters);
+  assert.equal(data.analysisMetadata.algorithm.id, "calen.research-analytics");
+  assert.equal(data.analysisMetadata.algorithm.version, "1.0.0");
+  assert.ok(data.analysisMetadata.algorithm.parameters);
+  assert.equal(data.analysisMetadata.sample.bars, 30);
+  assert.equal(data.analysisMetadata.sample.coverage, 1);
+  assert.equal(data.analysisMetadata.benchmark.name, "buy-and-hold");
+  assert.equal(typeof data.analysisMetadata.benchmark.returnPercent, "number");
+  assert.ok(data.analysisMetadata.limitations.length >= 3);
   assert.deepEqual(
     result.sources.map((source) => source.capability),
     ["snapshot", "history"]

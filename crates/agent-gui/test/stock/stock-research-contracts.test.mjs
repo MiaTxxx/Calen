@@ -78,7 +78,7 @@ test("CSV export filenames cannot escape into a path", () => {
   assert.equal(sanitizeCsvFileName("***"), "---");
 });
 
-test("sidecar resolve envelope maps instruments and outbound market hint", () => {
+test("sidecar resolve envelope preserves evidence and outbound market hint", () => {
   const instrument = {
     id: "CN:600519",
     symbol: "600519",
@@ -88,9 +88,34 @@ test("sidecar resolve envelope maps instruments and outbound market hint", () =>
     assetType: "stock",
     currency: "CNY",
   };
+  const source = {
+    id: "eastmoney:resolve",
+    name: "东方财富",
+    provider: "eastmoney",
+    capability: "resolve",
+    asOf: "2026-07-16T01:00:00.000Z",
+    retrievedAt: "2026-07-16T01:00:01.000Z",
+    cached: true,
+  };
   assert.deepEqual(
-    mapStockResolveEnvelope({ status: "ok", instruments: [instrument] }),
-    [instrument]
+    mapStockResolveEnvelope({
+      status: "partial",
+      instruments: [instrument],
+      sources: [source],
+      asOf: "2026-07-16T01:00:00.000Z",
+      retrievedAt: "2026-07-16T01:00:01.000Z",
+      cached: true,
+      warnings: ["备用数据源限流"],
+    }),
+    {
+      status: "partial",
+      instruments: [instrument],
+      sources: [source],
+      asOf: "2026-07-16T01:00:00.000Z",
+      retrievedAt: "2026-07-16T01:00:01.000Z",
+      cached: true,
+      warnings: ["备用数据源限流"],
+    }
   );
   assert.deepEqual(
     toSidecarResolveRequest({ query: "600519", markets: ["CN"], limit: 3 }),
@@ -215,11 +240,42 @@ test("research, market brief, backtest and status tolerate sidecar raw shapes", 
       capabilities: {
         profile: { status: "ok", data: { industry: "白酒", employees: 3000 } },
         technical: { status: "ok", data: { trend: "bullish", rsi14: 64 } },
+        score: {
+          status: "ok",
+          data: {
+            value: 80,
+            algorithm: { id: "calen.technical-score", version: "1.0.0" },
+          },
+        },
+        strategy: {
+          status: "partial",
+          data: { bias: "bullish", action: "research-only" },
+          warnings: ["仅覆盖当前样本"],
+        },
+        evaluator: {
+          status: "ok",
+          data: { id: "calen.rule-evaluator", rating: "positive" },
+        },
         financials: {
           status: "unavailable",
           data: null,
           warnings: ["no source"],
         },
+      },
+      analysisMetadata: {
+        algorithm: {
+          id: "calen.research-analytics",
+          version: "1.0.0",
+          parameters: { smaWindows: [5, 20], rsiPeriod: 14 },
+        },
+        sample: {
+          start: "2026-06-01",
+          end: "2026-06-30",
+          bars: 30,
+          coverage: 1,
+        },
+        benchmark: { name: "buy-and-hold", returnPercent: 12.5 },
+        limitations: ["实验性量化研究结果，不构成投资建议。"],
       },
     },
     sources: [],
@@ -231,7 +287,33 @@ test("research, market brief, backtest and status tolerate sidecar raw shapes", 
   assert.equal(research.data?.instrument.id, "CN:600519");
   assert.match(research.data?.facts[0] ?? "", /historyBars/);
   assert.ok(research.data?.facts.some((item) => item.startsWith("profile:")));
-  assert.ok(research.data?.facts.some((item) => item.startsWith("technical:")));
+  assert.equal(
+    research.data?.facts.some((item) => item.startsWith("technical:")),
+    false
+  );
+  assert.deepEqual(
+    research.data?.experimentalAnalysis.map((item) => item.capability),
+    ["technical", "score", "strategy", "evaluator"]
+  );
+  assert.equal(research.data?.experimentalAnalysis[2]?.status, "partial");
+  assert.deepEqual(research.data?.experimentalAnalysis[2]?.warnings, [
+    "仅覆盖当前样本",
+  ]);
+  assert.deepEqual(research.data?.analysisMetadata, {
+    algorithm: {
+      id: "calen.research-analytics",
+      version: "1.0.0",
+      parameters: { smaWindows: [5, 20], rsiPeriod: 14 },
+    },
+    sample: {
+      start: "2026-06-01",
+      end: "2026-06-30",
+      bars: 30,
+      coverage: 1,
+    },
+    benchmark: { name: "buy-and-hold", returnPercent: 12.5 },
+    limitations: ["实验性量化研究结果，不构成投资建议。"],
+  });
   assert.ok(
     research.data?.risks.some((item) =>
       item.includes("financials: unavailable")
@@ -243,6 +325,20 @@ test("research, market brief, backtest and status tolerate sidecar raw shapes", 
     )
   );
   assert.equal(research.data?.positiveCases.length, 0);
+  const researchWithoutMetadata = mapStockResearchResult({
+    status: "ok",
+    instrument,
+    data: {
+      capabilities: {},
+      analysisMetadata: { algorithm: { id: "partial-only" } },
+    },
+    sources: [],
+    asOf: "2026-07-15",
+    retrievedAt: "2026-07-15T07:00:00.000Z",
+    cached: false,
+    warnings: [],
+  });
+  assert.equal(researchWithoutMetadata.data?.analysisMetadata, undefined);
   const brief = mapStockMarketBriefResult({
     status: "partial",
     data: {
@@ -357,6 +453,10 @@ test("stock hub keeps the five product views", async () => {
     new URL("../../src/pages/stock-hub/StockChart.tsx", import.meta.url),
     "utf8"
   );
+  const stockToolSource = await readFile(
+    new URL("../../src/lib/tools/stockResearchTools.ts", import.meta.url),
+    "utf8"
+  );
   for (const view of ["research", "market", "portfolio", "lab", "sources"]) {
     assert.match(source, new RegExp(`value: "${view}"`));
   }
@@ -366,6 +466,15 @@ test("stock hub keeps the five product views", async () => {
   assert.doesNotMatch(source, /value=\{provider\.key/);
   assert.match(source, /mode === "replaceAll"/);
   assert.match(source, /bars=\{data\.chart\}/);
+  assert.match(source, /<EvidenceHeader result=\{matches\.data\}/);
+  assert.match(source, /matches\.data\.instruments\.map/);
+  assert.match(source, /实验性量化分析/);
+  assert.match(source, /data\.analysisMetadata/);
+  assert.match(source, /data\.experimentalAnalysis\.map/);
+  assert.match(source, /算法与版本/);
+  assert.match(source, /样本覆盖率/);
+  assert.match(source, /基准/);
+  assert.match(source, /限制说明/);
   for (const capability of [
     "financials",
     "shareholders",
@@ -384,5 +493,13 @@ test("stock hub keeps the five product views", async () => {
   assert.doesNotMatch(
     source,
     /localStorage.*[Pp]assword|settings.*[Pp]assword/
+  );
+  assert.match(
+    stockToolSource,
+    /name: "StockResearch"[\s\S]*?scopes: \["chat", "cron_auto_prompt"\],[\s\S]*?experimental: true,[\s\S]*?name: "StockMarketBrief"/
+  );
+  assert.match(
+    stockToolSource,
+    /definition\.experimental === true \|\| evidence\.experimental === true/
   );
 });

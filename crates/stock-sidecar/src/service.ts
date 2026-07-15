@@ -1,5 +1,8 @@
 import { normalizeInstrument } from "./instruments.ts";
-import { evaluateResearch } from "./analytics.ts";
+import {
+  createResearchAnalysisMetadata,
+  evaluateResearch,
+} from "./analytics.ts";
 import { runBacktest, unavailableBacktestResult } from "./backtest.ts";
 import { createDefaultProviders } from "./providers/defaults.ts";
 import {
@@ -422,14 +425,10 @@ export function createStockResearchService(
           facts: { snapshot: snapshotData ?? null, historyBars: bars.length },
           ...analysis,
           strategy,
-          analysisMetadata: {
-            sample: {
-              start: bars[0]?.time ?? null,
-              end: bars.at(-1)?.time ?? null,
-              bars: bars.length,
-            },
-            limitations: ["实验性量化研究结果，不构成投资建议。"],
-          },
+          analysisMetadata: createResearchAnalysisMetadata(
+            bars,
+            request.historyLimit ?? 120
+          ),
         },
         sources: uniqueSources,
         asOf:

@@ -32,12 +32,14 @@ import {
   type EncryptedStockBackupEnvelope,
   formatStockError,
   type InstrumentRef,
+  type InstrumentSearchResult,
   type MarketBrief,
   type PortfolioSnapshot,
   parseFiniteNumber,
   type QuoteSnapshot,
   type ResearchBundle,
   type StockBackupRestoreMode,
+  type StockEvidenceMetadata,
   type StockEvidenceResult,
   type StockResultStatus,
   type StockServiceStatus,
@@ -174,9 +176,9 @@ function ServicePill({
 
 function ResearchView() {
   const [query, setQuery] = useState("");
-  const [matches, setMatches] = useState<AsyncResource<InstrumentRef[]>>({
-    state: "idle",
-  });
+  const [matches, setMatches] = useState<AsyncResource<InstrumentSearchResult>>(
+    { state: "idle" }
+  );
   const [selected, setSelected] = useState<InstrumentRef | null>(null);
   const [snapshot, setSnapshot] = useState<
     AsyncResource<StockEvidenceResult<QuoteSnapshot>>
@@ -276,32 +278,37 @@ function ResearchView() {
         </form>
         <ResourceError resource={matches} />
         {matches.state === "ready" ? (
-          <div className="mt-3 space-y-1">
-            {matches.data.length === 0 ? (
+          <div className="mt-3 space-y-3">
+            <EvidenceHeader result={matches.data} title="搜索结果" />
+            {matches.data.instruments.length === 0 ? (
               <EmptyLine text="没有找到匹配标的" />
             ) : (
-              matches.data.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => void inspect(item)}
-                  className={cn(
-                    "flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left hover:bg-muted/55",
-                    selected?.id === item.id &&
-                      "bg-muted/70 ring-1 ring-border/50"
-                  )}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-medium">
-                      {item.name}
+              <div className="space-y-1">
+                {matches.data.instruments.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => void inspect(item)}
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left hover:bg-muted/55",
+                      selected?.id === item.id &&
+                        "bg-muted/70 ring-1 ring-border/50"
+                    )}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13px] font-medium">
+                        {item.name}
+                      </span>
+                      <span className="text-[10.5px] text-muted-foreground">
+                        {item.market} · {item.exchange}
+                      </span>
                     </span>
-                    <span className="text-[10.5px] text-muted-foreground">
-                      {item.market} · {item.exchange}
+                    <span className="ml-3 font-mono text-xs">
+                      {item.symbol}
                     </span>
-                  </span>
-                  <span className="ml-3 font-mono text-xs">{item.symbol}</span>
-                </button>
-              ))
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         ) : null}
@@ -429,14 +436,132 @@ function ResearchCard({
       <p className="mt-3 text-[13px] leading-6 text-foreground/85">
         {data.summary}
       </p>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <BulletSection title="关键事实" items={data.facts} />
-        <BulletSection title="支持论据" items={data.positiveCases} />
-        <BulletSection title="主要风险" items={data.risks} warning />
-        <BulletSection title="待验证事项" items={data.openQuestions} />
+      <div className="mt-4">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-xs font-semibold">事实与证据</h3>
+          <span className="text-[10px] text-muted-foreground">
+            Provider 返回的事实数据
+          </span>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <BulletSection title="关键事实" items={data.facts} />
+          <BulletSection title="支持论据" items={data.positiveCases} />
+          <BulletSection title="主要风险" items={data.risks} warning />
+          <BulletSection title="待验证事项" items={data.openQuestions} />
+        </div>
       </div>
+      {data.experimentalAnalysis.length || data.analysisMetadata ? (
+        <ExperimentalResearchSection data={data} />
+      ) : null}
       <Disclaimer />
     </GlassPanel>
+  );
+}
+
+function ExperimentalResearchSection({ data }: { data: ResearchBundle }) {
+  const metadata = data.analysisMetadata;
+  const capabilityLabels = {
+    technical: "技术指标",
+    score: "评分卡",
+    strategy: "策略信号",
+    evaluator: "Evaluator",
+  } as const;
+  return (
+    <section className="mt-5 rounded-2xl border border-violet-500/20 bg-violet-500/[0.035] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-xs font-semibold">实验性量化分析</h3>
+            <StatusBadge status="partial" label="实验性" />
+          </div>
+          <p className="mt-1 text-[10.5px] text-muted-foreground">
+            与事实数据分区展示，仅用于可复算的研究实验，不构成交易指令。
+          </p>
+        </div>
+      </div>
+
+      {metadata ? (
+        <>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <ResearchMetadataItem
+              label="算法与版本"
+              value={`${metadata.algorithm.id} @ ${metadata.algorithm.version}`}
+            />
+            <ResearchMetadataItem
+              label="样本区间"
+              value={`${metadata.sample.start ?? "未提供"} — ${metadata.sample.end ?? "未提供"} · ${metadata.sample.bars} 根`}
+            />
+            <ResearchMetadataItem
+              label="样本覆盖率"
+              value={`${(metadata.sample.coverage * 100).toFixed(1)}%`}
+            />
+            <ResearchMetadataItem
+              label="基准"
+              value={`${metadata.benchmark.name}${
+                metadata.benchmark.returnPercent === null
+                  ? " · 收益未提供"
+                  : ` · ${metadata.benchmark.returnPercent.toFixed(2)}%`
+              }`}
+            />
+          </div>
+          <details className="mt-3 rounded-xl border border-violet-500/15 bg-background/45 px-3 py-2">
+            <summary className="cursor-pointer text-[11px] font-medium">
+              算法参数
+            </summary>
+            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-5 text-muted-foreground">
+              {JSON.stringify(metadata.algorithm.parameters, null, 2)}
+            </pre>
+          </details>
+        </>
+      ) : null}
+
+      {data.experimentalAnalysis.length ? (
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {data.experimentalAnalysis.map((analysis) => (
+            <div
+              key={analysis.capability}
+              className="rounded-xl border border-violet-500/15 bg-background/55 p-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11.5px] font-semibold">
+                  {capabilityLabels[analysis.capability]}
+                </span>
+                <StatusBadge status={analysis.status} />
+              </div>
+              <p className="mt-2 break-words text-[10.5px] leading-5 text-muted-foreground">
+                {analysis.summary ?? "当前样本未返回可展示结果。"}
+              </p>
+              {analysis.warnings.length ? (
+                <p className="mt-2 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
+                  {analysis.warnings.join("；")}
+                </p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {metadata?.limitations.length ? (
+        <BulletSection title="限制说明" items={metadata.limitations} warning />
+      ) : null}
+    </section>
+  );
+}
+
+function ResearchMetadataItem({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-xl border border-violet-500/15 bg-background/55 p-3">
+      <div className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-1 break-words text-[11px] font-medium">{value}</div>
+    </div>
   );
 }
 
@@ -904,11 +1029,12 @@ function LabView() {
         query: symbol.trim(),
         limit: 1,
       });
-      if (!matches[0]) throw new Error("未找到回测标的");
+      const instrument = matches.instruments[0];
+      if (!instrument) throw new Error("未找到回测标的");
       setResult({
         state: "ready",
         data: await stockResearch.backtest({
-          instrument: matches[0],
+          instrument,
           strategy: "moving_average",
           from,
           to,
@@ -1441,11 +1567,11 @@ function StockSettingsPanel(props: {
   );
 }
 
-function EvidenceHeader<T>({
+function EvidenceHeader({
   result,
   title,
 }: {
-  result: StockEvidenceResult<T>;
+  result: StockEvidenceMetadata;
   title: string;
 }) {
   return (

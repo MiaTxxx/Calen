@@ -138,6 +138,7 @@ const DEFINITIONS: readonly StockToolDefinition[] = [
       ),
     }),
     scopes: ["chat", "cron_auto_prompt"],
+    experimental: true,
   },
   {
     name: "StockMarketBrief",

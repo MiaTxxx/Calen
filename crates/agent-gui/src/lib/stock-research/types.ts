@@ -35,16 +35,29 @@ export interface EvidenceSource {
   name: string;
   url?: string;
   provider?: string;
+  capability?: string;
+  asOf?: string;
+  retrievedAt?: string;
+  cached?: boolean;
 }
 
-export interface StockEvidenceResult<T = unknown> {
+export interface StockEvidenceMetadata {
   status: StockResultStatus;
-  data: T | null;
   sources: EvidenceSource[];
   asOf: string | null;
   retrievedAt: string;
   cached: boolean;
   warnings: string[];
+}
+
+export interface StockEvidenceResult<
+  T = unknown,
+> extends StockEvidenceMetadata {
+  data: T | null;
+}
+
+export interface InstrumentSearchResult extends StockEvidenceMetadata {
+  instruments: InstrumentRef[];
 }
 
 export interface QuoteSnapshot {
@@ -67,6 +80,35 @@ export interface QuoteSnapshot {
   facts?: Array<{ label: string; value: string; hint?: string }>;
 }
 
+export type ResearchExperimentalCapability =
+  "technical" | "score" | "strategy" | "evaluator";
+
+export interface ResearchExperimentalAnalysis {
+  capability: ResearchExperimentalCapability;
+  status: StockResultStatus;
+  summary: string | null;
+  warnings: string[];
+}
+
+export interface ResearchAnalysisMetadata {
+  algorithm: {
+    id: string;
+    version: string;
+    parameters: Record<string, unknown>;
+  };
+  sample: {
+    start: string | null;
+    end: string | null;
+    bars: number;
+    coverage: number;
+  };
+  benchmark: {
+    name: string;
+    returnPercent: number | null;
+  };
+  limitations: string[];
+}
+
 export interface ResearchBundle {
   instrument: InstrumentRef;
   title: string;
@@ -75,6 +117,8 @@ export interface ResearchBundle {
   positiveCases: string[];
   risks: string[];
   openQuestions: string[];
+  experimentalAnalysis: ResearchExperimentalAnalysis[];
+  analysisMetadata?: ResearchAnalysisMetadata;
   snapshot?: QuoteSnapshot;
 }
 
@@ -205,7 +249,7 @@ export interface StockBacktestRequest {
 }
 
 export interface StockResearchPort {
-  resolve(request: StockResolveRequest): Promise<InstrumentRef[]>;
+  resolve(request: StockResolveRequest): Promise<InstrumentSearchResult>;
   snapshot(
     request: StockSnapshotRequest
   ): Promise<StockEvidenceResult<QuoteSnapshot>>;

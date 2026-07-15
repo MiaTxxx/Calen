@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-blueviolet" />
+  <img alt="Release Platform" src="https://img.shields.io/badge/release-Windows%20x64-blueviolet" />
   <img alt="Tauri" src="https://img.shields.io/badge/built%20with-Tauri%202-FFC131?logo=tauri&logoColor=white" />
   <img alt="React" src="https://img.shields.io/badge/React-19-087EA4?logo=react&logoColor=white" />
   <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-B7410E?logo=rust&logoColor=white" />
@@ -89,6 +89,13 @@ Calen is a **local-first** AI agent desktop client. It deeply integrates large l
 - **Persistent memory** — Markdown + SQLite FTS full-text search for cross-session knowledge management
 - **Scheduled tasks** — bash / http / prompt cron job types, executed automatically in the background
 
+### 📈 Stock Research
+
+- **Native Calen stock hub** — five workspaces for research, markets, watchlists and portfolios, experiments, and data sources
+- **Evidence-first research** — quotes, charts, financials, filings, news, and market briefs show their sources, as-of time, and missing-data warnings
+- **Local portfolio ledger** — complete transactions, portfolio analysis, multi-currency summaries, CSV import/export, and encrypted backups
+- **Experimental quant tools** — indicators, scorecards, strategy signals, evaluators, and reproducible backtests with coverage and limitation disclosures
+
 ### 🌐 Remote Gateway
 
 - **Access from any browser** — Go + gRPC gateway with a WebUI for remotely controlling the local agent
@@ -98,44 +105,24 @@ Calen is a **local-first** AI agent desktop client. It deeply integrates large l
 
 ## Download & Deployment
 
-Installers are automatically built, signed, and published by GitHub Actions — grab the latest version from [**GitHub Releases**](https://github.com/MiaTxxx/Calen/releases/latest).
+The first release containing the stock integration is Windows x64 only. Installers are built by GitHub Actions and signed for the Tauri updater — grab the latest version from [**GitHub Releases**](https://github.com/MiaTxxx/Calen/releases/latest).
 
 ### System Requirements
 
-| Platform | Requirements |
-|---|---|
-| macOS | Both Intel (x64) and Apple Silicon (aarch64) architectures |
-| Windows | x64; requires the WebView2 runtime (bundled with Windows 11) |
-| Linux | x86_64; requires WebKitGTK 4.1 (Ubuntu 22.04+ / Debian 12+, etc.) |
-
-### macOS
-
-Download the DMG matching your chip from [Releases](https://github.com/MiaTxxx/Calen/releases/latest), open it, and drag Calen into Applications:
-
-- Apple Silicon (M-series): `Calen-<version>-macOS-aarch64.dmg`
-- Intel: `Calen-<version>-macOS-x64.dmg`
-
-> The installer is signed and notarized by Apple — no manual security override is needed on first launch.
+| Platform | Requirements                                                 |
+| -------- | ------------------------------------------------------------ |
+| Windows  | x64; requires the WebView2 runtime (bundled with Windows 11) |
 
 ### Windows
 
 Pick an installation method from [Releases](https://github.com/MiaTxxx/Calen/releases/latest):
 
-| Method | File | Best for |
-|---|---|---|
-| Setup wizard | `Calen-<version>-Windows-x64-Setup.exe` | Most users |
-| MSI package | `Calen-<version>-Windows-x64.msi` | Enterprise distribution / silent install |
-| Portable | `Calen-<version>-Windows-x64-portable.zip` | No install — unzip and run |
+| Method       | File                                    | Best for                                 |
+| ------------ | --------------------------------------- | ---------------------------------------- |
+| Setup wizard | `Calen-<version>-Windows-x64-Setup.exe` | Most users                               |
+| MSI package  | `Calen-<version>-Windows-x64.msi`       | Enterprise distribution / silent install |
 
-### Linux
-
-Choose by distribution from [Releases](https://github.com/MiaTxxx/Calen/releases/latest):
-
-| Format | Distributions | Install |
-|---|---|---|
-| AppImage | Any distribution | `chmod +x`, then run directly |
-| DEB | Debian / Ubuntu family | `sudo dpkg -i Calen-<version>-Linux-x86_64.deb` |
-| RPM | Fedora / openSUSE family | `sudo rpm -i Calen-<version>-Linux-x86_64.rpm` |
+> The first release does not include portable, Linux, or macOS installers. It also has no Authenticode code signature, so Windows may display an “Unknown publisher” warning. In-app updates still require a valid Tauri updater signature.
 
 ### Need Remote Access? Deploy the Gateway
 
@@ -217,10 +204,6 @@ location / {
 
 </details>
 
-
-
-
-
 ### Build from Source
 
 Expand the Development Guide below for the full set of Make commands.
@@ -254,38 +237,38 @@ Expand the Development Guide below for the full set of Make commands.
 
 **Tech Stack**
 
-| Component | Technology |
-|---|---|
-| **Agent GUI** · Framework | Tauri 2 + React 19 + TypeScript 6 |
-| **Agent GUI** · Build | Vite 8 + pnpm |
-| **Agent GUI** · Styling | Tailwind CSS 4 + Radix UI |
-| **Agent GUI** · Rendering | streamdown + KaTeX + Mermaid + Monaco Editor |
-| **Agent GUI** · Backend | Rust + Tokio + SQLite (rusqlite) + gRPC (tonic) |
-| **Agent GUI** · LLM | @earendil-works/pi-ai · @openai/codex-sdk · claude-agent-sdk |
-| **Gateway** · Language | Go 1.25 |
-| **Gateway** · Protocols | gRPC + Protobuf + HTTP + WebSocket |
-| **Gateway** · Web UI | React + Vite + Tailwind CSS (embedded) |
-| **Gateway** · Deployment | Docker multi-stage · Railway CI/CD |
+| Component                 | Technology                                                   |
+| ------------------------- | ------------------------------------------------------------ |
+| **Agent GUI** · Framework | Tauri 2 + React 19 + TypeScript 6                            |
+| **Agent GUI** · Build     | Vite 8 + pnpm                                                |
+| **Agent GUI** · Styling   | Tailwind CSS 4 + Radix UI                                    |
+| **Agent GUI** · Rendering | streamdown + KaTeX + Mermaid + Monaco Editor                 |
+| **Agent GUI** · Backend   | Rust + Tokio + SQLite (rusqlite) + gRPC (tonic)              |
+| **Agent GUI** · LLM       | @earendil-works/pi-ai · @openai/codex-sdk · claude-agent-sdk |
+| **Gateway** · Language    | Go 1.25                                                      |
+| **Gateway** · Protocols   | gRPC + Protobuf + HTTP + WebSocket                           |
+| **Gateway** · Web UI      | React + Vite + Tailwind CSS (embedded)                       |
+| **Gateway** · Deployment  | Docker multi-stage · Railway CI/CD                           |
 
 </details>
 
 <details>
 <summary><b>Development Guide</b> — common Make commands (run <code>make help</code> for the full list)</summary>
 
-| Command | Description |
-|---|---|
-| `make dev` | Start the Tauri development environment |
-| `make build` | Build the desktop app |
-| `make dev-gateway` | Start the Gateway dev server |
-| `make dev-webui` | Start the WebUI dev server |
-| `make gateway-build` | Build the Gateway binary |
-| `make gateway-docker-build` | Build the Docker image |
-| `make gateway-docker-smoke` | Build + health check |
-| `make desktop-build-macos-release` | macOS signed release build |
-| `make build-linux` | Linux amd64 gateway |
-| `make build-linux-arm` | Linux arm64 gateway |
-| `make proto` | Regenerate Protobuf code |
-| `make clean` | Clean build artifacts |
+| Command                            | Description                             |
+| ---------------------------------- | --------------------------------------- |
+| `make dev`                         | Start the Tauri development environment |
+| `make build`                       | Build the desktop app                   |
+| `make dev-gateway`                 | Start the Gateway dev server            |
+| `make dev-webui`                   | Start the WebUI dev server              |
+| `make gateway-build`               | Build the Gateway binary                |
+| `make gateway-docker-build`        | Build the Docker image                  |
+| `make gateway-docker-smoke`        | Build + health check                    |
+| `make desktop-build-macos-release` | macOS signed release build              |
+| `make build-linux`                 | Linux amd64 gateway                     |
+| `make build-linux-arm`             | Linux arm64 gateway                     |
+| `make proto`                       | Regenerate Protobuf code                |
+| `make clean`                       | Clean build artifacts                   |
 
 </details>
 

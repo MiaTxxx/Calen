@@ -22,6 +22,11 @@ const MAX_CONSECUTIVE_FAILURES: u8 = 2;
 const STOCK_SETTINGS_DB: &str = "stock-settings.sqlite3";
 const STOCK_KEYRING_SERVICE: &str = "Calen Stock Research";
 const KEYED_PROVIDERS: &[&str] = &["zzshare", "tushare", "tickflow", "fuyao"];
+// Keep this list limited to adapters that both exist in the sidecar and read a
+// provider key at runtime. The current sidecar only registers free providers
+// (Tencent and Eastmoney), so no keyed provider is eligible yet. Adding a keyed
+// adapter requires updating this list in the same change as the adapter.
+const IMPLEMENTED_KEYED_PROVIDERS: &[&str] = &[];
 
 #[derive(Debug)]
 struct StockProcess {
@@ -226,7 +231,8 @@ impl StockResearchManager {
             serde_json::to_string(&settings)
                 .map_err(|error| format!("序列化股票设置失败：{error}"))?,
         );
-        let provider_keys = load_provider_keys()?;
+        command.env_remove("CALEN_STOCK_PROVIDER_KEYS");
+        let provider_keys = load_provider_keys(&settings)?;
         if !provider_keys.is_empty() {
             command.env(
                 "CALEN_STOCK_PROVIDER_KEYS",
@@ -570,14 +576,44 @@ fn get_provider_key(_provider_id: &str) -> Result<Option<String>, String> {
     Ok(None)
 }
 
-fn load_provider_keys() -> Result<HashMap<String, String>, String> {
+fn provider_is_enabled(settings: &Value, provider_id: &str) -> bool {
+    settings.get("enabled").and_then(Value::as_bool) != Some(false)
+        && settings
+            .get("providers")
+            .and_then(Value::as_array)
+            .is_some_and(|providers| {
+                providers.iter().any(|provider| {
+                    provider.get("id").and_then(Value::as_str) == Some(provider_id)
+                        && provider.get("enabled").and_then(Value::as_bool) == Some(true)
+                })
+            })
+}
+
+fn load_provider_keys_with<F>(
+    settings: &Value,
+    implemented_keyed_providers: &[&str],
+    mut read_key: F,
+) -> Result<HashMap<String, String>, String>
+where
+    F: FnMut(&str) -> Result<Option<String>, String>,
+{
     let mut keys = HashMap::new();
-    for provider in KEYED_PROVIDERS {
-        if let Some(value) = get_provider_key(provider)? {
-            keys.insert((*provider).to_string(), value);
+    for provider in implemented_keyed_providers {
+        if !KEYED_PROVIDERS.contains(provider) || !provider_is_enabled(settings, provider) {
+            continue;
+        }
+        if let Some(value) = read_key(provider)? {
+            let value = value.trim();
+            if !value.is_empty() {
+                keys.insert((*provider).to_string(), value.to_string());
+            }
         }
     }
     Ok(keys)
+}
+
+fn load_provider_keys(settings: &Value) -> Result<HashMap<String, String>, String> {
+    load_provider_keys_with(settings, IMPLEMENTED_KEYED_PROVIDERS, get_provider_key)
 }
 
 fn public_stock_settings() -> Result<Value, String> {
@@ -894,5 +930,61 @@ mod tests {
         assert_eq!(settings["cacheTtlMinutes"], 1440);
         assert!(settings.get("providerKeyUpdates").is_none());
         assert!(!settings.to_string().contains("secret"));
+    }
+
+    #[test]
+    fn provider_keys_include_only_enabled_implemented_provider() {
+        let settings = normalize_stock_settings(json!({
+            "enabled": true,
+            "providers": [{ "id": "tushare", "enabled": true }]
+        }));
+        let keys = load_provider_keys_with(&settings, &["tushare"], |provider| {
+            assert_eq!(provider, "tushare");
+            Ok(Some("  tushare-secret  ".to_string()))
+        })
+        .expect("load provider keys");
+
+        assert_eq!(keys.get("tushare").map(String::as_str), Some("tushare-secret"));
+    }
+
+    #[test]
+    fn provider_keys_skip_disabled_provider_even_when_key_is_saved() {
+        let settings = normalize_stock_settings(json!({
+            "enabled": true,
+            "providers": [{ "id": "tushare", "enabled": false }]
+        }));
+        let keys = load_provider_keys_with(&settings, &["tushare"], |_provider| {
+            Ok(Some("saved-secret".to_string()))
+        })
+        .expect("load provider keys");
+
+        assert!(keys.is_empty());
+    }
+
+    #[test]
+    fn provider_keys_skip_unimplemented_and_unconfigured_providers() {
+        let settings = normalize_stock_settings(json!({
+            "enabled": true,
+            "providers": [
+                { "id": "zzshare", "enabled": true },
+                { "id": "tushare", "enabled": true }
+            ]
+        }));
+        let mut requested = Vec::new();
+        let keys = load_provider_keys_with(&settings, &["tushare"], |provider| {
+            requested.push(provider.to_string());
+            Ok(match provider {
+                // A saved key for an unimplemented provider must never be
+                // considered by the production allow-list.
+                "zzshare" => Some("unimplemented-secret".to_string()),
+                // Simulate a provider with no credential in the keyring.
+                "tushare" => None,
+                _ => None,
+            })
+        })
+        .expect("load provider keys");
+
+        assert!(keys.is_empty());
+        assert_eq!(requested, vec!["tushare"]);
     }
 }

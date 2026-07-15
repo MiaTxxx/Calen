@@ -57,6 +57,67 @@ export interface TechnicalAnalysis {
   trend: "bullish" | "neutral" | "bearish";
 }
 
+export interface ResearchAnalysisMetadata {
+  algorithm: {
+    id: "calen.research-analytics";
+    version: "1.0.0";
+    parameters: Record<string, unknown>;
+  };
+  sample: {
+    start: string | null;
+    end: string | null;
+    bars: number;
+    coverage: number;
+  };
+  benchmark: {
+    name: "buy-and-hold";
+    returnPercent: number | null;
+  };
+  limitations: string[];
+}
+
+export function createResearchAnalysisMetadata(
+  bars: PriceBar[],
+  requestedBars: number
+): ResearchAnalysisMetadata {
+  const firstClose = bars[0]?.close;
+  const lastClose = bars.at(-1)?.close;
+  const benchmarkReturn =
+    firstClose !== undefined && lastClose !== undefined && firstClose !== 0
+      ? round((lastClose / firstClose - 1) * 100, 2)
+      : null;
+  return {
+    algorithm: {
+      id: "calen.research-analytics",
+      version: "1.0.0",
+      parameters: {
+        smaWindows: [5, 20],
+        rsiPeriod: 14,
+        emaWindows: [12, 26],
+        volatilityAnnualizationPeriods: 252,
+        scoreFactors: ["trend", "rsi14", "macd", "20-bar-momentum"],
+        minimumBars: 20,
+      },
+    },
+    sample: {
+      start: bars[0]?.time ?? null,
+      end: bars.at(-1)?.time ?? null,
+      bars: bars.length,
+      coverage:
+        requestedBars > 0 ? round(Math.min(1, bars.length / requestedBars)) : 0,
+    },
+    benchmark: {
+      name: "buy-and-hold",
+      returnPercent: benchmarkReturn,
+    },
+    limitations: [
+      "实验性量化研究结果，不构成投资建议。",
+      "结果仅基于本次返回的历史 K 线样本，不代表完整市场周期。",
+      "基准为同一样本区间的买入并持有，不包含税费、滑点和公司行动调整。",
+    ],
+  };
+}
+
 export function analyzeTechnicals(bars: PriceBar[]): TechnicalAnalysis {
   const closes = bars.map((bar) => bar.close);
   const sma5 = simpleMovingAverage(closes, 5);
@@ -122,12 +183,22 @@ export function evaluateResearch(
     technical,
     score: {
       value: score,
-      algorithm: "calen.technical-score@1.0.0",
+      algorithm: {
+        id: "calen.technical-score",
+        version: "1.0.0",
+        parameters: {
+          factors: ["trend", "rsi14", "macd", "20-bar-momentum"],
+        },
+      },
       factors: ["trend", "rsi14", "macd", "20-bar-momentum"],
     },
     evaluator: {
       id: "calen.rule-evaluator",
       version: "1.0.0",
+      parameters: {
+        positiveThreshold: 65,
+        cautiousThreshold: 40,
+      },
       rating,
       confidence: round(Math.min(1, Math.abs(score - 50) / 50), 2),
       disclaimer: "实验性量化研究结果，不构成投资建议。",

@@ -1,14 +1,14 @@
 # CI/CD 与发布
 
-本文档描述当前自动化发布链路：CI 检查、Gateway Docker 镜像、用户自部署 Gateway、桌面端 Windows/Linux Release，以及可选的 macOS Release。
+本文档描述当前自动化发布链路：CI 检查、Gateway Docker 镜像、用户自部署 Gateway，以及桌面端 Windows x64 Release。
 
 ## 自动化入口
 
-| 入口                    | Workflow                                | 动作                                                                                                                     |
-| ----------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| PR / `main` push        | `.github/workflows/ci.yml`              | 跑 Gateway、WebUI、GUI、Tauri Rust 测试和 proto 一致性检查。                                                             |
-| `v*` tag / 手动指定 tag | `.github/workflows/gateway-docker.yml`  | 构建并推送 `vX.Y.Z` 与 `latest` Gateway 镜像。                                                                           |
-| `v*` tag / 手动指定 tag | `.github/workflows/desktop-release.yml` | 默认并行构建 Windows x64 和 Linux x64 桌面包；显式启用后同时构建 macOS Intel 和 Apple Silicon，并上传到 GitHub Release。 |
+| 入口                    | Workflow                                | 动作                                                                                                |
+| ----------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| PR / `main` push        | `.github/workflows/ci.yml`              | 跑 Gateway、WebUI、GUI、Tauri Rust 测试和 proto 一致性检查。                                        |
+| `v*` tag / 手动指定 tag | `.github/workflows/gateway-docker.yml`  | 构建并推送 `vX.Y.Z` 与 `latest` Gateway 镜像。                                                      |
+| `v*` tag / 手动指定 tag | `.github/workflows/desktop-release.yml` | 构建 Windows x64 的 Setup.exe、MSI、签名和 Windows-only updater manifest，并上传到 GitHub Release。 |
 
 ## Gateway 镜像
 
@@ -75,69 +75,28 @@ Gateway 运行时变量由用户在自己的平台配置：
 
 Gateway 的 conversation stream replay 与 `client_request_id` 去重当前都是进程内有界状态，不需要 SQLite 持久卷。事件窗口默认保留最近 10 分钟、最多 4096 条或约 8 MiB；command 去重记录保留 24 小时，但 Gateway 进程重启后不会保留。
 
-## GitHub Variables
+## GitHub Variables 与 Secrets
 
-macOS Release 默认关闭，避免在尚未配置 Apple 签名和公证凭据时阻塞 Windows/Linux 发布。需要发布 macOS 包时，在仓库 `Settings -> Secrets and variables -> Actions -> Variables` 中设置：
+公开桌面 Release 必须先完成股票数据源条款审核，并在仓库 `Settings -> Secrets and variables -> Actions` 配置：
 
-| Variable                     | 值     | 说明                                                  |
-| ---------------------------- | ------ | ----------------------------------------------------- |
-| `CALEN_ENABLE_MACOS_RELEASE` | `true` | 启用两个 macOS 构建任务；未设置或不是 `true` 时跳过。 |
+| 类型     | 名称                                  | 说明                                                                          |
+| -------- | ------------------------------------- | ----------------------------------------------------------------------------- |
+| Variable | `CALEN_STOCK_PROVIDER_TERMS_APPROVED` | 仅在取得书面授权或正式合规批准后设置为 `true`；否则 workflow 会在构建前停止。 |
+| Secret   | `TAURI_SIGNING_PRIVATE_KEY`           | Tauri updater 私钥，用于生成安装器和 updater 产物的签名。                     |
+| Secret   | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`  | Tauri updater 私钥密码；私钥无密码时可为空。                                  |
+| Secret   | `TAURI_UPDATER_PUBLIC_KEY`            | Tauri updater 公钥，会注入 Tauri 配置并编译进桌面端，用于校验更新包。         |
 
-启用前必须先配置下方全部 Apple secrets。macOS 未启用时，发布 job 仍会在 Windows 和 Linux 成功后创建 GitHub Release，生成的 `latest.json` 只包含实际存在的平台。
-
-## GitHub Secrets
-
-macOS signed/notarized release 需要这些 secrets：
-
-| Secret                               | 说明                                                      |
-| ------------------------------------ | --------------------------------------------------------- |
-| `APPLE_CERTIFICATE_P12_BASE64`       | Developer ID Application `.p12` 的 base64。               |
-| `APPLE_CERTIFICATE_PASSWORD`         | 导出 `.p12` 时设置的密码。                                |
-| `APPLE_SIGNING_IDENTITY`             | 你自己的 `Developer ID Application: <name> (<team-id>)`。 |
-| `APPLE_ID`                           | Apple Developer 账号邮箱。                                |
-| `APPLE_TEAM_ID`                      | 你自己的 Apple Developer Team ID。                        |
-| `APPLE_APP_SPECIFIC_PASSWORD`        | Apple app-specific password。                             |
-| `TAURI_SIGNING_PRIVATE_KEY`          | Tauri updater 私钥，用于生成 release 更新包签名。         |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Tauri updater 私钥密码；无密码时可为空。                  |
-| `TAURI_UPDATER_PUBLIC_KEY`           | Tauri updater 公钥，会编译进桌面端用于校验更新包。        |
-
-脚本化写入 GitHub 配置：
-
-```bash
-BOOTSTRAP_APPLE_SECRETS=1 \
-APPLE_CERTIFICATE_PASSWORD=<p12-export-password> \
-  scripts/release/bootstrap-github-secrets.sh
-```
-
-如果 `CERT_DIR/developer_id_application.p12` 不存在，脚本会从本机 Keychain 中由 `APPLE_SIGNING_IDENTITY` 指定的 Developer ID Application identity 自动导出，并生成 `.p12` 密码写入 GitHub Secret。`CERT_DIR` 默认优先使用 `~/Personal/cert`，不存在时使用 `~/Downloads/cert`。已有 `.p12` 时需要传入 `APPLE_CERTIFICATE_PASSWORD=<p12-password>`。
-
-如果自动导出失败，先确认本机能看到可签名 identity：
-
-```bash
-security find-identity -v -p codesigning "$HOME/Library/Keychains/login.keychain-db"
-```
-
-Keychain 中必须是带私钥的 `Developer ID Application` identity。若 macOS 拒绝私钥导出，可以在 Keychain Access 中手动导出 `.p12` 到 `P12_PATH`，再用同一个 `APPLE_CERTIFICATE_PASSWORD` 重新运行脚本。
-
-脚本默认读取：
-
-| 文件                                    | 用途                          |
-| --------------------------------------- | ----------------------------- |
-| `CERT_DIR/developer_id_application.p12` | CI 导入的签名 identity。      |
-| `CERT_DIR/app key.md`                   | Apple app-specific password。 |
+Provider 条款依据、上线边界和停止条件见 `docs/provider-compliance-review.md`。首版不配置 Authenticode 证书，因此 Windows 可能显示“未知发布者”；这不影响 Tauri updater 对下载产物做密码学签名校验。
 
 ## 桌面产物
 
 `desktop-release.yml` 产物：
 
-| 平台                        | Runner           | 产物                                                                                                        |
-| --------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------- |
-| macOS Intel（可选）         | `macos-15-intel` | `Calen-vX.Y.Z-macOS-x64.dmg`，以及 updater 使用的 `.app.tar.gz` / `.sig`。                                  |
-| macOS Apple Silicon（可选） | `macos-14`       | `Calen-vX.Y.Z-macOS-aarch64.dmg`，以及 updater 使用的 `.app.tar.gz` / `.sig`。                              |
-| Windows x64                 | `windows-latest` | `Calen-vX.Y.Z-Windows-x64.msi`、`Calen-vX.Y.Z-Windows-x64-Setup.exe`，以及 updater 使用的 `.zip` / `.sig`。 |
-| Linux x64                   | `ubuntu-latest`  | `Calen-vX.Y.Z-Linux-x86_64.AppImage`、`.deb`、`.rpm`，以及 updater 使用的 `.tar.gz` / `.sig`。              |
+| 平台        | Runner           | 产物                                                                                                                         |
+| ----------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Windows x64 | `windows-latest` | `Calen-vX.Y.Z-Windows-x64.msi`、`Calen-vX.Y.Z-Windows-x64-Setup.exe`、各自 `.sig`，以及只包含 Windows 平台的 `latest.json`。 |
 
-发布 job 会在上传平台产物后生成并上传 `latest.json`。桌面端「设置 -> 关于」会根据用户是否允许预发布，从 GitHub Releases 中筛选带 `latest.json` 的正式 / 预发布版本；未允许预发布时只检查正式 Release。
+发布 job 会在上传 Windows 产物后生成并上传 Windows-only `latest.json`。桌面端「设置 -> 关于」会根据用户是否允许预发布，从 GitHub Releases 中筛选带 `latest.json` 的正式 / 预发布版本；未允许预发布时只检查正式 Release。首版不发布 portable、Linux 或 macOS 桌面包。
 
 ## 桌面版本号来源
 
