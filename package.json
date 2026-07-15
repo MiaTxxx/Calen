@@ -1,0 +1,16 @@
+{
+  "name": "calen-workspace",
+  "private": true,
+  "scripts": {
+    "prepare": "husky",
+    "typecheck": "pnpm --dir crates/agent-gui exec tsc --noEmit && pnpm --dir crates/agent-gateway/web exec tsc --noEmit",
+    "test": "pnpm run test:gui && pnpm run test:gateway",
+    "test:gui": "pnpm --dir crates/agent-gui test:release && pnpm --dir crates/agent-gui exec node --test test/i18n/translations.test.mjs",
+    "test:gateway": "pnpm --dir crates/agent-gateway/web test"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.8",
+    "prettier": "^3.9.5"
+  }
+}
