@@ -25,7 +25,7 @@ type ChatSidebarContainerProps = {
   currentConversationId: string;
   isOpen: boolean;
   fontScale?: number;
-  activeView: "chat" | "skills-hub" | "mcp-hub";
+  activeView: "chat" | "skills-hub" | "mcp-hub" | "stock-hub";
   showProjects: boolean;
   // Merged (settings ∪ history workdirs) but unsorted — the container sorts
   // with the store's activity/running inputs.
@@ -61,6 +61,7 @@ type ChatSidebarContainerProps = {
   onCloseSidebar: () => void;
   onOpenSkillsHub: () => void;
   onOpenMcpHub: () => void;
+  onOpenStockHub: () => void;
 };
 
 function selectMutations(snapshot: SidebarSnapshot) {
@@ -224,6 +225,7 @@ export function ChatSidebarContainer(props: ChatSidebarContainerProps) {
       onCloseSidebar={props.onCloseSidebar}
       onOpenSkillsHub={props.onOpenSkillsHub}
       onOpenMcpHub={props.onOpenMcpHub}
+      onOpenStockHub={props.onOpenStockHub}
     />
   );
 }

@@ -1,11 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  BacktestResult,
+  EncryptedStockBackupEnvelope,
   InstrumentRef,
   MarketBrief,
+  MarketBriefRequest,
   PortfolioSnapshot,
   QuoteSnapshot,
   ResearchBundle,
   StockBacktestRequest,
+  StockBackupRestoreMode,
   StockEvidenceResult,
   StockResearchPort,
   StockResearchRequest,
@@ -14,10 +18,6 @@ import type {
   StockSettings,
   StockSettingsSavePayload,
   StockSnapshotRequest,
-  MarketBriefRequest,
-  BacktestResult,
-  EncryptedStockBackupEnvelope,
-  StockBackupRestoreMode,
 } from "./types";
 
 const commands = {

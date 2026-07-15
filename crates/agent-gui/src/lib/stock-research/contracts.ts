@@ -24,7 +24,10 @@ export function formatStockError(error: unknown): string {
 }
 
 export function sanitizeCsvFileName(value: string): string {
-  const normalized = value.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-");
+  const normalized = Array.from(value.trim(), (character) => {
+    const code = character.charCodeAt(0);
+    return code <= 31 || '<>:"/\\|?*'.includes(character) ? "-" : character;
+  }).join("");
   return normalized || "calen-portfolio.csv";
 }
 

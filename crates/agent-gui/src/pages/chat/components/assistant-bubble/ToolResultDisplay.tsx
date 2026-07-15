@@ -27,6 +27,7 @@ import type {
   ReadPdfResultDetails,
   ReadTextResultDetails,
   SkillsManagerResultDetails,
+  StockToolResultDetails,
   WriteResultDetails,
 } from "../../../../lib/tools/builtinTypes";
 import {
@@ -239,7 +240,12 @@ export function ToolResultDisplay({
             { label: "exit", value: String(shellDetails.exit_code) },
             { label: "duration", value: `${shellDetails.duration_ms} ms` },
             ...(typeof shellDetails.effective_timeout_ms === "number"
-              ? [{ label: "timeout_ms", value: `${shellDetails.effective_timeout_ms}` }]
+              ? [
+                  {
+                    label: "timeout_ms",
+                    value: `${shellDetails.effective_timeout_ms}`,
+                  },
+                ]
               : []),
             {
               label: "stdout",
@@ -254,6 +260,74 @@ export function ToolResultDisplay({
           ]}
         />
       </ToolSurface>
+    );
+  }
+
+  if (kind === "stock_result") {
+    const details = result.details as StockToolResultDetails;
+    const instrumentLabel = [
+      details.instrument?.displayName,
+      details.instrument?.symbol,
+      details.instrument?.market,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return (
+      <div className="space-y-2">
+        <ToolSurface className="border-emerald-500/15 bg-emerald-500/[0.035] dark:bg-emerald-400/[0.04]">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-[calc(12px*var(--zone-font-scale,1))] font-semibold text-foreground/85">
+                {instrumentLabel || "Calen 股票研究"}
+              </div>
+              <div className="mt-0.5 text-[calc(10px*var(--zone-font-scale,1))] text-muted-foreground/65">
+                {details.experimental
+                  ? "实验性研究结果 · 不构成投资建议"
+                  : "证据化研究结果 · 不构成投资建议"}
+              </div>
+            </div>
+            <span
+              className={cn(
+                "rounded-full px-2 py-1 text-[calc(10px*var(--zone-font-scale,1))] font-semibold uppercase tracking-[0.12em]",
+                details.status === "ok"
+                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
+                  : details.status === "partial"
+                    ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                    : "bg-rose-500/10 text-rose-700 dark:text-rose-300",
+              )}
+            >
+              {details.status ?? "unknown"}
+            </span>
+          </div>
+          <MetaTags
+            tags={[
+              { label: "operation", value: details.operation },
+              ...(details.asOf ? [{ label: "as of", value: details.asOf }] : []),
+              ...(details.retrievedAt ? [{ label: "retrieved", value: details.retrievedAt }] : []),
+              ...(typeof details.cached === "boolean"
+                ? [{ label: "cache", value: details.cached ? "hit" : "live" }]
+                : []),
+              ...(details.sources ?? []).slice(0, 4).map((source) => ({
+                label: "source",
+                value: source.label || source.provider || "unknown",
+              })),
+            ]}
+          />
+        </ToolSurface>
+        {(details.warnings?.length ?? 0) > 0 ? (
+          <ToolSurface className="border-amber-500/15 bg-amber-500/[0.04]">
+            <ToolSurfaceLabel label="数据警告" />
+            <ul className="space-y-1 text-[calc(11px*var(--zone-font-scale,1))] leading-relaxed text-amber-800/85 dark:text-amber-200/80">
+              {details.warnings?.slice(0, 6).map((warning) => (
+                <li key={warning}>• {warning}</li>
+              ))}
+            </ul>
+          </ToolSurface>
+        ) : null}
+        <ToolSection label="结构化结果">
+          <CodePreview text={safeStringify(details.result)} maxChars={12000} />
+        </ToolSection>
+      </div>
     );
   }
 
@@ -272,7 +346,10 @@ export function ToolResultDisplay({
                     ? `${details.startLine}-${details.startLine + details.numLines - 1}/${details.totalLines}`
                     : `empty/${details.totalLines}`,
               },
-              { label: "view", value: details.isPartialView ? "partial" : "full" },
+              {
+                label: "view",
+                value: details.isPartialView ? "partial" : "full",
+              },
               ...(details.truncated ? [{ label: "truncated", value: "true" }] : []),
               ...(details.reusedExisting ? [{ label: "cache", value: "unchanged" }] : []),
             ]}
@@ -322,15 +399,30 @@ export function ToolResultDisplay({
                 ? [{ label: "skills", value: String(details.skillsCount) }]
                 : []),
               ...(typeof details.installedCount === "number"
-                ? [{ label: "installed", value: String(details.installedCount) }]
+                ? [
+                    {
+                      label: "installed",
+                      value: String(details.installedCount),
+                    },
+                  ]
                 : []),
               ...(details.createdName ? [{ label: "created", value: details.createdName }] : []),
               ...(typeof details.clawhubResultCount === "number"
-                ? [{ label: "clawhub", value: String(details.clawhubResultCount) }]
+                ? [
+                    {
+                      label: "clawhub",
+                      value: String(details.clawhubResultCount),
+                    },
+                  ]
                 : []),
               ...(details.clawhubSlug ? [{ label: "slug", value: details.clawhubSlug }] : []),
               ...(typeof details.validationOk === "boolean"
-                ? [{ label: "valid", value: details.validationOk ? "true" : "false" }]
+                ? [
+                    {
+                      label: "valid",
+                      value: details.validationOk ? "true" : "false",
+                    },
+                  ]
                 : []),
               ...(details.packageArchive
                 ? [{ label: "archive", value: details.packageArchive }]
@@ -374,10 +466,20 @@ export function ToolResultDisplay({
                 ? [{ label: "tools", value: String(details.toolsCount) }]
                 : []),
               ...(typeof details.changed === "boolean"
-                ? [{ label: "changed", value: details.changed ? "true" : "false" }]
+                ? [
+                    {
+                      label: "changed",
+                      value: details.changed ? "true" : "false",
+                    },
+                  ]
                 : []),
               ...(typeof details.stopped === "boolean"
-                ? [{ label: "stopped", value: details.stopped ? "true" : "false" }]
+                ? [
+                    {
+                      label: "stopped",
+                      value: details.stopped ? "true" : "false",
+                    },
+                  ]
                 : []),
             ]}
           />
@@ -504,7 +606,10 @@ export function ToolResultDisplay({
           <MetaTags
             tags={[
               ...filePathTags(details),
-              { label: "target", value: details.existedBefore ? "existing" : "new" },
+              {
+                label: "target",
+                value: details.existedBefore ? "existing" : "new",
+              },
               { label: "bytes", value: String(details.bytesWritten) },
               { label: "lines", value: String(details.totalLines) },
             ]}
@@ -614,7 +719,10 @@ export function ToolResultDisplay({
               { label: "matches", value: String(details.matchCount) },
               { label: "files", value: String(details.fileCount) },
               ...(details.offset > 0 ? [{ label: "offset", value: String(details.offset) }] : []),
-              { label: "state", value: details.hasMore ? "partial" : "complete" },
+              {
+                label: "state",
+                value: details.hasMore ? "partial" : "complete",
+              },
             ]}
           />
         </ToolSurface>

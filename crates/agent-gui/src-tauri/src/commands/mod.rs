@@ -30,6 +30,7 @@ pub use history_commands::subagent_store;
 pub use integration_commands::gateway;
 pub use integration_commands::mcp;
 pub use integration_commands::memory;
+pub use integration_commands::stock;
 
 pub use runtime_commands::process;
 pub use runtime_commands::sftp;
@@ -39,3 +40,5 @@ pub use runtime_commands::terminal;
 pub use workspace_commands::fs;
 pub use workspace_commands::git;
 pub use workspace_commands::subagent_worktree;
+
+pub mod stock_portfolio;

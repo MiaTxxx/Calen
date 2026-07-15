@@ -25,27 +25,27 @@ import {
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
+import { cn } from "../../lib/shared/utils";
 import {
   type AsyncResource,
   type BacktestResult,
   type EncryptedStockBackupEnvelope,
+  formatStockError,
   type InstrumentRef,
   type MarketBrief,
   type PortfolioSnapshot,
+  parseFiniteNumber,
   type QuoteSnapshot,
   type ResearchBundle,
+  type StockBackupRestoreMode,
   type StockEvidenceResult,
   type StockResultStatus,
   type StockServiceStatus,
-  type StockBackupRestoreMode,
   type StockSettings,
   type StockSettingsSavePayload,
-  formatStockError,
-  parseFiniteNumber,
   sanitizeCsvFileName,
   stockResearch,
 } from "../../lib/stock-research";
-import { cn } from "../../lib/shared/utils";
 import { StockChart } from "./StockChart";
 
 export type StockHubView =
@@ -180,10 +180,14 @@ function ResearchView() {
   const [selected, setSelected] = useState<InstrumentRef | null>(null);
   const [snapshot, setSnapshot] = useState<
     AsyncResource<StockEvidenceResult<QuoteSnapshot>>
-  >({ state: "idle" });
+  >({
+    state: "idle",
+  });
   const [research, setResearch] = useState<
     AsyncResource<StockEvidenceResult<ResearchBundle>>
-  >({ state: "idle" });
+  >({
+    state: "idle",
+  });
 
   async function search(event: FormEvent) {
     event.preventDefault();
@@ -416,7 +420,9 @@ function ResearchCard({
 function MarketView() {
   const [brief, setBrief] = useState<
     AsyncResource<StockEvidenceResult<MarketBrief>>
-  >({ state: "idle" });
+  >({
+    state: "idle",
+  });
   const load = useCallback(async () => {
     setBrief({ state: "loading" });
     try {
@@ -862,7 +868,9 @@ function LabView() {
   const [period, setPeriod] = useState("20");
   const [result, setResult] = useState<
     AsyncResource<StockEvidenceResult<BacktestResult>>
-  >({ state: "idle" });
+  >({
+    state: "idle",
+  });
   async function run(event: FormEvent) {
     event.preventDefault();
     const parsedPeriod = parseFiniteNumber(period);
@@ -967,7 +975,8 @@ function BacktestCard({
 }: {
   result: StockEvidenceResult<BacktestResult>;
 }) {
-  const data = result.data!;
+  const data = result.data;
+  if (!data) return null;
   return (
     <GlassPanel>
       <EvidenceHeader result={result} title="回测结果" />
@@ -1580,12 +1589,12 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label className="block">
+    <div className="block">
       <span className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
         {label}
       </span>
       {children}
-    </label>
+    </div>
   );
 }
 function Metric({ label, value }: { label: string; value: string }) {

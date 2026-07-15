@@ -30,6 +30,7 @@ import { createShellTools } from "./shellTools";
 import type { SkillAccessPolicy } from "./skillAccessPolicy";
 import { createSkillTools } from "./skillTools";
 import { createSSHManagerTools, type SshManagerSessionChange } from "./sshManagerTools";
+import { createStockResearchTools } from "./stockResearchTools";
 import type { SystemToolId, SystemToolRuntimeScope } from "./systemToolOptions";
 import { createTerminalTools } from "./terminalTools";
 import { createTodoTools, type TodoToolState } from "./todoTools";
@@ -260,10 +261,11 @@ export async function buildBuiltinToolRegistry(
     params.runtimeScope === "chat" && params.todoState
       ? [createTodoTools({ state: params.todoState })]
       : [];
+  const stockBundles = [createStockResearchTools({ runtimeScope: params.runtimeScope })];
 
   const subagentRuntime = params.subagentRuntime;
   if (!subagentRuntime) {
-    return createBuiltinToolRegistry([...baseBundles, ...todoBundles]);
+    return createBuiltinToolRegistry([...baseBundles, ...stockBundles, ...todoBundles]);
   }
 
   const baseRegistry = createBuiltinToolRegistry(baseBundles);
@@ -282,7 +284,9 @@ export async function buildBuiltinToolRegistry(
         senderName: "Parent Agent",
       })
     : null;
-  const parentBundles = parentMessageBundle ? [...baseBundles, parentMessageBundle] : baseBundles;
+  const parentBundles = parentMessageBundle
+    ? [...baseBundles, ...stockBundles, parentMessageBundle]
+    : [...baseBundles, ...stockBundles];
   return createBuiltinToolRegistry([
     ...parentBundles,
     ...todoBundles,

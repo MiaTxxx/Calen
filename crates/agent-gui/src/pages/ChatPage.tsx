@@ -246,6 +246,7 @@ import { ChatSidebarContainer } from "./chat/sidebar/ChatSidebarContainer";
 import { McpHubPage } from "./mcp-hub/McpHubPage";
 import type { SectionId } from "./settings/types";
 import { SkillsHubPage } from "./skills-hub/SkillsHubPage";
+import { StockHubPage } from "./stock-hub";
 
 const WorkspaceCodeEditorOverlay = lazy(async () => {
   await preparePreferredMonacoNlsLocale();
@@ -613,7 +614,9 @@ export function ChatPage(props: ChatPageProps) {
   const [conversationState, setConversationState] = useState<ConversationViewState>(
     () => initialConversationStateRef.current,
   );
-  const [compactionStatus, setCompactionStatus] = useState<CompactionStatus>({ phase: "idle" });
+  const [compactionStatus, setCompactionStatus] = useState<CompactionStatus>({
+    phase: "idle",
+  });
   const [isSending, setIsSending] = useState(false);
   const [isImportingPastedText, setIsImportingPastedText] = useState(false);
   const isImportingPastedTextRef = useRef(false);
@@ -708,7 +711,9 @@ export function ChatPage(props: ChatPageProps) {
   }, [sidebarScope, sidebarStore]);
   const historyScopeKey = sidebarScopeKey(sidebarScope);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [activeView, setActiveView] = useState<"chat" | "skills-hub" | "mcp-hub">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "skills-hub" | "mcp-hub" | "stock-hub">(
+    "chat",
+  );
   const [rightDockOpen, setRightDockOpen] = useState(false);
   const previousRightDockFileTreeOpenRef = useRef(false);
   const [workspaceEditorMounted, setWorkspaceEditorMounted] = useState(false);
@@ -2514,7 +2519,10 @@ export function ChatPage(props: ChatPageProps) {
           return;
         }
         runQueuedTurnNow(item.id);
-        respond(requestId, { accepted: true, snapshotJson: snapshotJson(conversationId) });
+        respond(requestId, {
+          accepted: true,
+          snapshotJson: snapshotJson(conversationId),
+        });
         return;
       }
 
@@ -2525,7 +2533,10 @@ export function ChatPage(props: ChatPageProps) {
         }
         const direction = request.direction === "down" ? "down" : "up";
         setQueuedChatTurnsState((current) => moveQueuedChatTurn(current, item.id, direction));
-        respond(requestId, { accepted: true, snapshotJson: snapshotJson(conversationId) });
+        respond(requestId, {
+          accepted: true,
+          snapshotJson: snapshotJson(conversationId),
+        });
         return;
       }
 
@@ -2535,7 +2546,10 @@ export function ChatPage(props: ChatPageProps) {
           return;
         }
         removeQueuedTurn(item.id);
-        respond(requestId, { accepted: true, snapshotJson: snapshotJson(conversationId) });
+        respond(requestId, {
+          accepted: true,
+          snapshotJson: snapshotJson(conversationId),
+        });
         return;
       }
 
@@ -2591,7 +2605,10 @@ export function ChatPage(props: ChatPageProps) {
         setQueuedChatTurnsState((current) =>
           insertQueuedChatTurnAtSlot(current, session.item, session.slot),
         );
-        respond(requestId, { accepted: true, snapshotJson: snapshotJson(conversationId) });
+        respond(requestId, {
+          accepted: true,
+          snapshotJson: snapshotJson(conversationId),
+        });
         return;
       }
 
@@ -2633,7 +2650,10 @@ export function ChatPage(props: ChatPageProps) {
         setQueuedChatTurnsState((current) =>
           insertQueuedChatTurnAtSlot(current, nextItem, session.slot),
         );
-        respond(requestId, { accepted: true, snapshotJson: snapshotJson(conversationId) });
+        respond(requestId, {
+          accepted: true,
+          snapshotJson: snapshotJson(conversationId),
+        });
         return;
       }
 
@@ -3091,7 +3111,10 @@ export function ChatPage(props: ChatPageProps) {
       ]),
     );
     for (const run of activeGatewayRuntimeRunsRef.current.values()) {
-      void queueGatewayRuntimeSnapshotForRun(run, { state: run.state, force: true });
+      void queueGatewayRuntimeSnapshotForRun(run, {
+        state: run.state,
+        force: true,
+      });
     }
   }, [canShareHistory, remoteRuntimeStatus.connectedSince, remoteRuntimeStatus.sessionId]);
 
@@ -3796,7 +3819,10 @@ export function ChatPage(props: ChatPageProps) {
           transcriptStore,
           toolStatusIsCompaction: false,
         });
-        void queueGatewayRuntimeSnapshotForRun(run, { state: "running", force: true });
+        void queueGatewayRuntimeSnapshotForRun(run, {
+          state: "running",
+          force: true,
+        });
       }
     }
     function markConversationRunStarted() {
@@ -3986,7 +4012,10 @@ export function ChatPage(props: ChatPageProps) {
     function buildPreparedContext(
       state: ConversationViewState,
       tools?: Context["tools"],
-      options?: { includeAbortedMessages?: boolean; includeUploadedFilesMetadata?: boolean },
+      options?: {
+        includeAbortedMessages?: boolean;
+        includeUploadedFilesMetadata?: boolean;
+      },
     ): Context {
       return buildPreparedConversationContext({
         state,
@@ -4003,7 +4032,10 @@ export function ChatPage(props: ChatPageProps) {
       state: ConversationViewState,
       resumeMessage?: UserMessage,
       tools?: Context["tools"],
-      options?: { includeAbortedMessages?: boolean; includeUploadedFilesMetadata?: boolean },
+      options?: {
+        includeAbortedMessages?: boolean;
+        includeUploadedFilesMetadata?: boolean;
+      },
     ): Context {
       return buildResumeConversationContext({
         state,
@@ -5067,6 +5099,11 @@ export function ChatPage(props: ChatPageProps) {
             setRightDockOpen(false);
             setActiveView("mcp-hub");
           }}
+          onOpenStockHub={() => {
+            cacheActiveComposerDraft();
+            setRightDockOpen(false);
+            setActiveView("stock-hub");
+          }}
         />
 
         {shareConversation ? (
@@ -5137,6 +5174,8 @@ export function ChatPage(props: ChatPageProps) {
               sidebarOpen={sidebarOpen}
               onOpenSidebar={handleOpenSidebar}
             />
+          ) : activeView === "stock-hub" ? (
+            <StockHubPage sidebarOpen={sidebarOpen} onOpenSidebar={handleOpenSidebar} />
           ) : (
             <>
               <MacOsTitleBarSpacer />

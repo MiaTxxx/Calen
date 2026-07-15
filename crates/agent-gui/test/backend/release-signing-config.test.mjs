@@ -63,15 +63,19 @@ test("release validation requires explicit updater signing keys", () => {
   assert.equal(configured.status, 0, configured.stderr);
 });
 
-test("desktop release treats macOS as an explicit opt-in platform", () => {
+test("desktop release publishes only Windows installers and a Windows updater manifest", () => {
+  assert.doesNotMatch(releaseWorkflow, /^\s{2}macos:/m);
+  assert.doesNotMatch(releaseWorkflow, /^\s{2}linux:/m);
+  assert.doesNotMatch(releaseWorkflow, /portable\.zip|Windows-x64-portable/);
+  assert.match(releaseWorkflow, /NODE_VERSION: 24/);
   assert.match(
     releaseWorkflow,
-    /macos:\s*\n\s+if: \$\{\{ vars\.CALEN_ENABLE_MACOS_RELEASE == 'true' \}\}/
+    /Calen-\$\{LIVEAGENT_RELEASE_TAG\}-Windows-x64-Setup\.exe/
   );
   assert.match(
     releaseWorkflow,
-    /needs\.macos\.result == 'success' \|\| needs\.macos\.result == 'skipped'/
+    /Calen-\$\{LIVEAGENT_RELEASE_TAG\}-Windows-x64\.msi/
   );
   assert.match(releaseWorkflow, /needs\.windows\.result == 'success'/);
-  assert.match(releaseWorkflow, /needs\.linux\.result == 'success'/);
+  assert.match(releaseWorkflow, /some\(k=>!k\.startsWith\("windows-"\)\)/);
 });

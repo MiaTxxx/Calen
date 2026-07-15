@@ -32,6 +32,7 @@ import {
   SquarePen,
   Trash2,
   X,
+  Zap,
 } from "../icons";
 import { isMacOsTauri, MacOsTitleBarSpacer } from "../MacOsTitleBarSpacer";
 import { Button } from "../ui/button";
@@ -65,7 +66,7 @@ type ChatHistorySidebarProps = {
   renameDraft: string;
   isOpen: boolean;
   fontScale?: number;
-  activeView?: "chat" | "skills-hub" | "mcp-hub";
+  activeView?: "chat" | "skills-hub" | "mcp-hub" | "stock-hub";
   showProjects?: boolean;
   // Pre-sorted by the container (activity/running/pinned) — rendered as-is.
   projects?: WorkspaceProject[];
@@ -105,6 +106,7 @@ type ChatHistorySidebarProps = {
   onCloseSidebar: () => void;
   onOpenSkillsHub?: () => void;
   onOpenMcpHub?: () => void;
+  onOpenStockHub?: () => void;
 };
 
 const HISTORY_ROW_ESTIMATED_HEIGHT = 44;
@@ -912,6 +914,7 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
     onCloseSidebar,
     onOpenSkillsHub,
     onOpenMcpHub,
+    onOpenStockHub,
   } = props;
   const { t } = useLocale();
 
@@ -1045,7 +1048,12 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
       ? `auto ${projectsBodyTrack} auto auto ${recentBodyTrack}`
       : `auto ${recentBodyTrack}`;
 
-    return { projectsBodyHeight, resizeMinHeight, resizeMaxHeight, gridTemplateRows };
+    return {
+      projectsBodyHeight,
+      resizeMinHeight,
+      resizeMaxHeight,
+      gridTemplateRows,
+    };
   }, [
     projectSectionHeight,
     projectsCollapsed,
@@ -1368,6 +1376,26 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
             <Button
               type="button"
               variant="ghost"
+              onClick={() => onOpenStockHub?.()}
+              className={cn(
+                "sidebar-hub-menu-item h-9 w-full justify-start gap-3 rounded-lg px-3 text-[calc(14px*var(--zone-font-scale,1))] font-normal leading-5 shadow-none transition-colors",
+                activeView === "stock-hub"
+                  ? "bg-foreground/[0.06] text-foreground hover:bg-foreground/[0.08] hover:text-foreground focus-visible:bg-foreground/[0.08]"
+                  : "text-foreground/80 hover:bg-foreground/[0.08] hover:text-foreground focus-visible:bg-foreground/[0.08]",
+              )}
+              title="股票研究"
+            >
+              <Zap
+                className={cn(
+                  "h-4 w-4 shrink-0",
+                  activeView === "stock-hub" ? "text-emerald-500" : "text-foreground/85",
+                )}
+              />
+              <span className="truncate">股票研究</span>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
               onClick={() => onOpenSkillsHub?.()}
               className={cn(
                 "sidebar-hub-menu-item h-9 w-full justify-start gap-3 rounded-lg px-3 text-[calc(14px*var(--zone-font-scale,1))] font-normal leading-5 shadow-none transition-colors",
@@ -1679,7 +1707,9 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
                             data-index={virtualRow.index}
                             ref={historyVirtualizer.measureElement}
                             className="absolute left-0 right-1 top-0 pb-1.5"
-                            style={{ transform: `translateY(${virtualRow.start}px)` }}
+                            style={{
+                              transform: `translateY(${virtualRow.start}px)`,
+                            }}
                           >
                             {renderHistoryRow(item)}
                           </div>

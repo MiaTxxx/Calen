@@ -1,5 +1,5 @@
-import { buildSparklinePath } from "../../lib/stock-research";
 import { cn } from "../../lib/shared/utils";
+import { buildSparklinePath } from "../../lib/stock-research";
 
 export function StockChart(props: {
   values: readonly number[];

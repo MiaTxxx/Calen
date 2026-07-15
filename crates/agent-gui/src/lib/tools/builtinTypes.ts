@@ -14,7 +14,8 @@ export type BuiltinToolGroupId =
   | "system"
   | "mcp"
   | "subagent"
-  | "memory";
+  | "memory"
+  | "stock";
 
 export type BuiltinToolDisplayCategory =
   | "file"
@@ -22,6 +23,7 @@ export type BuiltinToolDisplayCategory =
   | "terminal"
   | "system"
   | "mcp"
+  | "stock"
   | "other";
 
 export type BuiltinToolMetadata = {
@@ -371,6 +373,26 @@ export type TodoWriteResultDetails = {
   todos: TodoItem[];
 };
 
+export type StockToolResultDetails = {
+  kind: "stock_result";
+  operation: "resolve" | "snapshot" | "research" | "marketBrief" | "backtest" | "portfolio";
+  requestId: string;
+  status?: "ok" | "partial" | "unavailable";
+  instrument?: {
+    canonicalId?: string;
+    symbol?: string;
+    market?: string;
+    displayName?: string;
+  };
+  asOf?: string;
+  retrievedAt?: string;
+  cached?: boolean;
+  sources?: Array<{ provider?: string; label?: string; url?: string; asOf?: string }>;
+  warnings?: string[];
+  experimental?: boolean;
+  result: unknown;
+};
+
 export type BuiltinToolResultDetails =
   | ReadTextResultDetails
   | ReadImageResultDetails
@@ -390,4 +412,5 @@ export type BuiltinToolResultDetails =
   | GlobResultDetails
   | GrepResultDetails
   | TodoWriteResultDetails
+  | StockToolResultDetails
   | Record<string, unknown>;
