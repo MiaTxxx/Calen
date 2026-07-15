@@ -3,12 +3,19 @@ import type { ReactNode } from "react";
 
 import { Markdown } from "../../../../components/Markdown";
 import {
+  buildStockResultCardModel,
+  formatStockResultMetric,
+  type StockResultMetric,
+  type StockResultTrend,
+} from "../../../../lib/chat/messages/stockResultCard";
+import {
   previewText,
   safeStringify,
   type ToolTraceItem,
   toolResultMessageToText,
 } from "../../../../lib/chat/messages/uiMessages";
 import { cn } from "../../../../lib/shared/utils";
+import { buildSparklinePath } from "../../../../lib/stock-research/contracts";
 import type {
   SubagentBatchDetails,
   SubagentCardDetails,
@@ -217,6 +224,91 @@ function extractResultText(result?: ToolResultMessage) {
   return result ? toolResultMessageToText(result) : "";
 }
 
+function stockToneClass(tone: StockResultMetric["tone"] | StockResultTrend["tone"]) {
+  return tone === "up"
+    ? "text-red-600 dark:text-red-400"
+    : tone === "down"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : "text-foreground/80";
+}
+
+function StockResultMetrics({ metrics }: { metrics: StockResultMetric[] }) {
+  if (metrics.length === 0) return null;
+  return (
+    <ToolSection label="关键数据">
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+        {metrics.map((metric) => (
+          <ToolSurface key={metric.id} className="px-2.5 py-2">
+            <ToolSurfaceLabel label={metric.label} />
+            <div
+              className={cn(
+                "font-mono text-[calc(12px*var(--zone-font-scale,1))] font-semibold tabular-nums",
+                stockToneClass(metric.tone),
+              )}
+            >
+              {formatStockResultMetric(metric)}
+            </div>
+          </ToolSurface>
+        ))}
+      </div>
+    </ToolSection>
+  );
+}
+
+function StockResultTrendChart({ trend }: { trend: StockResultTrend }) {
+  const width = 640;
+  const height = 84;
+  const path = buildSparklinePath(trend.values, width, height - 12);
+  if (!path) return null;
+  return (
+    <ToolSection label={trend.label}>
+      <ToolSurface className="overflow-hidden px-2 py-2">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          role="img"
+          aria-label={trend.label}
+          className={cn("h-[84px] w-full", stockToneClass(trend.tone))}
+        >
+          {[0.25, 0.5, 0.75].map((ratio) => (
+            <line
+              key={ratio}
+              x1="0"
+              x2={width}
+              y1={height * ratio}
+              y2={height * ratio}
+              stroke="currentColor"
+              strokeOpacity="0.08"
+            />
+          ))}
+          <path
+            d={path}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            vectorEffect="non-scaling-stroke"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        </svg>
+      </ToolSurface>
+    </ToolSection>
+  );
+}
+
+function StockRawResult({ result }: { result: unknown }) {
+  return (
+    <details className="group/stock-raw rounded-[10px] border border-black/[0.05] bg-black/[0.015] dark:border-white/[0.07] dark:bg-white/[0.025]">
+      <summary className="cursor-pointer select-none px-2.5 py-2 text-[calc(10.5px*var(--zone-font-scale,1))] font-medium text-muted-foreground/65 transition-colors hover:text-foreground/75">
+        原始 JSON
+      </summary>
+      <div className="border-t border-black/[0.04] p-2 dark:border-white/[0.05]">
+        <CodePreview text={safeStringify(result)} maxChars={12000} />
+      </div>
+    </details>
+  );
+}
+
 export function ToolResultDisplay({
   item,
   result,
@@ -265,6 +357,7 @@ export function ToolResultDisplay({
 
   if (kind === "stock_result") {
     const details = result.details as StockToolResultDetails;
+    const cardModel = buildStockResultCardModel(details);
     const instrumentLabel = [
       details.instrument?.displayName,
       details.instrument?.symbol,
@@ -314,6 +407,8 @@ export function ToolResultDisplay({
             ]}
           />
         </ToolSurface>
+        <StockResultMetrics metrics={cardModel.metrics} />
+        {cardModel.trend ? <StockResultTrendChart trend={cardModel.trend} /> : null}
         {(details.warnings?.length ?? 0) > 0 ? (
           <ToolSurface className="border-amber-500/15 bg-amber-500/[0.04]">
             <ToolSurfaceLabel label="数据警告" />
@@ -324,9 +419,7 @@ export function ToolResultDisplay({
             </ul>
           </ToolSurface>
         ) : null}
-        <ToolSection label="结构化结果">
-          <CodePreview text={safeStringify(details.result)} maxChars={12000} />
-        </ToolSection>
+        <StockRawResult result={details.result} />
       </div>
     );
   }

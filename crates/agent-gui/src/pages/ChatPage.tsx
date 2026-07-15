@@ -4325,6 +4325,7 @@ export function ChatPage(props: ChatPageProps) {
             associatedSshHostIds: effectiveAssociatedSshHostIds,
             sshManagerRemoteAllowed:
               !gatewayBridgeRequest || settings.remote.enableWebSshTerminal === true,
+            stockPortfolioRequestOrigin: gatewayBridgeRequest ? "gateway" : "local",
             onSshSessionsChanged: (change) => {
               if (change.action === "create") {
                 ensureSshTunnelToolTab(change.projectPathKey);
@@ -5175,7 +5176,11 @@ export function ChatPage(props: ChatPageProps) {
               onOpenSidebar={handleOpenSidebar}
             />
           ) : activeView === "stock-hub" ? (
-            <StockHubPage sidebarOpen={sidebarOpen} onOpenSidebar={handleOpenSidebar} />
+            <StockHubPage
+              sidebarOpen={sidebarOpen}
+              onOpenSidebar={handleOpenSidebar}
+              selectedModel={settings.selectedModel}
+            />
           ) : (
             <>
               <MacOsTitleBarSpacer />

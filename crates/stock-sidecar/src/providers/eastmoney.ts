@@ -4,6 +4,7 @@ import type {
   PriceBar,
   ProviderEvidence,
   StockProvider,
+  StockSnapshot,
   StockResolveRequest,
 } from "../types.ts";
 import { ProviderError } from "./registry.ts";
@@ -30,6 +31,19 @@ function object(value: unknown): UnknownRecord | undefined {
 function number(value: unknown): number | undefined {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function quoteTime(value: unknown, fallback: string): string {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (/^\d{14}$/.test(text))
+    return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}T${text.slice(8, 10)}:${text.slice(10, 12)}:${text.slice(12, 14)}+08:00`;
+  const parsed = number(value);
+  if (parsed !== undefined) {
+    const milliseconds = parsed > 10_000_000_000 ? parsed : parsed * 1_000;
+    const date = new Date(milliseconds);
+    if (!Number.isNaN(date.getTime())) return date.toISOString();
+  }
+  return fallback;
 }
 
 async function fetchJson(
@@ -86,6 +100,7 @@ export function createEastmoneyProvider(): StockProvider {
     free: true,
     capabilities: [
       "resolve",
+      "snapshot",
       "history",
       "profile",
       "financials",
@@ -117,6 +132,63 @@ export function createEastmoneyProvider(): StockProvider {
         data: instruments.length ? instruments : null,
         asOf: context.now().toISOString(),
       };
+    },
+    async snapshot(
+      instrument,
+      context
+    ): Promise<ProviderEvidence<StockSnapshot>> {
+      const securityId = secId(instrument);
+      if (!securityId)
+        return {
+          data: null,
+          asOf: context.now().toISOString(),
+          warnings: [
+            instrument.exchange === "BSE"
+              ? "东方财富行情适配器暂不支持北交所"
+              : "东方财富首版行情仅支持 A 股",
+          ],
+        };
+      const url = new URL("https://push2.eastmoney.com/api/qt/stock/get");
+      url.searchParams.set("secid", securityId);
+      url.searchParams.set("fltt", "2");
+      url.searchParams.set("invt", "2");
+      url.searchParams.set("ut", "fa5fd1943c7b386f172d6893dbfba10b");
+      url.searchParams.set(
+        "fields",
+        "f43,f57,f58,f59,f60,f46,f44,f45,f47,f48,f169,f170,f86"
+      );
+      const payload = await fetchJson(url, context.signal, context.fetch);
+      const data = object(payload.data);
+      const price = number(data?.f43);
+      if (price === undefined || price <= 0)
+        throw new ProviderError("东方财富行情返回空数据");
+      const asOf = quoteTime(data?.f86, context.now().toISOString());
+      const code = typeof data?.f57 === "string" ? data.f57 : instrument.symbol;
+      const name =
+        typeof data?.f58 === "string" ? data.f58.trim() : instrument.name;
+      const snapshot: StockSnapshot = {
+        instrument: {
+          ...instrument,
+          symbol: code,
+          name: name || instrument.name,
+        },
+        price,
+        marketTime: asOf,
+      };
+      const optional: Array<[keyof StockSnapshot, number | undefined]> = [
+        ["previousClose", number(data?.f60)],
+        ["open", number(data?.f46)],
+        ["high", number(data?.f44)],
+        ["low", number(data?.f45)],
+        ["volume", number(data?.f47)],
+        ["change", number(data?.f169)],
+        ["changePercent", number(data?.f170)],
+      ];
+      for (const [key, value] of optional) {
+        if (value !== undefined)
+          (snapshot as unknown as Record<string, unknown>)[key] = value;
+      }
+      return { data: snapshot, asOf };
     },
     async history(
       instrument,

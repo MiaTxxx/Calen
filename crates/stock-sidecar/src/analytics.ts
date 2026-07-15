@@ -1,4 +1,16 @@
-import type { PriceBar, StockSnapshot } from "./types.ts";
+import {
+  computeQuantIndicators,
+  latestIndicator,
+  type QuantIndicatorRow,
+} from "./quant/indicators.ts";
+import {
+  STRATEGY_ALGORITHM_VERSION,
+  analyzeStrategies,
+  fuseSignals,
+  listStrategies,
+} from "./quant/strategies.ts";
+import { evaluateResearchQuality } from "./quant/evaluator.ts";
+import type { PriceBar, QuantStrategyId, StockSnapshot } from "./types.ts";
 
 function round(value: number, digits = 4): number {
   const factor = 10 ** digits;
@@ -18,49 +30,29 @@ export function simpleMovingAverage(
   return average(values.slice(-window));
 }
 
-function exponentialMovingAverage(
-  values: number[],
-  window: number
-): number | undefined {
-  if (!values.length || window <= 0) return undefined;
-  const multiplier = 2 / (window + 1);
-  let value = values[0]!;
-  for (let index = 1; index < values.length; index += 1) {
-    value = values[index]! * multiplier + value * (1 - multiplier);
-  }
-  return value;
-}
-
 export function relativeStrengthIndex(
   values: number[],
   period = 14
 ): number | undefined {
   if (values.length <= period) return undefined;
-  const changes = values
-    .slice(-period - 1)
-    .slice(1)
-    .map((value, index) => value - values.slice(-period - 1)[index]!);
-  const gains = changes.map((change) => Math.max(change, 0));
-  const losses = changes.map((change) => Math.max(-change, 0));
-  const gain = average(gains) ?? 0;
-  const loss = average(losses) ?? 0;
-  if (loss === 0) return gain === 0 ? 50 : 100;
-  return round(100 - 100 / (1 + gain / loss), 2);
+  const sample = values.slice(-period - 1);
+  let gains = 0;
+  let losses = 0;
+  for (let index = 1; index < sample.length; index += 1) {
+    const change = sample[index]! - sample[index - 1]!;
+    if (change >= 0) gains += change;
+    else losses -= change;
+  }
+  if (losses === 0) return gains === 0 ? 50 : 100;
+  return round(100 - 100 / (1 + gains / losses), 2);
 }
 
-export interface TechnicalAnalysis {
-  sma5?: number;
-  sma20?: number;
-  rsi14?: number;
-  macd?: number;
-  volatilityAnnualized?: number;
-  trend: "bullish" | "neutral" | "bearish";
-}
+export type TechnicalAnalysis = Omit<QuantIndicatorRow, "time">;
 
 export interface ResearchAnalysisMetadata {
   algorithm: {
     id: "calen.research-analytics";
-    version: "1.0.0";
+    version: "2.0.0";
     parameters: Record<string, unknown>;
   };
   sample: {
@@ -89,13 +81,20 @@ export function createResearchAnalysisMetadata(
   return {
     algorithm: {
       id: "calen.research-analytics",
-      version: "1.0.0",
+      version: "2.0.0",
       parameters: {
-        smaWindows: [5, 20],
+        movingAverageWindows: [5, 10, 20, 60],
         rsiPeriod: 14,
-        emaWindows: [12, 26],
+        macdWindows: [12, 26, 9],
+        bollingerWindow: 20,
+        bollingerDeviations: 2,
+        kdjWindow: 9,
+        williamsWindow: 14,
+        cciWindow: 20,
+        adxWindow: 14,
         volatilityAnnualizationPeriods: 252,
-        scoreFactors: ["trend", "rsi14", "macd", "20-bar-momentum"],
+        strategyRegistryVersion: STRATEGY_ALGORITHM_VERSION,
+        strategies: listStrategies().map((item) => item.id),
         minimumBars: 20,
       },
     },
@@ -112,6 +111,7 @@ export function createResearchAnalysisMetadata(
     },
     limitations: [
       "实验性量化研究结果，不构成投资建议。",
+      "所有指标与策略仅使用当根及更早的 K 线；样本不足时部分指标会缺失。",
       "结果仅基于本次返回的历史 K 线样本，不代表完整市场周期。",
       "基准为同一样本区间的买入并持有，不包含税费、滑点和公司行动调整。",
     ],
@@ -119,89 +119,72 @@ export function createResearchAnalysisMetadata(
 }
 
 export function analyzeTechnicals(bars: PriceBar[]): TechnicalAnalysis {
-  const closes = bars.map((bar) => bar.close);
-  const sma5 = simpleMovingAverage(closes, 5);
-  const sma20 = simpleMovingAverage(closes, 20);
-  const rsi14 = relativeStrengthIndex(closes, 14);
-  const ema12 = exponentialMovingAverage(closes, 12);
-  const ema26 = exponentialMovingAverage(closes, 26);
-  const macd =
-    ema12 !== undefined && ema26 !== undefined ? ema12 - ema26 : undefined;
-  const returns = closes
-    .slice(1)
-    .map((close, index) => close / closes[index]! - 1);
-  const mean = average(returns);
-  const variance =
-    mean === undefined || returns.length < 2
-      ? undefined
-      : returns.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
-        (returns.length - 1);
-  const volatility =
-    variance === undefined
-      ? undefined
-      : Math.sqrt(variance) * Math.sqrt(252) * 100;
-  const current = closes.at(-1);
-  const trend =
-    current !== undefined && sma5 !== undefined && sma20 !== undefined
-      ? sma5 > sma20 && current > sma20
-        ? "bullish"
-        : sma5 < sma20 && current < sma20
-          ? "bearish"
-          : "neutral"
-      : "neutral";
-  const result: TechnicalAnalysis = { trend };
-  if (sma5 !== undefined) result.sma5 = round(sma5);
-  if (sma20 !== undefined) result.sma20 = round(sma20);
-  if (rsi14 !== undefined) result.rsi14 = rsi14;
-  if (macd !== undefined) result.macd = round(macd);
-  if (volatility !== undefined)
-    result.volatilityAnnualized = round(volatility, 2);
-  return result;
+  const latest = latestIndicator(computeQuantIndicators(bars));
+  if (!latest) return { trend: "neutral" };
+  const { time: _time, ...technical } = latest;
+  return technical;
+}
+
+export interface ResearchEvaluationOptions {
+  financials?: unknown;
+  strategyIds?: readonly QuantStrategyId[];
 }
 
 export function evaluateResearch(
   snapshot: StockSnapshot | undefined,
-  bars: PriceBar[]
+  bars: PriceBar[],
+  options: ResearchEvaluationOptions = {}
 ) {
-  const technical = analyzeTechnicals(bars);
-  let score = 50;
-  if (technical.trend === "bullish") score += 20;
-  if (technical.trend === "bearish") score -= 20;
-  if (technical.rsi14 !== undefined) {
-    if (technical.rsi14 >= 45 && technical.rsi14 <= 70) score += 10;
-    else if (technical.rsi14 > 70) score += 5;
-    else if (technical.rsi14 < 30) score -= 10;
-  }
-  if ((technical.macd ?? 0) > 0) score += 10;
-  const first = bars.at(-20)?.close;
-  const last = snapshot?.price ?? bars.at(-1)?.close;
-  if (first !== undefined && last !== undefined)
-    score += last >= first ? 10 : -10;
-  score = Math.max(0, Math.min(100, score));
-  const rating = score >= 65 ? "positive" : score < 40 ? "cautious" : "neutral";
+  const indicatorRows = computeQuantIndicators(bars);
+  const latest = latestIndicator(indicatorRows);
+  const selectedStrategies =
+    options.strategyIds ?? listStrategies().map((item) => item.id);
+  const signals = latest
+    ? analyzeStrategies(
+        { bars, indicators: indicatorRows, index: indicatorRows.length - 1 },
+        selectedStrategies
+      )
+    : [];
+  const fusion = fuseSignals(signals);
+  const evaluator = evaluateResearchQuality({
+    ...(snapshot ? { snapshot } : {}),
+    bars,
+    ...(latest ? { indicator: latest } : {}),
+    signals,
+    ...(options.financials !== undefined
+      ? { financials: options.financials }
+      : {}),
+  });
+  const technical = latest
+    ? (({ time: _time, ...value }) => value)(latest)
+    : null;
   return {
     technical,
     score: {
-      value: score,
+      value: evaluator.score,
       algorithm: {
-        id: "calen.technical-score",
-        version: "1.0.0",
-        parameters: {
-          factors: ["trend", "rsi14", "macd", "20-bar-momentum"],
-        },
+        id: "calen.multi-factor-score",
+        version: "2.0.0",
+        parameters: evaluator.parameters,
       },
-      factors: ["trend", "rsi14", "macd", "20-bar-momentum"],
+      factors: evaluator.dimensions.map((item) => ({
+        id: item.id,
+        score: item.score,
+        weight: item.weight,
+      })),
     },
-    evaluator: {
-      id: "calen.rule-evaluator",
-      version: "1.0.0",
-      parameters: {
-        positiveThreshold: 65,
-        cautiousThreshold: 40,
+    evaluator,
+    strategy: {
+      algorithm: {
+        id: "calen.strategy-registry",
+        version: STRATEGY_ALGORITHM_VERSION,
+        parameters: { selectedStrategies },
       },
-      rating,
-      confidence: round(Math.min(1, Math.abs(score - 50) / 50), 2),
-      disclaimer: "实验性量化研究结果，不构成投资建议。",
+      registry: listStrategies(),
+      signals,
+      fusion,
+      action: "research-only",
+      disclaimer: "仅描述历史数据形成的实验性信号，不构成买卖建议。",
     },
   };
 }

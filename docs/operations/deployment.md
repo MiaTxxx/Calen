@@ -98,6 +98,16 @@ Provider 条款依据、上线边界和停止条件见 `docs/provider-compliance
 
 发布 job 会在上传 Windows 产物后生成并上传 Windows-only `latest.json`。桌面端「设置 -> 关于」会根据用户是否允许预发布，从 GitHub Releases 中筛选带 `latest.json` 的正式 / 预发布版本；未允许预发布时只检查正式 Release。首版不发布 portable、Linux 或 macOS 桌面包。
 
+Windows 构建在上传产物前必须运行 `scripts/release/test-windows-installers.ps1`：
+
+- NSIS 静默安装到包含中文和空格的临时目录；
+- MSI 尝试相同的自定义目录，不支持时从 Windows Installer 注册信息验证实际默认目录；
+- 清空 `PATH`，直接使用安装目录内的 `stock-sidecar/node.exe` 调用 JSON-RPC `status`；
+- 静默卸载后确认 sidecar 进程退出、安装目录不再被锁定并可删除；
+- 若 GitHub Releases 中存在低于当前版本的上一正式 MSI，则执行旧版安装、当前版升级、sidecar smoke 和卸载；首个版本没有上一 MSI 时会输出明确的 skip notice。
+
+该脚本发现安装、升级、资源路径、内置 Node 或卸载生命周期错误时会直接阻断 Release。它只在 Provider 条款和 updater 签名门禁均满足后运行，因此普通 PR CI 不能替代真实安装验收。
+
 ## 桌面版本号来源
 
 本地开发和普通本机构建只维护一个默认版本源：`crates/agent-gui/package.json`。Tauri 默认配置、前端 About 页和 Rust 运行时代码都会从这里读取版本，因此日常开发不需要到多个文件里同步版本号。

@@ -538,6 +538,7 @@ pub async fn app_update_check(
 #[tauri::command(rename_all = "snake_case")]
 pub async fn app_update_install(
     app: AppHandle,
+    stock: tauri::State<'_, std::sync::Arc<crate::commands::stock::StockResearchManager>>,
     include_prerelease: bool,
 ) -> Result<AppUpdateCheckResponse, String> {
     let repository = update_repository();
@@ -574,6 +575,7 @@ pub async fn app_update_install(
     let version = update.version.clone();
     let date = update.date.map(|date| date.to_string());
     let body = update.body.clone();
+    stock.stop().await?;
     update
         .download_and_install(|_, _| {}, || {})
         .await
@@ -591,11 +593,14 @@ pub async fn app_update_install(
 }
 
 #[tauri::command]
-pub fn app_restart(app: AppHandle) -> Result<(), String> {
-    // restart() tears the process down without firing ExitRequested/Exit
-    // (sync command, main thread), so the exit-path cleanup must run here or
-    // non-isolated managed processes leak across every update restart.
+pub async fn app_restart(
+    app: AppHandle,
+    stock: tauri::State<'_, std::sync::Arc<crate::commands::stock::StockResearchManager>>,
+) -> Result<(), String> {
+    // restart() tears the process down without firing ExitRequested/Exit, so
+    // cleanup must run here or managed processes can leak across a restart.
     use tauri::Manager;
+    stock.stop().await?;
     if let Some(registry) =
         app.try_state::<std::sync::Arc<crate::runtime::managed_process::ManagedProcessRegistry>>()
     {

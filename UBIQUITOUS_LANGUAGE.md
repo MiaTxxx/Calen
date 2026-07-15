@@ -19,6 +19,10 @@
 | Sidecar                     | 由 Tauri 管理、通过 stdio JSON-RPC 通信的股票子进程                | 独立 Web 服务                  |
 | 回退（Fallback）            | 当前 Provider 失败后按能力选择替代 Provider                        | 静默掩盖所有错误               |
 | 熔断（Circuit Breaker）     | Provider 连续失败后暂时停止请求                                    | 永久禁用 Provider              |
+| 节流（Throttle）            | 请求发出前按 Provider/能力控制最小间隔，可被取消并受总超时约束     | 只在收到 429 后等待            |
+| 策略注册表                  | 一组具名、版本化、可复算的实验研究规则                             | 自动交易策略商店               |
+| 信号融合                    | 汇总多个实验策略的方向、权重和原因，输出研究 verdict               | 目标仓位或下单指令             |
+| Gateway 资产投影            | 向远程 Gateway 提供的脱敏占位，不包含本地持仓和流水明文            | 本地资产账本副本               |
 | 组合（Portfolio）           | 用户定义的一组持仓和交易流水                                       | 券商账户                       |
 | 交易流水（Transaction）     | 用于本地核算的买卖、费用、分红、拆股或调整记录                     | 真实下单                       |
 

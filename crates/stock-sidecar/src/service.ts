@@ -51,6 +51,53 @@ const REMOTE_RESEARCH_CAPABILITIES = new Set<StockResearchCapability>([
   "etf",
 ]);
 
+function enrichEtfPremium(
+  value: unknown,
+  snapshot: StockSnapshot | null | undefined
+): { data: unknown; warnings: string[] } {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return {
+      data: value,
+      warnings: ["当前价格或 NAV 缺失，无法计算溢价率"],
+    };
+  const record = value as Record<string, unknown>;
+  const navRows = Array.isArray(record.nav) ? record.nav : [];
+  const latestNav = navRows
+    .map((row) =>
+      row && typeof row === "object" && !Array.isArray(row)
+        ? (row as Record<string, unknown>)
+        : undefined
+    )
+    .filter(
+      (row): row is Record<string, unknown> =>
+        row !== undefined &&
+        typeof row.nav === "number" &&
+        Number.isFinite(row.nav)
+    )
+    .sort((left, right) =>
+      String(right.date ?? "").localeCompare(String(left.date ?? ""))
+    )[0];
+  const nav = typeof latestNav?.nav === "number" ? latestNav.nav : undefined;
+  const price = snapshot?.price;
+  if (price === undefined || nav === undefined || nav <= 0)
+    return {
+      data: {
+        ...record,
+        marketPrice: price ?? null,
+        premiumPercent: null,
+      },
+      warnings: ["当前价格或 NAV 缺失，无法计算溢价率"],
+    };
+  return {
+    data: {
+      ...record,
+      marketPrice: price,
+      premiumPercent: Math.round((price / nav - 1) * 100 * 100) / 100,
+    },
+    warnings: [],
+  };
+}
+
 export interface CreateStockResearchServiceOptions extends ProviderRegistryOptions {
   providers?: StockProvider[];
   providerCatalog?: ProviderStatus[];
@@ -254,6 +301,8 @@ export function createStockResearchService(
             REMOTE_RESEARCH_CAPABILITIES.has(capability)
           ),
           ...(needsHistory ? ["history" as const] : []),
+          ...(requested.includes("etf") ? ["snapshot" as const] : []),
+          ...(requested.includes("evaluator") ? ["financials" as const] : []),
         ]),
       ];
       const remoteEntries = await Promise.all(
@@ -315,16 +364,14 @@ export function createStockResearchService(
       const snapshotData = remoteResults.get("snapshot")?.data as
         StockSnapshot | null | undefined;
       const analysis = hasAnalysisSample
-        ? evaluateResearch(snapshotData ?? undefined, bars)
-        : { technical: null, score: null, evaluator: null };
-      const strategy = hasAnalysisSample
-        ? {
-            algorithm: "calen.trend-context@1.0.0",
-            bias: analysis.technical?.trend ?? "neutral",
-            action: "research-only",
-            disclaimer: "仅描述历史数据特征，不构成买卖建议。",
-          }
-        : null;
+        ? evaluateResearch(snapshotData ?? undefined, bars, {
+            financials: remoteResults.get("financials")?.data,
+            ...(request.strategyIds
+              ? { strategyIds: request.strategyIds }
+              : {}),
+          })
+        : { technical: null, score: null, evaluator: null, strategy: null };
+      const strategy = analysis.strategy;
       const capabilities: Record<
         string,
         {
@@ -372,18 +419,23 @@ export function createStockResearchService(
           continue;
         }
         const result = remoteResults.get(capability);
-        const sectionWarnings = (result?.warnings ?? []).map(
-          (warning) => `${capability}: ${warning}`
-        );
+        const premium =
+          capability === "etf"
+            ? enrichEtfPremium(result?.data ?? null, snapshotData)
+            : { data: result?.data ?? null, warnings: [] as string[] };
+        const sectionWarnings = [
+          ...(result?.warnings ?? []),
+          ...premium.warnings,
+        ].map((warning) => `${capability}: ${warning}`);
         const sectionStatus =
-          result?.data == null
+          premium.data == null
             ? "unavailable"
             : sectionWarnings.length
               ? "partial"
               : "ok";
         capabilities[capability] = {
           status: sectionStatus,
-          data: result?.data ?? null,
+          data: premium.data,
           warnings: sectionWarnings,
         };
         warnings.push(...sectionWarnings);

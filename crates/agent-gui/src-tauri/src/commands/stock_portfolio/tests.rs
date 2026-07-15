@@ -356,6 +356,77 @@ fn csv_round_trip_preserves_all_ledger_fields_and_quoted_notes() {
         Some("首笔, 包含\"引号\"\n和换行")
     );
     assert_eq!(imported[0].fee, Some(1.2));
+
+    let imports = target
+        .list_csv_import_records(&target_portfolio.id)
+        .expect("list CSV import records");
+    assert_eq!(imports.len(), 1);
+    assert_eq!(imports[0].source_label, DEFAULT_CSV_IMPORT_SOURCE);
+    assert_eq!(imports[0].total_rows, 1);
+    assert_eq!(imports[0].success_count, 1);
+    assert_eq!(imports[0].failure_count, 0);
+    assert!(imports[0].error_summary.is_none());
+}
+
+#[test]
+fn csv_import_history_preserves_the_source_label() {
+    let mut repo = repository();
+    let portfolio = repo
+        .create_portfolio("CSV audit", Currency::Cny)
+        .expect("create portfolio");
+    let document = concat!(
+        "market,symbol,transaction_type,date,quantity,price,currency\r\n",
+        "CN,600000,BUY,2026-04-01,100,12.5,CNY\r\n"
+    );
+
+    repo.import_transactions_csv_with_source(
+        &portfolio.id,
+        document,
+        "  broker-export.csv  ",
+    )
+    .expect("import labeled CSV");
+
+    let imports = repo
+        .list_csv_import_records(&portfolio.id)
+        .expect("list CSV import records");
+    assert_eq!(imports.len(), 1);
+    assert_eq!(imports[0].portfolio_id, portfolio.id);
+    assert_eq!(imports[0].source_label, "broker-export.csv");
+    assert!(imports[0].imported_at > 0);
+}
+
+#[test]
+fn failed_csv_import_is_audited_without_partial_ledger_writes() {
+    let mut repo = repository();
+    let portfolio = repo
+        .create_portfolio("CSV rollback", Currency::Cny)
+        .expect("create portfolio");
+    let document = concat!(
+        "market,symbol,transaction_type,date,quantity,price,currency\r\n",
+        "CN,600000,BUY,2026-04-01,100,12.5,CNY\r\n",
+        "CN,600001,BUY,not-a-date,100,8.5,CNY\r\n"
+    );
+
+    let error = repo
+        .import_transactions_csv_with_source(&portfolio.id, document, "broker-export.csv")
+        .expect_err("reject invalid CSV import");
+    assert!(error.contains("CSV row 3"));
+    assert!(repo
+        .list_transactions(&portfolio.id)
+        .expect("list transactions")
+        .is_empty());
+
+    let imports = repo
+        .list_csv_import_records(&portfolio.id)
+        .expect("list CSV import records");
+    assert_eq!(imports.len(), 1);
+    assert_eq!(imports[0].total_rows, 2);
+    assert_eq!(imports[0].success_count, 0);
+    assert_eq!(imports[0].failure_count, 2);
+    assert!(imports[0]
+        .error_summary
+        .as_deref()
+        .is_some_and(|summary| summary.contains("CSV row 3")));
 }
 
 #[test]
@@ -420,6 +491,16 @@ fn password_cipher_adapter_round_trips_the_versioned_backup_contract() {
     let portfolio = source
         .create_portfolio("备份组合", Currency::Usd)
         .expect("create portfolio");
+    source
+        .import_transactions_csv_with_source(
+            &portfolio.id,
+            concat!(
+                "market,symbol,transaction_type,date,quantity,price,currency\r\n",
+                "US,AAPL,BUY,2026-05-01,1,200,USD\r\n"
+            ),
+            "backup-import.csv",
+        )
+        .expect("import audited CSV before backup");
     let envelope = source
         .export_backup_with_cipher("correct-horse", &TestCipher)
         .expect("export protected envelope");
@@ -447,5 +528,203 @@ fn password_cipher_adapter_round_trips_the_versioned_backup_contract() {
             .watchlist
             .name,
         "备份自选"
+    );
+    let restored_imports = target
+        .list_csv_import_records(&portfolio.id)
+        .expect("list restored CSV import history");
+    assert_eq!(restored_imports.len(), 1);
+    assert_eq!(restored_imports[0].source_label, "backup-import.csv");
+}
+
+struct TestBrokerImportPort;
+
+impl BrokerPortfolioImportPort for TestBrokerImportPort {
+    fn read_import_batch(
+        &self,
+        credential: &BrokerCredentialRef,
+        request: &BrokerImportRequest,
+    ) -> Result<BrokerImportBatch, PortfolioExternalPortError> {
+        assert_eq!(credential.local_secret_id(), "secret-store:broker-1");
+        Ok(BrokerImportBatch {
+            schema_version: BROKER_IMPORT_SCHEMA_VERSION,
+            adapter_id: "test-broker".to_string(),
+            account: BrokerAccountRef {
+                external_account_id: request.external_account_id.clone(),
+                display_name: "只读测试账户".to_string(),
+                base_currency: Currency::Cny,
+            },
+            transactions: vec![BrokerTransactionRecord {
+                external_transaction_id: "trade-1".to_string(),
+                instrument: instrument("CN:600519", Currency::Cny),
+                transaction_type: TransactionKind::Buy,
+                occurred_at: "2026-06-01".to_string(),
+                quantity: Some(1.0),
+                price: Some(1500.0),
+                fee: Some(1.0),
+                cash_amount: None,
+                split_ratio: None,
+                note: None,
+            }],
+            as_of: "2026-06-02T00:00:00Z".to_string(),
+            next_cursor: None,
+            warnings: Vec::new(),
+        })
+    }
+}
+
+#[test]
+fn broker_port_is_read_only_and_uses_an_opaque_local_credential_reference() {
+    assert_eq!(
+        BrokerCredentialRef::new("   "),
+        Err(PortfolioExternalPortError::InvalidRequest)
+    );
+    let credential = BrokerCredentialRef::new("secret-store:broker-1")
+        .expect("create local credential reference");
+    let request = BrokerImportRequest {
+        connection_id: "connection-1".to_string(),
+        external_account_id: "account-1".to_string(),
+        since: None,
+        cursor: None,
+    };
+    let batch = TestBrokerImportPort
+        .read_import_batch(&credential, &request)
+        .expect("read normalized broker batch");
+
+    assert_eq!(batch.schema_version, BROKER_IMPORT_SCHEMA_VERSION);
+    assert_eq!(batch.transactions.len(), 1);
+
+    let mut repo = repository();
+    let portfolio = repo
+        .create_portfolio("显式导入目标", Currency::Cny)
+        .expect("create local target");
+    assert!(repo
+        .list_transactions(&portfolio.id)
+        .expect("list untouched ledger")
+        .is_empty());
+
+    let record = batch.transactions.into_iter().next().expect("broker record");
+    repo.record_transaction(TransactionInput {
+        id: None,
+        portfolio_id: portfolio.id.clone(),
+        instrument: record.instrument,
+        transaction_type: record.transaction_type,
+        occurred_at: record.occurred_at,
+        quantity: record.quantity,
+        price: record.price,
+        fee: record.fee,
+        cash_amount: record.cash_amount,
+        split_ratio: record.split_ratio,
+        note: record.note,
+    })
+    .expect("explicitly import into selected local portfolio");
+    assert_eq!(
+        repo.list_transactions(&portfolio.id)
+            .expect("list imported ledger")
+            .len(),
+        1
+    );
+}
+
+#[derive(Default)]
+struct TestPortfolioSyncCrypto {
+    opened: std::sync::Mutex<Option<PortfolioSyncPlaintext>>,
+}
+
+impl PortfolioSyncCryptoPort for TestPortfolioSyncCrypto {
+    fn seal(
+        &self,
+        key: &PortfolioSyncKeyRef,
+        plaintext: &PortfolioSyncPlaintext,
+    ) -> Result<EncryptedPortfolioSyncEnvelope, PortfolioExternalPortError> {
+        assert_eq!(key.local_key_id(), "secret-store:sync-key-1");
+        *self
+            .opened
+            .lock()
+            .map_err(|_| PortfolioExternalPortError::EncryptionFailed)? =
+            Some(plaintext.clone());
+        Ok(EncryptedPortfolioSyncEnvelope {
+            format_version: PORTFOLIO_SYNC_ENVELOPE_VERSION,
+            envelope_id: "envelope-1".to_string(),
+            source_device_id: plaintext.source_device_id.clone(),
+            public_key_id: "public-key-1".to_string(),
+            cipher_suite: "test-aead".to_string(),
+            nonce_base64: "bm9uY2U=".to_string(),
+            ciphertext_base64: "b3BhcXVlLWNpcGhlcnRleHQ=".to_string(),
+            created_at: "2026-07-16T00:00:00Z".to_string(),
+        })
+    }
+
+    fn open(
+        &self,
+        key: &PortfolioSyncKeyRef,
+        _envelope: &EncryptedPortfolioSyncEnvelope,
+    ) -> Result<PortfolioSyncPlaintext, PortfolioExternalPortError> {
+        assert_eq!(key.local_key_id(), "secret-store:sync-key-1");
+        self.opened
+            .lock()
+            .map_err(|_| PortfolioExternalPortError::DecryptionFailed)?
+            .clone()
+            .ok_or(PortfolioExternalPortError::DecryptionFailed)
+    }
+}
+
+struct TestEncryptedSyncTransport;
+
+impl EncryptedPortfolioSyncTransportPort for TestEncryptedSyncTransport {
+    fn push(
+        &self,
+        envelope: &EncryptedPortfolioSyncEnvelope,
+    ) -> Result<EncryptedPortfolioSyncReceipt, PortfolioExternalPortError> {
+        Ok(EncryptedPortfolioSyncReceipt {
+            envelope_id: envelope.envelope_id.clone(),
+            accepted_at: "2026-07-16T00:00:01Z".to_string(),
+            cursor: "cursor-1".to_string(),
+        })
+    }
+
+    fn pull(
+        &self,
+        _after_cursor: Option<&str>,
+    ) -> Result<EncryptedPortfolioSyncPage, PortfolioExternalPortError> {
+        Ok(EncryptedPortfolioSyncPage {
+            envelopes: Vec::new(),
+            next_cursor: None,
+        })
+    }
+}
+
+#[test]
+fn gateway_sync_port_accepts_only_an_encrypted_envelope() {
+    assert_eq!(
+        PortfolioSyncKeyRef::new(""),
+        Err(PortfolioExternalPortError::InvalidRequest)
+    );
+    let mut repo = repository();
+    repo.create_portfolio("不可见资产", Currency::Cny)
+        .expect("create portfolio");
+    let plaintext = PortfolioSyncPlaintext {
+        schema_version: 1,
+        revision: "revision-1".to_string(),
+        source_device_id: "device-1".to_string(),
+        backup: repo.export_backup_document().expect("export local backup"),
+    };
+    let key = PortfolioSyncKeyRef::new("secret-store:sync-key-1")
+        .expect("create local key reference");
+    let crypto = TestPortfolioSyncCrypto::default();
+    let envelope = crypto.seal(&key, &plaintext).expect("seal locally");
+
+    let relay_json = serde_json::to_string(&envelope).expect("serialize relay envelope");
+    assert!(!relay_json.contains("不可见资产"));
+    assert!(!relay_json.contains("secret-store:sync-key-1"));
+    assert!(!relay_json.contains("portfolios"));
+    assert!(relay_json.contains("ciphertextBase64"));
+
+    let receipt = TestEncryptedSyncTransport
+        .push(&envelope)
+        .expect("push encrypted envelope");
+    assert_eq!(receipt.envelope_id, envelope.envelope_id);
+    assert_eq!(
+        crypto.open(&key, &envelope).expect("open locally"),
+        plaintext
     );
 }

@@ -3,6 +3,10 @@ export type AssetClass = "EQUITY" | "ETF" | "INDEX";
 export type AssetType = "stock" | "etf" | "index" | "fund" | "unknown";
 export type Currency = "CNY" | "HKD" | "USD";
 
+export type QuantStrategyId =
+  "trend" | "mean-reversion" | "breakout" | "momentum" | "volume-price";
+export type StockBacktestStrategyId = "sma-cross" | QuantStrategyId | "fused";
+
 export type StockCapability =
   | "resolve"
   | "snapshot"
@@ -108,6 +112,7 @@ export interface StockResearchRequest {
   instrument: InstrumentRef;
   historyLimit?: number;
   capabilities?: StockResearchCapability[];
+  strategyIds?: QuantStrategyId[];
 }
 export interface MarketBriefRequest {
   market?: Market;
@@ -121,7 +126,11 @@ export interface StockBacktestRequest {
   end?: string;
   initialCash?: number;
   feeRate?: number;
-  strategy?: { id?: "sma-cross"; shortWindow?: number; longWindow?: number };
+  strategy?: {
+    id?: StockBacktestStrategyId;
+    shortWindow?: number;
+    longWindow?: number;
+  };
 }
 
 export interface BacktestTrade {
@@ -135,9 +144,9 @@ export interface BacktestTrade {
 
 export interface StockBacktestResult extends EvidenceEnvelope {
   algorithm: {
-    id: "calen.sma-cross";
-    version: "1.0.0";
-    parameters: Record<string, number>;
+    id: string;
+    version: string;
+    parameters: Record<string, unknown>;
   };
   sample: { start: string; end: string; bars: number; coverage: number };
   benchmark: { name: "buy-and-hold"; returnPercent: number };

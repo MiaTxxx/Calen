@@ -258,6 +258,11 @@ jobs:
           CARGO_TERM_COLOR: always
         run: cargo check --manifest-path crates/agent-gui/src-tauri/Cargo.toml --tests --target x86_64-pc-windows-msvc
 
+      - name: Test stock lifecycle on Windows
+        env:
+          CARGO_TERM_COLOR: always
+        run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml stock::tests --lib --target x86_64-pc-windows-msvc
+
   mirror:
     name: GUI/WebUI Mirror Check
     runs-on: ubuntu-latest

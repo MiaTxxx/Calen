@@ -114,6 +114,18 @@ const DEFINITIONS: readonly StockToolDefinition[] = [
       startDate: Type.Optional(Type.String({ description: "ISO date; bounded by the sidecar." })),
       endDate: Type.Optional(Type.String({ description: "ISO date; bounded by the sidecar." })),
       maxItems: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 30 })),
+      strategyIds: Type.Optional(
+        Type.Array(
+          Type.Union([
+            Type.Literal("trend"),
+            Type.Literal("mean-reversion"),
+            Type.Literal("breakout"),
+            Type.Literal("momentum"),
+            Type.Literal("volume-price"),
+          ]),
+          { minItems: 1, maxItems: 5 },
+        ),
+      ),
       deadlineMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 120000 })),
     }),
     scopes: ["chat", "cron_auto_prompt"],
@@ -147,7 +159,15 @@ const DEFINITIONS: readonly StockToolDefinition[] = [
       "Run an experimental, bounded and reproducible historical strategy evaluation. Results are research-only and include algorithm version, benchmark, fees, drawdown and data limitations.",
     parameters: Type.Object({
       instrument: INSTRUMENT,
-      strategy: Type.String({ minLength: 1 }),
+      strategy: Type.Union([
+        Type.Literal("sma-cross"),
+        Type.Literal("trend"),
+        Type.Literal("mean-reversion"),
+        Type.Literal("breakout"),
+        Type.Literal("momentum"),
+        Type.Literal("volume-price"),
+        Type.Literal("fused"),
+      ]),
       startDate: Type.String({ minLength: 10 }),
       endDate: Type.String({ minLength: 10 }),
       parameters: Type.Optional(Type.Record(Type.String(), Type.Any())),

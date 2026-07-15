@@ -8,6 +8,7 @@ import type {
   QuoteSnapshot,
   ResearchAnalysisMetadata,
   ResearchBundle,
+  ResearchEvidenceSection,
   ResearchExperimentalAnalysis,
   ResearchExperimentalCapability,
   StockBacktestRequest,
@@ -368,6 +369,21 @@ function mapExperimentalAnalysis(capabilities: AnyRecord): ResearchExperimentalA
   });
 }
 
+function mapResearchEvidenceSections(capabilities: AnyRecord): ResearchEvidenceSection[] {
+  return [...FACT_RESEARCH_CAPABILITIES].flatMap((capability) => {
+    const section = strictRecord(capabilities[capability]);
+    if (!section || !isStockResultStatus(section.status)) return [];
+    return [
+      {
+        capability: capability as ResearchEvidenceSection["capability"],
+        status: section.status,
+        data: section.data ?? null,
+        warnings: normalizeWarnings(section.warnings),
+      },
+    ];
+  });
+}
+
 export function mapStockSnapshotResult(raw: unknown): StockEvidenceResult<QuoteSnapshot> {
   const envelope = evidenceRecord(raw);
   const dataRecord = asRecord(envelope.data);
@@ -440,6 +456,7 @@ function mapResearchBundle(raw: unknown): ResearchBundle | null {
     openQuestions.push(...sectionWarnings.map((warning) => `${capability}: ${warning}`));
   }
   const experimentalAnalysis = mapExperimentalAnalysis(capabilities);
+  const evidenceSections = mapResearchEvidenceSections(capabilities);
   const analysisMetadata = mapResearchAnalysisMetadata(data.analysisMetadata);
   return {
     instrument,
@@ -449,6 +466,7 @@ function mapResearchBundle(raw: unknown): ResearchBundle | null {
     positiveCases,
     risks,
     openQuestions,
+    evidenceSections,
     experimentalAnalysis,
     ...(analysisMetadata ? { analysisMetadata } : {}),
     ...(snapshotResult?.data ? { snapshot: snapshotResult.data } : {}),
@@ -694,6 +712,7 @@ export function toSidecarResearchRequest(request: StockResearchRequest): Record<
   return {
     instrument: request.instrument,
     ...(capabilities?.length ? { capabilities } : {}),
+    ...(request.strategyIds?.length ? { strategyIds: request.strategyIds } : {}),
   };
 }
 
@@ -728,19 +747,17 @@ export function toSidecarBacktestRequest(request: StockBacktestRequest): Record<
     typeof parameters.feeRate === "number" && Number.isFinite(parameters.feeRate)
       ? parameters.feeRate
       : undefined;
-  const strategy =
-    request.strategy === "sma-cross" || request.strategy === "moving_average"
-      ? {
-          id: "sma-cross",
-          ...(shortWindow === undefined ? {} : { shortWindow }),
-          ...(longWindow === undefined ? {} : { longWindow }),
-        }
-      : undefined;
+  const strategyId = request.strategy === "moving_average" ? "sma-cross" : request.strategy;
+  const strategy = {
+    id: strategyId,
+    ...(strategyId !== "sma-cross" || shortWindow === undefined ? {} : { shortWindow }),
+    ...(strategyId !== "sma-cross" || longWindow === undefined ? {} : { longWindow }),
+  };
   return {
     instrument: request.instrument,
     start: request.from,
     end: request.to,
-    ...(strategy ? { strategy } : {}),
+    strategy,
     ...(initialCash === undefined ? {} : { initialCash }),
     ...(feeRate === undefined ? {} : { feeRate }),
     ...(request.benchmark ? { benchmark: request.benchmark } : {}),

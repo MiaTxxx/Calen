@@ -1,4 +1,4 @@
-import { type ChangeEvent, type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { GlassPanel, HubBackdrop, HubHeader } from "../../components/hub/HubChrome";
 import {
   AlertTriangle,
@@ -9,35 +9,32 @@ import {
   Search,
   Server,
   Sparkles,
-  Upload,
   Zap,
 } from "../../components/icons";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { Textarea } from "../../components/ui/textarea";
+import { applyCronOps, getAutomationState, initAutomation } from "../../lib/automation/store";
 import { cn } from "../../lib/shared/utils";
 import {
   type AsyncResource,
   type BacktestResult,
-  type EncryptedStockBackupEnvelope,
   formatStockError,
   type InstrumentRef,
   type InstrumentSearchResult,
   type MarketBrief,
-  type PortfolioSnapshot,
   parseFiniteNumber,
   type QuoteSnapshot,
   type ResearchBundle,
-  type StockBackupRestoreMode,
+  type StockBacktestStrategyId,
   type StockEvidenceMetadata,
   type StockEvidenceResult,
   type StockResultStatus,
   type StockServiceStatus,
   type StockSettings,
   type StockSettingsSavePayload,
-  sanitizeCsvFileName,
   stockResearch,
 } from "../../lib/stock-research";
+import { PortfolioWorkspace } from "./PortfolioWorkspace";
 import { StockChart } from "./StockChart";
 
 export type StockHubView = "research" | "market" | "portfolio" | "lab" | "sources";
@@ -46,6 +43,7 @@ type Props = {
   sidebarOpen: boolean;
   onOpenSidebar: () => void;
   initialView?: StockHubView;
+  selectedModel?: { customProviderId: string; model: string };
 };
 
 const views: Array<{ value: StockHubView; label: string; hint: string }> = [
@@ -56,7 +54,12 @@ const views: Array<{ value: StockHubView; label: string; hint: string }> = [
   { value: "sources", label: "数据源", hint: "服务状态与能力" },
 ];
 
-export function StockHubPage({ sidebarOpen, onOpenSidebar, initialView = "research" }: Props) {
+export function StockHubPage({
+  sidebarOpen,
+  onOpenSidebar,
+  initialView = "research",
+  selectedModel,
+}: Props) {
   const [view, setView] = useState<StockHubView>(initialView);
   const [status, setStatus] = useState<AsyncResource<StockServiceStatus>>({
     state: "idle",
@@ -110,7 +113,7 @@ export function StockHubPage({ sidebarOpen, onOpenSidebar, initialView = "resear
               ))}
             </nav>
             {view === "research" ? <ResearchView /> : null}
-            {view === "market" ? <MarketView /> : null}
+            {view === "market" ? <MarketView selectedModel={selectedModel} /> : null}
             {view === "portfolio" ? <PortfolioView /> : null}
             {view === "lab" ? <LabView /> : null}
             {view === "sources" ? (
@@ -382,11 +385,165 @@ function ResearchCard({ result }: { result: StockEvidenceResult<ResearchBundle> 
           <BulletSection title="待验证事项" items={data.openQuestions} />
         </div>
       </div>
+      {data.evidenceSections.length ? <ResearchEvidenceSections data={data} /> : null}
       {data.experimentalAnalysis.length || data.analysisMetadata ? (
         <ExperimentalResearchSection data={data} />
       ) : null}
       <Disclaimer />
     </GlassPanel>
+  );
+}
+
+function evidenceRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function evidenceItems(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.map(evidenceRecord).filter((item) => Object.keys(item).length)
+    : [];
+}
+
+function evidenceValue(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return value.toLocaleString("zh-CN");
+  return null;
+}
+
+type EvidenceRow = { title: string; detail: string; url?: string | null };
+
+function sectionRows(
+  capability: ResearchBundle["evidenceSections"][number]["capability"],
+  data: unknown,
+): EvidenceRow[] {
+  const root = evidenceRecord(data);
+  if (capability === "financials") {
+    const statements = evidenceRecord(root.statements);
+    return Object.entries(statements).flatMap(([statement, value]) => {
+      const fields = evidenceRecord(value);
+      return Object.entries(fields).flatMap(([key, field]) => {
+        const rendered = evidenceValue(field);
+        return rendered ? [{ title: `${statement}.${key}`, detail: rendered }] : [];
+      });
+    });
+  }
+  const collection =
+    capability === "shareholders"
+      ? evidenceItems(root.topHolders)
+      : capability === "dividend"
+        ? evidenceItems(root.history)
+        : capability === "moneyFlow"
+          ? evidenceItems(root.series)
+          : capability === "news" || capability === "notices"
+            ? evidenceItems(root.items)
+            : capability === "etf"
+              ? evidenceItems(root.holdings ?? root.topHoldings)
+              : [];
+  if (collection.length) {
+    return collection.slice(0, 8).map((item, index) => ({
+      title:
+        evidenceValue(
+          item.title ?? item.name ?? item.securityName ?? item.date ?? item.reportDate,
+        ) ?? `第 ${index + 1} 项`,
+      detail:
+        evidenceValue(
+          item.content ??
+            item.summary ??
+            item.ratio ??
+            item.holdingRatio ??
+            item.cashDividendPer10Shares ??
+            item.mainNetInflow ??
+            item.value,
+        ) ?? "已返回结构化数据",
+      url: evidenceValue(item.url ?? item.pdfUrl),
+    }));
+  }
+  return Object.entries(root).flatMap(([key, value]) => {
+    const rendered = evidenceValue(value);
+    return rendered ? [{ title: key, detail: rendered }] : [];
+  });
+}
+
+function ResearchEvidenceSections({ data }: { data: ResearchBundle }) {
+  const labels = {
+    profile: "公司资料",
+    financials: "财务三表",
+    shareholders: "主要股东",
+    dividend: "分红记录",
+    moneyFlow: "资金流",
+    news: "相关新闻",
+    notices: "公告与正文",
+    etf: "ETF 净值与持仓",
+  } as const;
+  return (
+    <section className="mt-5">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold">结构化研究资料</h3>
+        <span className="text-[10px] text-muted-foreground">
+          财务、股东、公告与专题按来源原样展示
+        </span>
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        {data.evidenceSections.map((section) => {
+          const rows = sectionRows(section.capability, section.data);
+          return (
+            <div
+              key={section.capability}
+              className="rounded-2xl border border-border/40 bg-background/45 p-4"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="text-[11.5px] font-semibold">{labels[section.capability]}</h4>
+                <StatusBadge status={section.status} />
+              </div>
+              {rows.length ? (
+                <div className="mt-3 space-y-2">
+                  {rows.map((row) => (
+                    <div
+                      key={`${row.title}-${row.detail.slice(0, 48)}-${row.url ?? ""}`}
+                      className="rounded-xl bg-muted/35 px-3 py-2"
+                    >
+                      <div className="text-[10.5px] font-medium">{row.title}</div>
+                      <p className="mt-1 line-clamp-4 whitespace-pre-wrap break-words text-[10px] leading-4 text-muted-foreground">
+                        {row.detail}
+                      </p>
+                      {row.url ? (
+                        <a
+                          className="mt-1 inline-block text-[10px] text-primary hover:underline"
+                          href={row.url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          打开来源或附件
+                        </a>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-[10.5px] text-muted-foreground">
+                  当前来源没有可展开的结构化字段。
+                </p>
+              )}
+              {section.warnings.length ? (
+                <p className="mt-3 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
+                  {section.warnings.join("；")}
+                </p>
+              ) : null}
+              <details className="mt-3 rounded-xl border border-border/35 px-3 py-2">
+                <summary className="cursor-pointer text-[10.5px] text-muted-foreground">
+                  原始字段
+                </summary>
+                <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[9.5px] leading-4 text-muted-foreground">
+                  {JSON.stringify(section.data, null, 2)}
+                </pre>
+              </details>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -487,10 +644,11 @@ function ResearchMetadataItem({ label, value }: { label: string; value: string }
   );
 }
 
-function MarketView() {
+function MarketView({ selectedModel }: { selectedModel?: Props["selectedModel"] }) {
   const [brief, setBrief] = useState<AsyncResource<StockEvidenceResult<MarketBrief>>>({
     state: "idle",
   });
+  const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
   const load = useCallback(async () => {
     setBrief({ state: "loading" });
     try {
@@ -508,9 +666,74 @@ function MarketView() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function createMarketSchedule(kind: "pre-open" | "close") {
+    setScheduleMessage(null);
+    if (!selectedModel) {
+      setScheduleMessage("请先在主对话中选择一个可用模型，再创建定时报告。");
+      return;
+    }
+    try {
+      await initAutomation();
+      const preset =
+        kind === "pre-open"
+          ? {
+              id: "calen-stock-pre-open",
+              name: "股票盘前报告",
+              description: "工作日盘前生成 A 股证据化市场报告",
+              cron: "0 30 8 * * 1-5",
+              prompt:
+                "请调用 StockMarketBrief 生成 A 股盘前报告。必须展示数据来源、截至时间、获取时间和警告；缺失板块、资金流或情绪数据时明确标记 partial，不得补造，也不得输出买卖指令。",
+            }
+          : {
+              id: "calen-stock-close-review",
+              name: "股票收盘复盘",
+              description: "工作日收盘后生成 A 股证据化复盘",
+              cron: "0 30 15 * * 1-5",
+              prompt:
+                "请调用 StockMarketBrief 生成 A 股收盘复盘，覆盖涨跌停、热股、板块、资金流、龙虎榜、异动和市场情绪。必须展示来源和截至时间；任何缺失数据均标记 partial，不得补造或给出确定性交易建议。",
+            };
+      const existing = getAutomationState().cron.tasks.find((task) => task.id === preset.id);
+      await applyCronOps([
+        existing
+          ? {
+              op: "update",
+              id: preset.id,
+              patch: {
+                ...preset,
+                enabled: true,
+                type: "prompt",
+                selectedModel,
+              },
+            }
+          : {
+              op: "create",
+              item: {
+                ...preset,
+                enabled: true,
+                type: "prompt",
+                selectedModel,
+              },
+            },
+      ]);
+      setScheduleMessage(
+        kind === "pre-open"
+          ? "盘前报告任务已保存：工作日 08:30 执行。"
+          : "收盘复盘任务已保存：工作日 15:30 执行。",
+      );
+    } catch (error) {
+      setScheduleMessage(`创建定时报告失败：${formatStockError(error)}`);
+    }
+  }
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={() => void createMarketSchedule("pre-open")}>
+          创建盘前任务
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => void createMarketSchedule("close")}>
+          创建收盘复盘
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -522,6 +745,11 @@ function MarketView() {
           刷新市场
         </Button>
       </div>
+      {scheduleMessage ? (
+        <div className="rounded-xl border border-border/40 bg-background/55 px-3 py-2 text-[11px] text-muted-foreground">
+          {scheduleMessage}
+        </div>
+      ) : null}
       {brief.state === "loading" ? <LoadingCard text="正在生成 A 股市场概览…" /> : null}
       <ResourceError resource={brief} panel />
       {brief.state === "ready" && brief.data.data ? (
@@ -564,336 +792,22 @@ function MarketView() {
 }
 
 function PortfolioView() {
-  const [portfolio, setPortfolio] = useState<AsyncResource<PortfolioSnapshot>>({
-    state: "idle",
-  });
-  const [csv, setCsv] = useState("");
-  const [importing, setImporting] = useState(false);
-  const load = useCallback(async () => {
-    setPortfolio({ state: "loading" });
-    try {
-      setPortfolio({
-        state: "ready",
-        data: await stockResearch.portfolioRead(),
-      });
-    } catch (error) {
-      setPortfolio({ state: "error", message: formatStockError(error) });
-    }
-  }, []);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  async function importCsv() {
-    if (!csv.trim()) return;
-    setImporting(true);
-    try {
-      setPortfolio({
-        state: "ready",
-        data: await stockResearch.portfolioImportCsv(csv),
-      });
-      setCsv("");
-    } catch (error) {
-      setPortfolio({ state: "error", message: formatStockError(error) });
-    } finally {
-      setImporting(false);
-    }
-  }
-  async function exportCsv() {
-    try {
-      const result = await stockResearch.portfolioExportCsv();
-      const url = URL.createObjectURL(new Blob([result.csv], { type: "text/csv;charset=utf-8" }));
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = sanitizeCsvFileName(result.fileName);
-      anchor.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      setPortfolio({ state: "error", message: formatStockError(error) });
-    }
-  }
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <GlassPanel>
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold">持仓概览</h2>
-            <Button variant="outline" size="sm" onClick={() => void exportCsv()}>
-              导出 CSV
-            </Button>
-          </div>
-          {portfolio.state === "loading" ? (
-            <div className="py-12">
-              <LoadingInline text="读取本地资产数据…" />
-            </div>
-          ) : null}
-          <ResourceError resource={portfolio} />
-          {portfolio.state === "ready" ? (
-            portfolio.data.positions.length ? (
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full min-w-[620px] text-left text-xs">
-                  <thead className="text-muted-foreground">
-                    <tr>
-                      <th className="pb-3 font-medium">标的</th>
-                      <th className="pb-3 font-medium">数量</th>
-                      <th className="pb-3 font-medium">平均成本</th>
-                      <th className="pb-3 font-medium">市值</th>
-                      <th className="pb-3 font-medium">浮动盈亏</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/35">
-                    {portfolio.data.positions.map((position) => (
-                      <tr key={`${position.portfolioId}-${position.instrument.id}`}>
-                        <td className="py-3">
-                          <div className="font-medium">{position.instrument.name}</div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {position.instrument.symbol}
-                          </div>
-                        </td>
-                        <td className="py-3 tabular-nums">{position.quantity}</td>
-                        <td className="py-3 tabular-nums">{position.averageCost}</td>
-                        <td className="py-3 tabular-nums">{position.marketValue ?? "—"}</td>
-                        <td
-                          className={cn(
-                            "py-3 tabular-nums",
-                            (position.unrealizedPnl ?? 0) >= 0
-                              ? "text-red-600"
-                              : "text-emerald-600",
-                          )}
-                        >
-                          {position.unrealizedPnl ?? "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="py-12">
-                <EmptyLine text="尚未导入持仓或交易流水" />
-              </div>
-            )
-          ) : null}
-        </GlassPanel>
-        <GlassPanel className="h-fit">
-          <div className="flex items-center gap-2">
-            <Upload className="h-4 w-4" />
-            <h2 className="text-sm font-semibold">导入交易流水</h2>
-          </div>
-          <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-            CSV 字段：组合、市场、代码、交易类型、日期、数量、价格、费用、币种、备注。
-          </p>
-          <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border/55 bg-background/45 px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground">
-            <Upload className="h-3.5 w-3.5" />
-            选择 CSV 文件
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              className="sr-only"
-              onChange={(event) => readCsvFile(event, setCsv)}
-            />
-          </label>
-          <Textarea
-            value={csv}
-            onChange={(event) => setCsv(event.target.value)}
-            className="mt-3 min-h-44 font-mono text-[11px]"
-            placeholder="或直接粘贴 CSV 内容…"
-          />
-          <Button
-            className="mt-3 w-full"
-            onClick={() => void importCsv()}
-            disabled={!csv.trim() || importing}
-          >
-            {importing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            校验并导入
-          </Button>
-          <p className="mt-3 text-[10.5px] text-muted-foreground">
-            数据仅保存在本机；首版不连接券商、不执行交易。
-          </p>
-        </GlassPanel>
-      </div>
-      <EncryptedBackupPanel onRestored={load} />
-    </div>
-  );
+  return <PortfolioWorkspace />;
 }
-
-function EncryptedBackupPanel({ onRestored }: { onRestored: () => Promise<void> }) {
-  const [exportPassword, setExportPassword] = useState("");
-  const [restorePassword, setRestorePassword] = useState("");
-  const [envelopeText, setEnvelopeText] = useState("");
-  const [mode, setMode] = useState<StockBackupRestoreMode>("merge");
-  const [busy, setBusy] = useState<"export" | "restore" | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function exportBackup() {
-    if (!exportPassword) return;
-    setBusy("export");
-    setError(null);
-    setMessage(null);
-    try {
-      const envelope = await stockResearch.portfolioExportEncryptedBackup(exportPassword);
-      const json = JSON.stringify(envelope, null, 2);
-      const url = URL.createObjectURL(new Blob([json], { type: "application/json;charset=utf-8" }));
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `calen-stock-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-      setMessage("加密备份已导出，请妥善保管密码。Calen 无法找回遗失的密码。");
-    } catch (nextError) {
-      setError(formatStockError(nextError));
-    } finally {
-      setExportPassword("");
-      setBusy(null);
-    }
-  }
-
-  async function restoreBackup() {
-    if (!restorePassword || !envelopeText.trim()) return;
-    setBusy("restore");
-    setError(null);
-    setMessage(null);
-    try {
-      const parsed = JSON.parse(envelopeText) as Partial<EncryptedStockBackupEnvelope>;
-      if (
-        typeof parsed.formatVersion !== "number" ||
-        typeof parsed.cipher !== "string" ||
-        typeof parsed.createdAt !== "string" ||
-        typeof parsed.payloadBase64 !== "string"
-      )
-        throw new Error("备份文件格式无效或字段不完整。");
-      await stockResearch.portfolioRestoreEncryptedBackup(
-        parsed as EncryptedStockBackupEnvelope,
-        restorePassword,
-        mode,
-      );
-      await onRestored();
-      setEnvelopeText("");
-      setMessage(
-        mode === "replaceAll"
-          ? "备份已恢复，并替换现有股票资产数据。"
-          : "备份已合并到现有股票资产数据。",
-      );
-    } catch (nextError) {
-      setError(formatStockError(nextError));
-    } finally {
-      setRestorePassword("");
-      setBusy(null);
-    }
-  }
-
-  return (
-    <GlassPanel>
-      <div className="flex items-start gap-3">
-        <Key className="mt-0.5 h-5 w-5" />
-        <div>
-          <h2 className="text-sm font-semibold">密码保护的备份与恢复</h2>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            备份包含自选、组合和交易流水。密码仅用于本次操作，不会保存到设置或磁盘。
-          </p>
-        </div>
-      </div>
-      <div className="mt-4 grid gap-5 lg:grid-cols-2">
-        <div className="rounded-2xl border border-border/40 bg-background/45 p-4">
-          <h3 className="text-xs font-semibold">导出加密备份</h3>
-          <Field label="备份密码">
-            <Input
-              type="password"
-              autoComplete="new-password"
-              value={exportPassword}
-              onChange={(event) => setExportPassword(event.target.value)}
-              placeholder="输入一个强密码"
-            />
-          </Field>
-          <Button
-            className="mt-3 w-full"
-            onClick={() => void exportBackup()}
-            disabled={!exportPassword || busy !== null}
-          >
-            {busy === "export" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            下载加密 JSON
-          </Button>
-        </div>
-        <div className="rounded-2xl border border-border/40 bg-background/45 p-4">
-          <h3 className="text-xs font-semibold">恢复加密备份</h3>
-          <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border/55 px-3 py-2 text-[11px] text-muted-foreground hover:bg-muted/45">
-            <Upload className="h-3.5 w-3.5" />
-            选择备份 JSON
-            <input
-              type="file"
-              accept=".json,application/json"
-              className="sr-only"
-              onChange={(event) => readCsvFile(event, setEnvelopeText)}
-            />
-          </label>
-          <Textarea
-            value={envelopeText}
-            onChange={(event) => setEnvelopeText(event.target.value)}
-            className="mt-2 min-h-24 font-mono text-[10.5px]"
-            placeholder="或粘贴加密备份 JSON…"
-          />
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Field label="恢复密码">
-              <Input
-                type="password"
-                autoComplete="current-password"
-                value={restorePassword}
-                onChange={(event) => setRestorePassword(event.target.value)}
-              />
-            </Field>
-            <Field label="恢复方式">
-              <select
-                value={mode}
-                onChange={(event) => setMode(event.target.value as StockBackupRestoreMode)}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              >
-                <option value="merge">合并现有数据</option>
-                <option value="replaceAll">全部替换</option>
-              </select>
-            </Field>
-          </div>
-          <Button
-            variant={mode === "replaceAll" ? "destructive" : "default"}
-            className="mt-3 w-full"
-            onClick={() => void restoreBackup()}
-            disabled={!restorePassword || !envelopeText.trim() || busy !== null}
-          >
-            {busy === "restore" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            {mode === "replaceAll" ? "确认替换并恢复" : "合并并恢复"}
-          </Button>
-          {mode === "replaceAll" ? (
-            <p className="mt-2 text-[10.5px] text-destructive">
-              全部替换会清除现有自选、组合和流水后再恢复备份。
-            </p>
-          ) : null}
-        </div>
-      </div>
-      {error ? (
-        <div className="mt-3 rounded-xl bg-destructive/5 px-3 py-2 text-[11px] text-destructive">
-          {error}
-        </div>
-      ) : null}
-      {message ? (
-        <div className="mt-3 rounded-xl bg-emerald-500/5 px-3 py-2 text-[11px] text-emerald-700 dark:text-emerald-300">
-          {message}
-        </div>
-      ) : null}
-    </GlassPanel>
-  );
-}
-
 function LabView() {
   const [symbol, setSymbol] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [period, setPeriod] = useState("20");
+  const [strategy, setStrategy] = useState<StockBacktestStrategyId>("fused");
   const [result, setResult] = useState<AsyncResource<StockEvidenceResult<BacktestResult>>>({
     state: "idle",
   });
   async function run(event: FormEvent) {
     event.preventDefault();
     const parsedPeriod = parseFiniteNumber(period);
-    if (!symbol.trim() || !from || !to || parsedPeriod === null) return;
+    if (!symbol.trim() || !from || !to || (strategy === "sma-cross" && parsedPeriod === null))
+      return;
     setResult({ state: "loading" });
     try {
       const matches = await stockResearch.resolve({
@@ -906,10 +820,10 @@ function LabView() {
         state: "ready",
         data: await stockResearch.backtest({
           instrument,
-          strategy: "moving_average",
+          strategy,
           from,
           to,
-          parameters: { period: parsedPeriod },
+          parameters: strategy === "sma-cross" ? { period: parsedPeriod } : {},
           benchmark: "market",
         }),
       });
@@ -941,11 +855,27 @@ function LabView() {
               <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
             </Field>
           </div>
+          <Field label="策略模型">
+            <select
+              value={strategy}
+              onChange={(event) => setStrategy(event.target.value as StockBacktestStrategyId)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            >
+              <option value="fused">多策略融合</option>
+              <option value="trend">趋势跟踪</option>
+              <option value="mean-reversion">均值回归</option>
+              <option value="breakout">区间突破</option>
+              <option value="momentum">动量交叉</option>
+              <option value="volume-price">量价确认</option>
+              <option value="sma-cross">SMA 交叉</option>
+            </select>
+          </Field>
           <Field label="均线周期">
             <Input
               inputMode="numeric"
               value={period}
               onChange={(event) => setPeriod(event.target.value)}
+              disabled={strategy !== "sma-cross"}
             />
           </Field>
           <Button type="submit" className="w-full" disabled={result.state === "loading"}>
@@ -1540,12 +1470,4 @@ function Metric({ label, value }: { label: string; value: string }) {
       <div className="mt-1 text-base font-semibold tabular-nums">{value}</div>
     </div>
   );
-}
-
-export function readCsvFile(event: ChangeEvent<HTMLInputElement>, onRead: (text: string) => void) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => onRead(typeof reader.result === "string" ? reader.result : "");
-  reader.readAsText(file);
 }

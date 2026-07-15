@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createStockResearchService, makeInstrument } from "../src/index.ts";
+import type { StockProvider } from "../src/index.ts";
 
 const etf = makeInstrument("CN", "510300", "SSE", "ETF", "CNY", "沪深300ETF");
 
@@ -32,6 +33,17 @@ test("Eastmoney ETF research combines profile, NAV, and holdings without oversta
         "<table><tr><td>1</td><td>600519</td><td>贵州茅台</td><td>5.25%</td><td>100.00</td><td>150000.00</td></tr></table>";
       return new Response(`var apidata=${JSON.stringify({ content: html })};`);
     }
+    if (url.pathname.endsWith("/api/qt/stock/get")) {
+      return Response.json({
+        data: {
+          f43: 4.2,
+          f57: "510300",
+          f58: "沪深300ETF",
+          f60: 4.1,
+          f86: "20260716093000",
+        },
+      });
+    }
     throw new Error(`unexpected URL: ${url}`);
   };
   const service = createStockResearchService({
@@ -57,4 +69,32 @@ test("Eastmoney ETF research combines profile, NAV, and holdings without oversta
   assert.equal(section.data.holdings[0].weightPercent, 5.25);
   assert.equal(section.data.holdings[0].shares, 1000000);
   assert.equal(section.data.holdings[0].marketValueCny, 1500000000);
+  assert.equal(section.data.marketPrice, 4.2);
+  assert.equal(section.data.premiumPercent, 1.86);
+});
+
+test("ETF research marks premium unavailable when no market price is available", async () => {
+  const provider: StockProvider = {
+    id: "etf-only",
+    priority: 1,
+    capabilities: ["etf"],
+    async etf() {
+      return {
+        data: { nav: [{ date: "2026-07-15", nav: 1.25 }] },
+        asOf: "2026-07-15",
+      };
+    },
+  };
+  const result = await createStockResearchService({
+    providers: [provider],
+  }).research({
+    instrument: etf,
+    capabilities: ["etf"],
+  });
+  const section = (result.data as { capabilities: Record<string, any> })
+    .capabilities.etf;
+  assert.equal(result.status, "partial");
+  assert.equal(section.status, "partial");
+  assert.equal(section.data.premiumPercent, null);
+  assert.match(section.warnings.join("\n"), /无法计算溢价率/);
 });

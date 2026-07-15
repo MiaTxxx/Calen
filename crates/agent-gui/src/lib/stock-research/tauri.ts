@@ -18,12 +18,23 @@ import type {
   PortfolioSnapshot,
   StockBacktestRequest,
   StockBackupRestoreMode,
+  StockCurrency,
+  StockFxRateInput,
+  StockPortfolioAnalysis,
+  StockPortfolioInstrument,
+  StockPortfolioRecord,
+  StockPriceInput,
   StockResearchPort,
   StockResearchRequest,
   StockResolveRequest,
   StockSettings,
   StockSettingsSavePayload,
   StockSnapshotRequest,
+  StockTransactionInput,
+  StockTransactionRecord,
+  StockWatchlist,
+  StockWatchlistItem,
+  StockWatchlistView,
 } from "./types";
 
 const commands = {
@@ -40,6 +51,18 @@ const commands = {
   portfolioExportCsv: "stock_portfolio_export_csv",
   portfolioExportEncryptedBackup: "ui_stock_portfolio_export_encrypted_backup",
   portfolioRestoreEncryptedBackup: "ui_stock_portfolio_restore_encrypted_backup",
+  watchlistCreate: "ui_stock_watchlist_create",
+  watchlistList: "ui_stock_watchlist_list",
+  watchlistAddItem: "ui_stock_watchlist_add_item",
+  watchlistRemoveItem: "ui_stock_watchlist_remove_item",
+  portfolioCreate: "ui_stock_portfolio_create",
+  portfolioList: "ui_stock_portfolio_list",
+  portfolioRecordTransaction: "ui_stock_portfolio_record_transaction",
+  portfolioDeleteTransaction: "ui_stock_portfolio_delete_transaction",
+  portfolioListTransactions: "ui_stock_portfolio_list_transactions",
+  portfolioAnalyze: "ui_stock_portfolio_snapshot",
+  portfolioImportCsvTo: "ui_stock_portfolio_import_csv",
+  portfolioExportCsvOf: "ui_stock_portfolio_export_csv",
 } as const;
 
 export class TauriStockResearchAdapter implements StockResearchPort {
@@ -120,6 +143,67 @@ export class TauriStockResearchAdapter implements StockResearchPort {
       password,
       mode,
     });
+  }
+
+  watchlistCreate(name: string) {
+    return invoke<StockWatchlist>(commands.watchlistCreate, { name });
+  }
+
+  watchlistList() {
+    return invoke<StockWatchlistView[]>(commands.watchlistList);
+  }
+
+  watchlistAddItem(watchlistId: string, instrument: StockPortfolioInstrument, note?: string) {
+    return invoke<StockWatchlistItem>(commands.watchlistAddItem, {
+      watchlistId,
+      instrument,
+      note: note?.trim() || null,
+    });
+  }
+
+  watchlistRemoveItem(watchlistId: string, instrumentId: string) {
+    return invoke<boolean>(commands.watchlistRemoveItem, { watchlistId, instrumentId });
+  }
+
+  portfolioCreate(name: string, baseCurrency: StockCurrency) {
+    return invoke<StockPortfolioRecord>(commands.portfolioCreate, { name, baseCurrency });
+  }
+
+  portfolioList() {
+    return invoke<StockPortfolioRecord[]>(commands.portfolioList);
+  }
+
+  portfolioRecordTransaction(input: StockTransactionInput) {
+    return invoke<StockTransactionRecord>(commands.portfolioRecordTransaction, { input });
+  }
+
+  portfolioDeleteTransaction(transactionId: string) {
+    return invoke<boolean>(commands.portfolioDeleteTransaction, { transactionId });
+  }
+
+  portfolioListTransactions(portfolioId: string) {
+    return invoke<StockTransactionRecord[]>(commands.portfolioListTransactions, { portfolioId });
+  }
+
+  portfolioAnalyze(
+    portfolioId: string,
+    prices: StockPriceInput[] = [],
+    fxRates: StockFxRateInput[] = [],
+  ) {
+    return invoke<StockPortfolioAnalysis>(commands.portfolioAnalyze, {
+      request: { portfolioId, prices, fxRates },
+    });
+  }
+
+  portfolioImportCsvTo(portfolioId: string, document: string) {
+    return invoke<{ imported: number }>(commands.portfolioImportCsvTo, {
+      portfolioId,
+      document,
+    });
+  }
+
+  portfolioExportCsvOf(portfolioId: string) {
+    return invoke<string>(commands.portfolioExportCsvOf, { portfolioId });
   }
 }
 

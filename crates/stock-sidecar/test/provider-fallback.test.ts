@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  MemoryThrottleStore,
   ProviderError,
   ProviderRegistry,
   makeInstrument,
@@ -104,4 +105,83 @@ test("provider timeout falls back even when the provider ignores AbortSignal", a
 
   assert.equal(result.source?.provider, "fast");
   assert.match(result.warnings.join("\n"), /timeout/i);
+});
+
+test("provider throttle is injectable and aborts while waiting", async () => {
+  const calls: Array<[string, number]> = [];
+  const store = new MemoryThrottleStore();
+  const provider: StockProvider = {
+    id: "throttled",
+    priority: 1,
+    capabilities: ["snapshot"],
+    async snapshot(ref) {
+      return {
+        data: { instrument: ref, price: 10, marketTime: "2026-07-15" },
+        asOf: "2026-07-15",
+      };
+    },
+  };
+  const registry = new ProviderRegistry([provider], {
+    throttleStore: {
+      acquire(key, intervalMs, signal) {
+        calls.push([key, intervalMs]);
+        return store.acquire(key, intervalMs, signal);
+      },
+      release(key) {
+        store.release(key);
+      },
+    },
+    throttleIntervalMs: 100,
+  });
+  await registry.query("snapshot", "first", (candidate, context) =>
+    candidate.snapshot!(instrument, context)
+  );
+  const controller = new AbortController();
+  const pending = registry.query(
+    "snapshot",
+    "second",
+    (candidate, context) => candidate.snapshot!(instrument, context),
+    controller.signal
+  );
+  setTimeout(
+    () => controller.abort(new Error("cancelled while throttled")),
+    10
+  );
+  await assert.rejects(pending, /cancelled while throttled/);
+  assert.deepEqual(calls, [
+    ["throttled:snapshot", 100],
+    ["throttled:snapshot", 100],
+  ]);
+});
+
+test("provider timeout interrupts a throttle wait before another upstream call", async () => {
+  let upstreamCalls = 0;
+  const provider: StockProvider = {
+    id: "paced",
+    priority: 1,
+    capabilities: ["snapshot"],
+    async snapshot(ref) {
+      upstreamCalls += 1;
+      return {
+        data: { instrument: ref, price: 10, marketTime: "2026-07-15" },
+        asOf: "2026-07-15",
+      };
+    },
+  };
+  const registry = new ProviderRegistry([provider], {
+    throttleIntervalMs: 100,
+    timeoutMs: 5,
+  });
+  await registry.query("snapshot", "first", (candidate, context) =>
+    candidate.snapshot!(instrument, context)
+  );
+  const result = await registry.query(
+    "snapshot",
+    "second",
+    (candidate, context) => candidate.snapshot!(instrument, context)
+  );
+  assert.equal(result.data, null);
+  assert.equal(upstreamCalls, 1);
+  assert.match(result.warnings.join("\n"), /timeout/i);
+  assert.equal(registry.status()[0]?.consecutiveFailures, 0);
 });

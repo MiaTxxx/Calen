@@ -1137,6 +1137,154 @@ fn redact_builtin_tool_content_json(raw: &str) -> Result<String, String> {
         .map_err(|e| format!("serialize redacted share history failed: {e}"))
 }
 
+fn is_stock_portfolio_gateway_history_message(message: &Value) -> bool {
+    const TOOL_NAME: &str = "StockPortfolioRead";
+    let Some(object) = message.as_object() else {
+        return false;
+    };
+    match object.get("role").and_then(Value::as_str).map(str::trim) {
+        Some("assistant") => object
+            .get("content")
+            .and_then(Value::as_array)
+            .is_some_and(|blocks| {
+                blocks.iter().any(|block| {
+                    matches!(
+                        block
+                            .as_object()
+                            .and_then(|record| record.get("type"))
+                            .and_then(Value::as_str)
+                            .map(str::trim),
+                        Some("toolCall") | Some("tool_use")
+                    ) && read_tool_block_name(block).as_deref() == Some(TOOL_NAME)
+                })
+            }),
+        Some("toolResult" | "tool_result") => {
+            read_json_string_field(object, &["toolName", "tool_name", "name"]).as_deref()
+                == Some(TOOL_NAME)
+        }
+        _ => false,
+    }
+}
+
+fn redact_stock_portfolio_gateway_history_message(message: &mut Value, redact_text: bool) {
+    const TOOL_NAME: &str = "StockPortfolioRead";
+    const PRIVACY_NOTICE: &str =
+        "Calen kept this local portfolio result on the desktop and did not send asset data to Gateway.";
+    let Some(object) = message.as_object_mut() else {
+        return;
+    };
+    match object.get("role").and_then(Value::as_str).map(str::trim) {
+        Some("assistant") => {
+            let Some(content) = object.get_mut("content") else {
+                return;
+            };
+            if content.is_string() {
+                if redact_text {
+                    *content = Value::String(PRIVACY_NOTICE.to_string());
+                    object.insert("localOnly".to_string(), Value::Bool(true));
+                    object.insert("redacted".to_string(), Value::Bool(true));
+                }
+                return;
+            }
+            let Some(blocks) = content.as_array_mut() else {
+                return;
+            };
+            let mut notice_inserted = false;
+            for block in blocks {
+                let block_type = block
+                    .as_object()
+                    .and_then(|record| record.get("type"))
+                    .and_then(Value::as_str)
+                    .map(str::trim);
+                let is_tool_call = matches!(block_type, Some("toolCall") | Some("tool_use"));
+                if is_tool_call
+                    && (redact_text || read_tool_block_name(block).as_deref() == Some(TOOL_NAME))
+                {
+                    redact_tool_call_block(block);
+                    let Some(block) = block.as_object_mut() else {
+                        continue;
+                    };
+                    block.insert(
+                        "arguments".to_string(),
+                        json!({ "localOnly": true, "redacted": true }),
+                    );
+                    block.insert("localOnly".to_string(), Value::Bool(true));
+                    if let Some(nested) = block.get_mut("toolCall").and_then(Value::as_object_mut)
+                    {
+                        nested.insert(
+                            "arguments".to_string(),
+                            json!({ "localOnly": true, "redacted": true }),
+                        );
+                    }
+                    continue;
+                }
+                if redact_text && !is_tool_call {
+                    if notice_inserted {
+                        *block = Value::Null;
+                    } else {
+                        *block = json!({
+                            "type": "text",
+                            "text": PRIVACY_NOTICE,
+                            "localOnly": true,
+                            "redacted": true
+                        });
+                        notice_inserted = true;
+                    }
+                }
+            }
+            if redact_text {
+                blocks.retain(|block| !block.is_null());
+                if !notice_inserted {
+                    blocks.push(json!({
+                        "type": "text",
+                        "text": PRIVACY_NOTICE,
+                        "localOnly": true,
+                        "redacted": true
+                    }));
+                }
+                object.insert("localOnly".to_string(), Value::Bool(true));
+                object.insert("redacted".to_string(), Value::Bool(true));
+            }
+        }
+        Some("toolResult" | "tool_result") => {
+            let is_private = read_json_string_field(object, &["toolName", "tool_name", "name"])
+                .as_deref()
+                == Some(TOOL_NAME);
+            if !is_private && !redact_text {
+                return;
+            }
+            for key in ["result", "data", "payload"] {
+                object.remove(key);
+            }
+            object.insert(
+                "content".to_string(),
+                json!([{
+                    "type": "text",
+                    "text": PRIVACY_NOTICE
+                }]),
+            );
+            object.insert(
+                "details".to_string(),
+                json!({
+                    "kind": "stock_result",
+                    "operation": "portfolio",
+                    "status": "unavailable",
+                    "localOnly": true,
+                    "redacted": true,
+                    "warnings": ["本地资产数据未发送到 Gateway。"],
+                    "result": null
+                }),
+            );
+        }
+        Some("summary") if redact_text => {
+            object.insert("content".to_string(), Value::String(PRIVACY_NOTICE.to_string()));
+            object.insert("localOnly".to_string(), Value::Bool(true));
+            object.insert("redacted".to_string(), Value::Bool(true));
+        }
+        _ => {}
+    }
+}
+
 fn flatten_history_messages_json(
     segments: &[chat_history::ChatHistorySegmentRecord],
 ) -> Result<String, String> {
@@ -1443,21 +1591,53 @@ fn flatten_history_messages_json_window(
     };
     let mut merged = Vec::new();
     let mut returned_message_count = 0_usize;
+    let mut stock_portfolio_privacy_active = false;
 
     for parsed in parsed_segments {
         if messages_to_skip >= parsed.messages.len() {
+            for item in &parsed.messages {
+                if item.get("role").and_then(Value::as_str) == Some("user") {
+                    stock_portfolio_privacy_active = false;
+                }
+                if is_stock_portfolio_gateway_history_message(item) {
+                    stock_portfolio_privacy_active = true;
+                }
+            }
             messages_to_skip -= parsed.messages.len();
             continue;
         }
 
-        if let Some(summary) = parsed.summary {
+        for item in parsed.messages.iter().take(messages_to_skip) {
+            if item.get("role").and_then(Value::as_str) == Some("user") {
+                stock_portfolio_privacy_active = false;
+            }
+            if is_stock_portfolio_gateway_history_message(item) {
+                stock_portfolio_privacy_active = true;
+            }
+        }
+
+        if let Some(mut summary) = parsed.summary {
+            redact_stock_portfolio_gateway_history_message(
+                &mut summary,
+                stock_portfolio_privacy_active,
+            );
             merged.push(summary);
         }
 
         let start_index = messages_to_skip;
         messages_to_skip = 0;
         for (message_index, item) in parsed.messages.iter().enumerate().skip(start_index) {
+            if item.get("role").and_then(Value::as_str) == Some("user") {
+                stock_portfolio_privacy_active = false;
+            }
+            if is_stock_portfolio_gateway_history_message(item) {
+                stock_portfolio_privacy_active = true;
+            }
             let mut cloned = item.clone();
+            redact_stock_portfolio_gateway_history_message(
+                &mut cloned,
+                stock_portfolio_privacy_active,
+            );
             if let Some(object) = cloned.as_object_mut() {
                 if let Some(history_ref) =
                     build_history_message_ref_json(parsed.segment, message_index, item)
@@ -1695,6 +1875,136 @@ mod tests {
                 }
             ])
         );
+    }
+
+    #[test]
+    fn gateway_history_projection_redacts_local_stock_portfolio_tool_data() {
+        let flattened = flatten_history_messages_json(&[make_segment(
+            0,
+            "segment-stock",
+            None,
+            r#"[
+                {
+                    "role":"assistant",
+                    "content":[{
+                        "type":"toolCall",
+                        "id":"stock-call-1",
+                        "name":"StockPortfolioRead",
+                        "arguments":{"action":"transactions","portfolioId":"portfolio-secret-1"}
+                    }]
+                },
+                {
+                    "role":"toolResult",
+                    "toolCallId":"stock-call-1",
+                    "toolName":"StockPortfolioRead",
+                    "content":[{"type":"text","text":"portfolio-secret-1 600519 trade-secret-1 1500 家庭资产"}],
+                    "details":{"kind":"stock_result","result":{"symbol":"600519"}}
+                }
+            ]"#,
+        )])
+        .expect("flatten stock portfolio history");
+
+        for private_value in [
+            "portfolio-secret-1",
+            "trade-secret-1",
+            "600519",
+            "1500",
+            "家庭资产",
+        ] {
+            assert!(!flattened.contains(private_value));
+        }
+        let parsed = serde_json::from_str::<Value>(&flattened).expect("parse redacted history");
+        assert_eq!(
+            parsed[0]["content"][0]["arguments"],
+            json!({ "localOnly": true, "redacted": true })
+        );
+        assert_eq!(parsed[1]["details"]["localOnly"], true);
+        assert_eq!(parsed[1]["details"]["result"], Value::Null);
+    }
+
+    #[test]
+    fn gateway_history_projection_redacts_portfolio_derived_assistant_text_and_summary() {
+        let flattened = flatten_history_messages_json(&[
+            make_segment(
+                0,
+                "segment-stock",
+                None,
+                r#"[
+                    {
+                        "role":"assistant",
+                        "content":[{
+                            "type":"toolCall",
+                            "id":"stock-call-1",
+                            "name":"StockPortfolioRead",
+                            "arguments":{"portfolioId":"portfolio-secret-1"}
+                        }]
+                    },
+                    {
+                        "role":"toolResult",
+                        "toolCallId":"stock-call-1",
+                        "toolName":"StockPortfolioRead",
+                        "content":[{"type":"text","text":"600519 quantity 100"}]
+                    },
+                    {
+                        "role":"assistant",
+                        "content":[{"type":"text","text":"家庭资产 value 150000"}]
+                    }
+                ]"#,
+            ),
+            make_segment(
+                1,
+                "segment-summary",
+                Some(
+                    r#"{"role":"summary","id":"summary-private","content":"portfolio-secret-1 600519 150000"}"#,
+                ),
+                r#"[
+                    {"role":"assistant","content":"trade-secret-1"},
+                    {
+                        "role":"assistant",
+                        "content":[{
+                            "type":"toolCall",
+                            "id":"research-call-1",
+                            "name":"StockResearch",
+                            "arguments":{"symbol":"600519","reason":"held-position"}
+                        }]
+                    },
+                    {
+                        "role":"toolResult",
+                        "toolCallId":"research-call-1",
+                        "toolName":"StockResearch",
+                        "content":[{"type":"text","text":"position-derived-result-150000"}],
+                        "details":{"symbol":"600519","quantity":100}
+                    },
+                    {"role":"user","content":"continue with public research"},
+                    {"role":"assistant","content":"public answer"}
+                ]"#,
+            ),
+        ])
+        .expect("flatten private portfolio history");
+
+        for private_value in [
+            "portfolio-secret-1",
+            "trade-secret-1",
+            "held-position",
+            "position-derived-result",
+            "600519",
+            "150000",
+            "家庭资产",
+        ] {
+            assert!(!flattened.contains(private_value));
+        }
+        assert!(flattened.contains("public answer"));
+        let parsed = serde_json::from_str::<Value>(&flattened).expect("parse redacted history");
+        assert_eq!(parsed[2]["redacted"], true);
+        assert_eq!(parsed[3]["role"], "summary");
+        assert_eq!(parsed[3]["redacted"], true);
+        assert_eq!(parsed[4]["redacted"], true);
+        assert_eq!(
+            parsed[5]["content"][0]["arguments"],
+            json!({ "localOnly": true, "redacted": true })
+        );
+        assert_eq!(parsed[6]["details"]["localOnly"], true);
+        assert_eq!(parsed[8]["content"], "public answer");
     }
 
     #[test]

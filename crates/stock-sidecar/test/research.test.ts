@@ -76,12 +76,24 @@ test("research combines facts with versioned technical score and evaluator outpu
 
   const result = await service.research({ instrument, historyLimit: 30 });
   const data = result.data as {
-    technical: { rsi14: number; trend: string };
+    technical: {
+      rsi14: number;
+      trend: string;
+      bollingerUpper: number;
+      kdjK: number;
+      cci20: number;
+      adx14: number;
+    };
     score: {
       value: number;
       algorithm: { id: string; version: string; parameters: unknown };
     };
-    evaluator: { rating: string; parameters: unknown };
+    evaluator: {
+      rating: string;
+      parameters: unknown;
+      quality: { dimensionsActual: number };
+      dimensions: Array<{ id: string }>;
+    };
     analysisMetadata: {
       algorithm: { id: string; version: string; parameters: unknown };
       sample: { bars: number; coverage: number };
@@ -93,14 +105,16 @@ test("research combines facts with versioned technical score and evaluator outpu
   assert.equal(result.status, "ok");
   assert.equal(data.technical.rsi14, 100);
   assert.equal(data.technical.trend, "bullish");
-  assert.equal(data.score.algorithm.id, "calen.technical-score");
-  assert.equal(data.score.algorithm.version, "1.0.0");
+  assert.equal(data.score.algorithm.id, "calen.multi-factor-score");
+  assert.equal(data.score.algorithm.version, "2.0.0");
   assert.ok(data.score.algorithm.parameters);
-  assert.ok(data.score.value >= 70);
+  assert.ok(data.score.value >= 0 && data.score.value <= 100);
   assert.equal(data.evaluator.rating, "positive");
   assert.ok(data.evaluator.parameters);
+  assert.equal(data.evaluator.quality.dimensionsActual, 4);
+  assert.ok(data.evaluator.dimensions.some((item) => item.id === "risk"));
   assert.equal(data.analysisMetadata.algorithm.id, "calen.research-analytics");
-  assert.equal(data.analysisMetadata.algorithm.version, "1.0.0");
+  assert.equal(data.analysisMetadata.algorithm.version, "2.0.0");
   assert.ok(data.analysisMetadata.algorithm.parameters);
   assert.equal(data.analysisMetadata.sample.bars, 30);
   assert.equal(data.analysisMetadata.sample.coverage, 1);
@@ -179,4 +193,29 @@ test("local analytics include their implicit history evidence source", async () 
     ["history"]
   );
   assert.equal(result.cached, false);
+});
+
+test("research can select a subset of the strategy registry", async () => {
+  const provider: StockProvider = {
+    id: "strategy-selection",
+    priority: 1,
+    capabilities: ["history"],
+    async history() {
+      return { data: bars, asOf: "2026-07-15" };
+    },
+  };
+  const result = await createStockResearchService({
+    providers: [provider],
+  }).research({
+    instrument,
+    capabilities: ["strategy"],
+    strategyIds: ["breakout"],
+  });
+  const data = result.data as {
+    strategy: { algorithm: { parameters: { selectedStrategies: string[] } } };
+  };
+  assert.equal(result.status, "ok");
+  assert.deepEqual(data.strategy.algorithm.parameters.selectedStrategies, [
+    "breakout",
+  ]);
 });

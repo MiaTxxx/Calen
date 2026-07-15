@@ -112,10 +112,18 @@ export function toStockSidecarToolPayload(
     end: string(rawPayload.endDate),
     initialCash: finiteNumber(parameters.initialCash),
     feeRate: finiteNumber(rawPayload.feeRate ?? parameters.feeRate),
-    strategy: {
-      id: "sma-cross",
-      shortWindow: normalizedShortWindow,
-      longWindow: normalizedLongWindow,
-    },
+    strategy:
+      rawPayload.strategy === "trend" ||
+      rawPayload.strategy === "mean-reversion" ||
+      rawPayload.strategy === "breakout" ||
+      rawPayload.strategy === "momentum" ||
+      rawPayload.strategy === "volume-price" ||
+      rawPayload.strategy === "fused"
+        ? { id: rawPayload.strategy }
+        : {
+            id: "sma-cross",
+            shortWindow: normalizedShortWindow,
+            longWindow: normalizedLongWindow,
+          },
   };
 }

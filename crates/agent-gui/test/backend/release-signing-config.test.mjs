@@ -15,6 +15,18 @@ const releaseWorkflow = readFileSync(
   path.join(repoRoot, ".github/workflows/desktop-release.yml"),
   "utf8"
 );
+const updateCommandSource = readFileSync(
+  path.join(guiRoot, "src-tauri/src/commands/app/update.rs"),
+  "utf8"
+);
+const tauriMainSource = readFileSync(
+  path.join(guiRoot, "src-tauri/src/lib.rs"),
+  "utf8"
+);
+const windowsInstallerValidation = readFileSync(
+  path.join(repoRoot, "scripts/release/test-windows-installers.ps1"),
+  "utf8"
+);
 
 function runValidation(env = {}) {
   return spawnSync(process.execPath, [validationScript], {
@@ -112,4 +124,44 @@ test("desktop release is blocked until stock provider terms are explicitly appro
   assert.match(releaseWorkflow, /CALEN_STOCK_PROVIDER_TERMS_APPROVED/);
   assert.match(releaseWorkflow, /written provider terms approval/);
   assert.match(releaseWorkflow, /exit 1/);
+});
+
+test("update and restart paths stop the stock sidecar before replacing the app", () => {
+  assert.match(
+    updateCommandSource,
+    /pub async fn app_update_install[\s\S]*?stock\.stop\(\)\.await\?/
+  );
+  assert.match(
+    updateCommandSource,
+    /pub async fn app_restart[\s\S]*?stock\.stop\(\)\.await\?/
+  );
+  assert.match(tauriMainSource, /stock_manager\.shutdown_cleanup\(\)/);
+});
+
+test("desktop release blocks on real Windows installer lifecycle validation", () => {
+  assert.match(
+    releaseWorkflow,
+    /Validate Windows install, upgrade, sidecar, and uninstall lifecycle/
+  );
+  assert.match(releaseWorkflow, /test-windows-installers\.ps1/);
+  assert.match(
+    windowsInstallerValidation,
+    /throw "Upgrade validation could not determine whether a previous stable MSI exists/
+  );
+  assert.doesNotMatch(
+    windowsInstallerValidation,
+    /Upgrade validation skipped: GitHub release lookup failed/
+  );
+  assert.match(windowsInstallerValidation, /"\/S", "\/D=\$nsisInstallRoot"/);
+  assert.match(windowsInstallerValidation, /msiexec\.exe/);
+  assert.match(
+    windowsInstallerValidation,
+    /\$startInfo\.Environment\["PATH"\] = ""/
+  );
+  assert.match(windowsInstallerValidation, /dist\\stdio\.mjs/);
+  assert.match(windowsInstallerValidation, /Wait-InstallRootReleased/);
+  assert.match(
+    windowsInstallerValidation,
+    /no previous stable Calen Windows x64 MSI was found/
+  );
 });

@@ -13,6 +13,17 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{oneshot, Mutex};
 use uuid::Uuid;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
+
 const DEFAULT_TIMEOUT_MS: u64 = 45_000;
 const MIN_TIMEOUT_MS: u64 = 1_000;
 const MAX_TIMEOUT_MS: u64 = 180_000;
@@ -34,6 +45,94 @@ struct StockProcess {
     stdin: ChildStdin,
     stdout: Lines<BufReader<ChildStdout>>,
     root: PathBuf,
+    process_tree: Arc<StockProcessTree>,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug)]
+struct StockProcessTree {
+    job: OwnedHandle,
+}
+
+#[cfg(target_os = "windows")]
+impl StockProcessTree {
+    fn attach(process_id: u32) -> Result<Self, String> {
+        let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if job.is_null() {
+            return Err(format!(
+                "创建股票 sidecar Windows Job Object 失败：{}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        let job = unsafe { OwnedHandle::from_raw_handle(job) };
+
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let configured = unsafe {
+            SetInformationJobObject(
+                job.as_raw_handle(),
+                JobObjectExtendedLimitInformation,
+                &limits as *const _ as *const std::ffi::c_void,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+        };
+        if configured == 0 {
+            return Err(format!(
+                "配置股票 sidecar Windows Job Object 失败：{}",
+                std::io::Error::last_os_error()
+            ));
+        }
+
+        let process = unsafe {
+            OpenProcess(
+                PROCESS_SET_QUOTA | PROCESS_TERMINATE,
+                0,
+                process_id,
+            )
+        };
+        if process.is_null() {
+            return Err(format!(
+                "打开股票 sidecar 进程失败：{}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        let process = unsafe { OwnedHandle::from_raw_handle(process) };
+        let assigned = unsafe { AssignProcessToJobObject(job.as_raw_handle(), process.as_raw_handle()) };
+        if assigned == 0 {
+            return Err(format!(
+                "将股票 sidecar 加入 Windows Job Object 失败：{}",
+                std::io::Error::last_os_error()
+            ));
+        }
+
+        Ok(Self { job })
+    }
+
+    fn terminate(&self) -> Result<(), String> {
+        let terminated = unsafe { TerminateJobObject(self.job.as_raw_handle(), 1) };
+        if terminated == 0 {
+            return Err(format!(
+                "终止股票 sidecar 进程树失败：{}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+#[derive(Debug)]
+struct StockProcessTree;
+
+#[cfg(not(target_os = "windows"))]
+impl StockProcessTree {
+    fn attach(_process_id: u32) -> Result<Self, String> {
+        Ok(Self)
+    }
+
+    fn terminate(&self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Default)]
@@ -59,6 +158,7 @@ pub struct StockResearchManager {
     state: Mutex<StockManagerState>,
     cancellations: StdMutex<HashMap<String, oneshot::Sender<()>>>,
     stderr_tail: Arc<StdMutex<VecDeque<String>>>,
+    active_process_tree: StdMutex<Option<Arc<StockProcessTree>>>,
 }
 
 #[derive(Debug)]
@@ -203,8 +303,9 @@ impl StockResearchManager {
     async fn fail_running_process(&self, state: &mut StockManagerState, failure: &RequestFailure) {
         if failure.breaks_process() || matches!(failure, RequestFailure::Cancelled) {
             if let Some(mut process) = state.process.take() {
-                let _ = process.child.kill().await;
-                let _ = process.child.wait().await;
+                let process_tree = Arc::clone(&process.process_tree);
+                let _ = terminate_stock_process(&mut process).await;
+                self.clear_active_process_tree(&process_tree);
             }
         }
         if failure.breaks_process() {
@@ -252,6 +353,17 @@ impl StockResearchManager {
                 launch.program.display()
             )
         })?;
+        let process_id = child
+            .id()
+            .ok_or_else(|| "股票 sidecar 启动后没有进程 ID".to_string())?;
+        let process_tree = match StockProcessTree::attach(process_id) {
+            Ok(process_tree) => Arc::new(process_tree),
+            Err(error) => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                return Err(error);
+            }
+        };
         let stdin = child
             .stdin
             .take()
@@ -275,12 +387,41 @@ impl StockResearchManager {
             });
         }
 
+        self.set_active_process_tree(Arc::clone(&process_tree))?;
         Ok(StockProcess {
             child,
             stdin,
             stdout: BufReader::new(stdout).lines(),
             root: launch.root,
+            process_tree,
         })
+    }
+
+    fn set_active_process_tree(&self, process_tree: Arc<StockProcessTree>) -> Result<(), String> {
+        *self
+            .active_process_tree
+            .lock()
+            .map_err(|_| "股票 sidecar 进程树状态已损坏".to_string())? = Some(process_tree);
+        Ok(())
+    }
+
+    fn clear_active_process_tree(&self, process_tree: &Arc<StockProcessTree>) {
+        if let Ok(mut active) = self.active_process_tree.lock() {
+            if active
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, process_tree))
+            {
+                active.take();
+            }
+        }
+    }
+
+    pub fn shutdown_cleanup(&self) {
+        if let Ok(active) = self.active_process_tree.lock() {
+            if let Some(process_tree) = active.as_ref() {
+                let _ = process_tree.terminate();
+            }
+        }
     }
 
     pub fn cancel(&self, request_id: &str) -> bool {
@@ -294,12 +435,12 @@ impl StockResearchManager {
     pub async fn stop(&self) -> Result<(), String> {
         let mut state = self.state.lock().await;
         if let Some(mut process) = state.process.take() {
-            process
-                .child
-                .kill()
-                .await
-                .map_err(|error| format!("停止股票 sidecar 失败：{error}"))?;
-            let _ = process.child.wait().await;
+            let process_tree = Arc::clone(&process.process_tree);
+            let result = terminate_stock_process(&mut process).await;
+            self.clear_active_process_tree(&process_tree);
+            result?;
+        } else if let Ok(mut active) = self.active_process_tree.lock() {
+            active.take();
         }
         Ok(())
     }
@@ -332,6 +473,44 @@ impl StockResearchManager {
                 .then(|| "股票 sidecar 连续失败，等待手动重启".to_string()),
         }
     }
+}
+
+async fn terminate_stock_process(process: &mut StockProcess) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    if let Err(error) = process.process_tree.terminate() {
+        // A crashed sidecar may already have left the job with no live
+        // process. Treat that state as an idempotent stop so update/restart
+        // is not blocked by a process that is already gone.
+        if process
+            .child
+            .try_wait()
+            .map_err(|wait_error| format!("检查股票 sidecar 状态失败：{wait_error}"))?
+            .is_none()
+        {
+            return Err(error);
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    if process
+        .child
+        .try_wait()
+        .map_err(|error| format!("检查股票 sidecar 状态失败：{error}"))?
+        .is_none()
+    {
+        process
+            .child
+            .kill()
+            .await
+            .map_err(|error| format!("停止股票 sidecar 失败：{error}"))?;
+    }
+
+    process
+        .child
+        .wait()
+        .await
+        .map_err(|error| format!("等待股票 sidecar 退出失败：{error}"))?;
+    Ok(())
 }
 
 struct SidecarLaunch {
@@ -888,6 +1067,9 @@ pub async fn stock_settings_save(
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "windows")]
+    use wait_timeout::ChildExt;
+
     #[test]
     fn request_id_prefers_explicit_non_empty_value() {
         let params = json!({ "requestId": " stock-42 " });
@@ -1031,5 +1213,34 @@ mod tests {
         .expect("load provider keys");
 
         assert!(keys.is_empty());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn shutdown_cleanup_terminates_the_registered_windows_process_tree() {
+        let mut child = std::process::Command::new("powershell.exe")
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Start-Sleep -Seconds 30",
+            ])
+            .spawn()
+            .expect("spawn lifecycle test process");
+        let process_tree = Arc::new(
+            StockProcessTree::attach(child.id()).expect("attach lifecycle test process to job"),
+        );
+        let manager = StockResearchManager::default();
+        manager
+            .set_active_process_tree(process_tree)
+            .expect("register lifecycle test process tree");
+
+        manager.shutdown_cleanup();
+
+        let status = child
+            .wait_timeout(Duration::from_secs(5))
+            .expect("wait for lifecycle test process");
+        assert!(status.is_some(), "Job Object cleanup must terminate the process");
     }
 }

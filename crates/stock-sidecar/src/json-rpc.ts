@@ -134,6 +134,19 @@ const RESEARCH_CAPABILITIES = new Set([
   "evaluator",
 ]);
 
+const QUANT_STRATEGY_IDS = new Set([
+  "trend",
+  "mean-reversion",
+  "breakout",
+  "momentum",
+  "volume-price",
+]);
+const BACKTEST_STRATEGY_IDS = new Set([
+  "sma-cross",
+  ...QUANT_STRATEGY_IDS,
+  "fused",
+]);
+
 function validateParams(
   method: string,
   params: Record<string, unknown>
@@ -183,6 +196,18 @@ function validateParams(
       )
         return "research.capabilities 包含未知或不可用于研究的能力";
     }
+    if (params.strategyIds !== undefined) {
+      if (!Array.isArray(params.strategyIds) || !params.strategyIds.length)
+        return "research.strategyIds 必须是非空数组";
+      if (
+        params.strategyIds.some(
+          (strategyId) =>
+            typeof strategyId !== "string" ||
+            !QUANT_STRATEGY_IDS.has(strategyId)
+        )
+      )
+        return "research.strategyIds 包含未知策略";
+    }
     return null;
   }
   if (method === "marketBrief") {
@@ -220,6 +245,12 @@ function validateParams(
       params.strategy === undefined ? null : record(params.strategy);
     if (params.strategy !== undefined && !strategy)
       return "backtest.strategy 格式无效";
+    if (
+      strategy?.id !== undefined &&
+      (typeof strategy.id !== "string" ||
+        !BACKTEST_STRATEGY_IDS.has(strategy.id))
+    )
+      return "backtest.strategy.id 包含未知策略";
     if (
       strategy &&
       (!validInteger(strategy.shortWindow, 1, 500) ||

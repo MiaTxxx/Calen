@@ -1,5 +1,7 @@
 # Calen 股票能力集成路线
 
+> 实际实现证据、已知限制和发布阻断见 [`stock-integration-status.md`](stock-integration-status.md)。本文件保留目标边界，不以测试通过自动视为全部验收完成。
+
 ## 产品边界
 
 Calen 是唯一产品壳。Opptrix 仅作为股票领域设计与实现的来源，不迁移其 Electron、Fastify、完整 React UI、`ResearchHub` 巨型门面、DuckDB 数据湖或完整 MCP 工具表。

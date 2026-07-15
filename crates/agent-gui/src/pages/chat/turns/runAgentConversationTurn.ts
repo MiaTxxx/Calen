@@ -66,7 +66,10 @@ import type { BuiltinToolExecutionContext } from "../../../lib/tools/builtinType
 import { createFileToolState } from "../../../lib/tools/fileToolState";
 import type { SkillAccessPolicy } from "../../../lib/tools/skillAccessPolicy";
 import type { SshManagerSessionChange } from "../../../lib/tools/sshManagerTools";
-import { isExplicitStockPortfolioRequest } from "../../../lib/tools/stockPortfolioAuthorization";
+import {
+  isStockPortfolioReadAuthorized,
+  type StockPortfolioRequestOrigin,
+} from "../../../lib/tools/stockPortfolioAuthorization";
 import { getOrCreateTodoToolState } from "../../../lib/tools/todoTools";
 import type { TunnelManagerChange } from "../../../lib/tools/tunnelManagerTools";
 import {
@@ -229,6 +232,7 @@ export type RunAgentConversationTurnParams = {
   sshHosts?: SshHostConfig[];
   associatedSshHostIds?: string[];
   sshManagerRemoteAllowed?: boolean;
+  stockPortfolioRequestOrigin: StockPortfolioRequestOrigin;
   onSshSessionsChanged?: (change: SshManagerSessionChange) => void;
   sessionId: string;
   conversationId: string;
@@ -297,6 +301,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     sshHosts,
     associatedSshHostIds,
     sshManagerRemoteAllowed,
+    stockPortfolioRequestOrigin,
     onSshSessionsChanged,
     sessionId,
     conversationId,
@@ -407,9 +412,12 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     }
   }
   const portfolioReadAuthorized = latestUserMessage
-    ? isExplicitStockPortfolioRequest(
-        getUserMessageDisplayText(latestUserMessage as Message & Record<string, unknown>),
-      )
+    ? isStockPortfolioReadAuthorized({
+        latestUserText: getUserMessageDisplayText(
+          latestUserMessage as Message & Record<string, unknown>,
+        ),
+        origin: stockPortfolioRequestOrigin,
+      })
     : false;
   const buildRegistryStartedAt = perfNowMs();
   const builtinRegistry = await buildBuiltinToolRegistry({

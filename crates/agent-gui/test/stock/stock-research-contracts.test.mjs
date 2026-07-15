@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { createTsModuleLoader } from "../helpers/load-ts-module.mjs";
 
 import {
   buildSparklinePath,
@@ -19,8 +20,16 @@ import {
   toSidecarResolveRequest,
   toSidecarSnapshotRequest,
 } from "../../src/lib/stock-research/contracts.ts";
-import { isExplicitStockPortfolioRequest } from "../../src/lib/tools/stockPortfolioAuthorization.ts";
+import {
+  isExplicitStockPortfolioRequest,
+  isStockPortfolioReadAuthorized,
+} from "../../src/lib/tools/stockPortfolioAuthorization.ts";
 import { toStockSidecarToolPayload } from "../../src/lib/tools/stockToolContracts.ts";
+
+const loader = createTsModuleLoader();
+const { createStockResearchTools } = loader.loadModule(
+  "src/lib/tools/stockResearchTools.ts"
+);
 
 test("portfolio reads require an explicit request in the current user turn", () => {
   assert.equal(
@@ -44,7 +53,45 @@ test("portfolio reads require an explicit request in the current user turn", () 
     isExplicitStockPortfolioRequest("不要分析持仓，只解释这个术语"),
     false
   );
-  assert.equal(isExplicitStockPortfolioRequest("分析持仓风险"), true);
+  assert.equal(isExplicitStockPortfolioRequest("分析持仓风险"), false);
+  assert.equal(isExplicitStockPortfolioRequest("请分析投资组合理论"), false);
+  assert.equal(
+    isExplicitStockPortfolioRequest("分析贵州茅台的机构持仓"),
+    false
+  );
+  assert.equal(isExplicitStockPortfolioRequest("分析该公司的机构持仓"), false);
+  assert.equal(
+    isExplicitStockPortfolioRequest(
+      "Review this company's institutional holdings"
+    ),
+    false
+  );
+  assert.equal(isExplicitStockPortfolioRequest("分析这个组合的风险"), true);
+  assert.equal(isExplicitStockPortfolioRequest("分析我当前的持仓风险"), true);
+  assert.equal(isExplicitStockPortfolioRequest("查看本地交易流水"), true);
+});
+
+test("gateway-originated turns can never authorize local portfolio reads", () => {
+  const remoteAuthorized = isStockPortfolioReadAuthorized({
+    latestUserText: "请分析我的持仓风险和行业暴露",
+    origin: "gateway",
+  });
+  assert.equal(remoteAuthorized, false);
+  const remoteTools = createStockResearchTools({
+    runtimeScope: "chat",
+    portfolioReadAuthorized: remoteAuthorized,
+  }).tools;
+  assert.equal(
+    remoteTools.some((tool) => tool.name === "StockPortfolioRead"),
+    false
+  );
+  assert.equal(
+    isStockPortfolioReadAuthorized({
+      latestUserText: "请分析我的持仓风险和行业暴露",
+      origin: "local",
+    }),
+    true
+  );
 });
 
 test("stock result status only accepts the public evidence states", () => {
@@ -169,6 +216,13 @@ test("AI stock tools normalize instruments and backtest fields to the sidecar wi
   });
   assert.equal(backtest.initialCash, 100_000);
   assert.equal(backtest.feeRate, 0.001);
+  const fused = toStockSidecarToolPayload("backtest", {
+    instrument,
+    strategy: "fused",
+    startDate: "2025-01-01",
+    endDate: "2026-01-01",
+  });
+  assert.deepEqual(fused.strategy, { id: "fused" });
 });
 
 test("sidecar snapshot envelope maps quote and bounded history", () => {
@@ -453,6 +507,13 @@ test("stock hub keeps the five product views", async () => {
     new URL("../../src/pages/stock-hub/StockChart.tsx", import.meta.url),
     "utf8"
   );
+  const portfolioSource = await readFile(
+    new URL(
+      "../../src/pages/stock-hub/PortfolioWorkspace.tsx",
+      import.meta.url
+    ),
+    "utf8"
+  );
   const stockToolSource = await readFile(
     new URL("../../src/lib/tools/stockResearchTools.ts", import.meta.url),
     "utf8"
@@ -462,9 +523,9 @@ test("stock hub keeps the five product views", async () => {
   }
   assert.match(source, /不构成投资建议/);
   assert.match(source, /已保存的 Key 永不回显/);
-  assert.match(source, /autoComplete="new-password"/);
+  assert.match(portfolioSource, /autoComplete="new-password"/);
   assert.doesNotMatch(source, /value=\{provider\.key/);
-  assert.match(source, /mode === "replaceAll"/);
+  assert.match(portfolioSource, /mode === "replaceAll"/);
   assert.match(source, /bars=\{data\.chart\}/);
   assert.match(source, /<EvidenceHeader result=\{matches\.data\}/);
   assert.match(source, /matches\.data\.instruments\.map/);
@@ -475,6 +536,22 @@ test("stock hub keeps the five product views", async () => {
   assert.match(source, /样本覆盖率/);
   assert.match(source, /基准/);
   assert.match(source, /限制说明/);
+  assert.match(source, /calen-stock-pre-open/);
+  assert.match(source, /calen-stock-close-review/);
+  assert.match(source, /cron: "0 30 8 \* \* 1-5"/);
+  assert.match(source, /cron: "0 30 15 \* \* 1-5"/);
+  assert.match(source, /applyCronOps/);
+  for (const strategy of [
+    "fused",
+    "trend",
+    "mean-reversion",
+    "breakout",
+    "momentum",
+    "volume-price",
+    "sma-cross",
+  ]) {
+    assert.match(source, new RegExp(`value="${strategy}"`));
+  }
   for (const capability of [
     "financials",
     "shareholders",
@@ -488,10 +565,10 @@ test("stock hub keeps the five product views", async () => {
   }
   assert.match(chartSource, /from "lightweight-charts"/);
   assert.match(chartSource, /CandlestickSeries/);
-  assert.match(source, /setExportPassword\(""\)/);
-  assert.match(source, /setRestorePassword\(""\)/);
+  assert.match(portfolioSource, /setExportPassword\(""\)/);
+  assert.match(portfolioSource, /setRestorePassword\(""\)/);
   assert.doesNotMatch(
-    source,
+    portfolioSource,
     /localStorage.*[Pp]assword|settings.*[Pp]assword/
   );
   assert.match(

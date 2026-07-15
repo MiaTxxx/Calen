@@ -149,6 +149,19 @@ jobs:
           cp "$exe_path.sig" "dist/Calen-${LIVEAGENT_RELEASE_TAG}-Windows-x64-Setup.exe.sig"
           test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 4
 
+      - name: Validate Windows install, upgrade, sidecar, and uninstall lifecycle
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          & scripts/release/test-windows-installers.ps1 `
+            -SetupPath "dist/Calen-$env:LIVEAGENT_RELEASE_TAG-Windows-x64-Setup.exe" `
+            -MsiPath "dist/Calen-$env:LIVEAGENT_RELEASE_TAG-Windows-x64.msi" `
+            -Repository "${{ github.repository }}" `
+            -CurrentTag "$env:LIVEAGENT_RELEASE_TAG" `
+            -CurrentVersion "$env:LIVEAGENT_APP_VERSION" `
+            -GitHubToken "$env:GH_TOKEN"
+
       - uses: actions/upload-artifact@v7
         with:
           name: calen-windows-x64

@@ -1,0 +1,429 @@
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$SetupPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$MsiPath,
+
+    [string]$Repository = $env:GITHUB_REPOSITORY,
+    [string]$CurrentTag = $env:LIVEAGENT_RELEASE_TAG,
+    [string]$CurrentVersion = $env:LIVEAGENT_APP_VERSION,
+    [string]$GitHubToken = $env:GH_TOKEN
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+if (-not $IsWindows) {
+    throw "Windows installer validation must run on Windows."
+}
+
+$SetupPath = (Resolve-Path -LiteralPath $SetupPath).Path
+$MsiPath = (Resolve-Path -LiteralPath $MsiPath).Path
+$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) "Calen 安装验收 空格"
+$nsisInstallRoot = Join-Path $testRoot "NSIS 中文 安装目录"
+$msiRequestedRoot = Join-Path $testRoot "MSI 中文 安装目录"
+$logsRoot = Join-Path $testRoot "logs"
+New-Item -ItemType Directory -Force -Path $logsRoot | Out-Null
+
+function Write-Step([string]$Message) {
+    Write-Host "`n==> $Message"
+}
+
+function Get-OptionalProperty {
+    param(
+        [Parameter(Mandatory = $true)]$InputObject,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+    $property = $InputObject.PSObject.Properties[$Name]
+    if ($null -eq $property -or $null -eq $property.Value) { return $null }
+    return $property.Value
+}
+
+function Invoke-CheckedProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string[]]$Arguments = @(),
+        [int[]]$AllowedExitCodes = @(0),
+        [int]$TimeoutSeconds = 180
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    foreach ($argument in $Arguments) {
+        $startInfo.ArgumentList.Add($argument)
+    }
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) {
+        throw "Failed to start process: $FilePath"
+    }
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+        $process.Kill($true)
+        throw "Process timed out after ${TimeoutSeconds}s: $FilePath"
+    }
+    if ($AllowedExitCodes -notcontains $process.ExitCode) {
+        throw "Process exited with code $($process.ExitCode): $FilePath $($Arguments -join ' ')"
+    }
+    return $process.ExitCode
+}
+
+function Find-SidecarRoot {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+
+    $direct = Join-Path $InstallRoot "stock-sidecar"
+    if (
+        (Test-Path -LiteralPath (Join-Path $direct "node.exe") -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $direct "dist\stdio.mjs") -PathType Leaf)
+    ) {
+        return $direct
+    }
+
+    $node = Get-ChildItem -LiteralPath $InstallRoot -Filter node.exe -File -Recurse -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Directory.Name -eq "stock-sidecar" -and
+            (Test-Path -LiteralPath (Join-Path $_.Directory.FullName "dist\stdio.mjs") -PathType Leaf)
+        } |
+        Select-Object -First 1
+    if ($null -eq $node) {
+        throw "Installed stock sidecar was not found under: $InstallRoot"
+    }
+    return $node.Directory.FullName
+}
+
+function Invoke-SidecarSmoke {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+
+    $sidecarRoot = Find-SidecarRoot -InstallRoot $InstallRoot
+    $nodePath = Join-Path $sidecarRoot "node.exe"
+    $entryPath = Join-Path $sidecarRoot "dist\stdio.mjs"
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $nodePath
+    $startInfo.WorkingDirectory = $sidecarRoot
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.ArgumentList.Add($entryPath)
+    $startInfo.Environment["PATH"] = ""
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) {
+        throw "Failed to start installed stock sidecar: $nodePath"
+    }
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $process.StandardInput.WriteLine('{"jsonrpc":"2.0","id":"install-smoke","method":"status","params":{}}')
+    $process.StandardInput.Close()
+    if (-not $process.WaitForExit(15000)) {
+        $process.Kill($true)
+        throw "Installed stock sidecar status request timed out: $sidecarRoot"
+    }
+    $stdout = $stdoutTask.GetAwaiter().GetResult().Trim()
+    $stderr = $stderrTask.GetAwaiter().GetResult().Trim()
+    if ($process.ExitCode -ne 0) {
+        throw "Installed stock sidecar exited with $($process.ExitCode): $stderr"
+    }
+    if (-not $stdout) {
+        throw "Installed stock sidecar returned no JSON-RPC response. stderr: $stderr"
+    }
+    $response = $stdout | ConvertFrom-Json
+    if ($response.id -ne "install-smoke" -or $response.result.service -ne "calen-stock-sidecar") {
+        throw "Installed stock sidecar returned an unexpected response: $stdout"
+    }
+    Write-Host "Installed sidecar smoke passed with PATH empty: $sidecarRoot"
+    return $sidecarRoot
+}
+
+function Get-CalenUninstallEntries {
+    $patterns = @(
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+    return @(
+        foreach ($pattern in $patterns) {
+            Get-ItemProperty -Path $pattern -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $displayName = Get-OptionalProperty -InputObject $_ -Name "DisplayName"
+                    $displayName -eq "Calen" -or $displayName -like "Calen *"
+                }
+        }
+    )
+}
+
+function Get-InstallRootFromEntry {
+    param(
+        [Parameter(Mandatory = $true)]$Entry,
+        [string]$PreferredRoot
+    )
+
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    if ($PreferredRoot) { $candidates.Add($PreferredRoot) }
+    $installLocation = Get-OptionalProperty -InputObject $Entry -Name "InstallLocation"
+    if ($installLocation) { $candidates.Add([string]$installLocation) }
+    $entryDisplayIcon = Get-OptionalProperty -InputObject $Entry -Name "DisplayIcon"
+    if ($entryDisplayIcon) {
+        $displayIcon = ([string]$entryDisplayIcon) -replace ',\d+$', ''
+        if (Test-Path -LiteralPath $displayIcon -PathType Leaf) {
+            $candidates.Add((Split-Path -Parent $displayIcon))
+        }
+    }
+    if ($env:ProgramFiles) { $candidates.Add((Join-Path $env:ProgramFiles "Calen")) }
+    if (${env:ProgramFiles(x86)}) { $candidates.Add((Join-Path ${env:ProgramFiles(x86)} "Calen")) }
+    if ($env:LOCALAPPDATA) {
+        $candidates.Add((Join-Path $env:LOCALAPPDATA "Calen"))
+        $candidates.Add((Join-Path $env:LOCALAPPDATA "Programs\Calen"))
+    }
+
+    foreach ($candidate in ($candidates | Select-Object -Unique)) {
+        if (-not $candidate -or -not (Test-Path -LiteralPath $candidate -PathType Container)) {
+            continue
+        }
+        try {
+            Find-SidecarRoot -InstallRoot $candidate | Out-Null
+            return (Resolve-Path -LiteralPath $candidate).Path
+        } catch {
+            continue
+        }
+    }
+    throw "Could not resolve the Calen install directory from Windows Installer metadata."
+}
+
+function Wait-InstallRootReleased {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+
+    $fullRoot = [System.IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
+    if ($fullRoot.Length -lt 10 -or (Split-Path -Leaf $fullRoot) -notmatch "Calen|NSIS|MSI|安装目录") {
+        throw "Refusing to validate or remove an unsafe install root: $fullRoot"
+    }
+
+    for ($attempt = 1; $attempt -le 30; $attempt++) {
+        $liveProcesses = @(
+            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $_.ExecutablePath -and
+                    [string]$_.ExecutablePath -like "$fullRoot*"
+                }
+        )
+        if ($liveProcesses.Count -eq 0) {
+            if (Test-Path -LiteralPath $fullRoot) {
+                try {
+                    Remove-Item -LiteralPath $fullRoot -Recurse -Force -ErrorAction Stop
+                } catch {
+                    Start-Sleep -Milliseconds 500
+                    continue
+                }
+            }
+            if (-not (Test-Path -LiteralPath $fullRoot)) {
+                Write-Host "Install root is released: $fullRoot"
+                return
+            }
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    $remaining = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.ExecutablePath -and [string]$_.ExecutablePath -like "$fullRoot*" } |
+        Select-Object ProcessId, Name, ExecutablePath |
+        Format-Table -AutoSize |
+        Out-String
+    throw "Install root remained locked after uninstall: $fullRoot`n$remaining"
+}
+
+function Invoke-MsiInstall {
+    param(
+        [Parameter(Mandatory = $true)][string]$PackagePath,
+        [string]$RequestedRoot,
+        [string]$ExpectedVersion,
+        [string]$LogName
+    )
+
+    $arguments = @("/i", $PackagePath, "/qn", "/norestart")
+    if ($RequestedRoot) { $arguments += "INSTALLDIR=$RequestedRoot" }
+    $logPath = Join-Path $logsRoot $LogName
+    $arguments += @("/L*v", $logPath)
+    Invoke-CheckedProcess -FilePath "$env:SystemRoot\System32\msiexec.exe" -Arguments $arguments -AllowedExitCodes @(0, 3010) | Out-Null
+
+    $entries = Get-CalenUninstallEntries
+    $entry = if ($ExpectedVersion) {
+        $entries |
+            Where-Object {
+                [string](Get-OptionalProperty -InputObject $_ -Name "PSChildName") -match '^\{[0-9A-Fa-f-]+\}$' -and
+                [string](Get-OptionalProperty -InputObject $_ -Name "DisplayVersion") -eq $ExpectedVersion
+            } |
+            Select-Object -First 1
+    } else {
+        $entries |
+            Where-Object { [string](Get-OptionalProperty -InputObject $_ -Name "PSChildName") -match '^\{[0-9A-Fa-f-]+\}$' } |
+            Select-Object -First 1
+    }
+    if ($null -eq $entry) {
+        throw "MSI completed but no matching Calen uninstall entry was registered. Log: $logPath"
+    }
+    return $entry
+}
+
+function Invoke-MsiUninstall {
+    param(
+        [Parameter(Mandatory = $true)]$Entry,
+        [string]$FallbackPackage
+    )
+
+    $productCode = [string](Get-OptionalProperty -InputObject $Entry -Name "PSChildName")
+    $target = if ($productCode -match '^\{[0-9A-Fa-f-]+\}$') { $productCode } else { $FallbackPackage }
+    Invoke-CheckedProcess -FilePath "$env:SystemRoot\System32\msiexec.exe" -Arguments @("/x", $target, "/qn", "/norestart") -AllowedExitCodes @(0, 1605, 3010) | Out-Null
+}
+
+function ConvertTo-CoreVersion {
+    param([string]$TagOrVersion)
+    if (-not $TagOrVersion) { return $null }
+    $core = $TagOrVersion.Trim().TrimStart('v').Split('-', 2)[0]
+    try { return [System.Version]::Parse($core) } catch { return $null }
+}
+
+function Find-PreviousStableMsi {
+    if (-not $Repository -or -not $CurrentTag) {
+        Write-Host "::notice::Upgrade validation skipped: repository or current tag is unavailable."
+        return $null
+    }
+
+    $headers = @{ "User-Agent" = "Calen-Windows-Installer-Validation" }
+    if ($GitHubToken) { $headers["Authorization"] = "Bearer $GitHubToken" }
+    try {
+        $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases?per_page=30" -Headers $headers
+    } catch {
+        throw "Upgrade validation could not determine whether a previous stable MSI exists because the GitHub release lookup failed: $($_.Exception.Message)"
+    }
+
+    $currentCoreVersion = ConvertTo-CoreVersion -TagOrVersion $CurrentTag
+    foreach ($release in $releases) {
+        if ($release.draft -or $release.prerelease -or $release.tag_name -eq $CurrentTag) { continue }
+        $releaseCoreVersion = ConvertTo-CoreVersion -TagOrVersion ([string]$release.tag_name)
+        if (
+            $null -ne $currentCoreVersion -and
+            $null -ne $releaseCoreVersion -and
+            $releaseCoreVersion -ge $currentCoreVersion
+        ) {
+            continue
+        }
+        $asset = $release.assets |
+            Where-Object { $_.name -match '^Calen-.+-Windows-x64\.msi$' } |
+            Select-Object -First 1
+        if ($null -eq $asset) { continue }
+        $downloadPath = Join-Path $testRoot ([string]$asset.name)
+        Write-Step "Downloading previous stable MSI $($release.tag_name) for optional upgrade validation"
+        Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $downloadPath
+        return [pscustomobject]@{
+            Path = $downloadPath
+            Tag = [string]$release.tag_name
+            Version = ([string]$release.tag_name).TrimStart('v')
+        }
+    }
+
+    Write-Host "::notice::Upgrade validation skipped: no previous stable Calen Windows x64 MSI was found."
+    return $null
+}
+
+$preexistingEntries = @(Get-CalenUninstallEntries)
+if ($preexistingEntries.Count -gt 0) {
+    $descriptions = $preexistingEntries | ForEach-Object {
+        "$(Get-OptionalProperty -InputObject $_ -Name 'DisplayName') $(Get-OptionalProperty -InputObject $_ -Name 'DisplayVersion')"
+    }
+    throw "Windows installer validation requires a clean runner without Calen installed: $($descriptions -join ', ')"
+}
+
+try {
+    Write-Step "Installing NSIS silently into a Chinese and space-containing path"
+    if (Test-Path -LiteralPath $nsisInstallRoot) {
+        Remove-Item -LiteralPath $nsisInstallRoot -Recurse -Force
+    }
+    Invoke-CheckedProcess -FilePath $SetupPath -Arguments @("/S", "/D=$nsisInstallRoot") | Out-Null
+    if (-not (Test-Path -LiteralPath $nsisInstallRoot -PathType Container)) {
+        throw "NSIS did not honor the requested install directory: $nsisInstallRoot"
+    }
+    Invoke-SidecarSmoke -InstallRoot $nsisInstallRoot | Out-Null
+    $uninstaller = Get-ChildItem -LiteralPath $nsisInstallRoot -Filter "uninstall.exe" -File -Recurse | Select-Object -First 1
+    if ($null -eq $uninstaller) {
+        throw "NSIS uninstaller was not found under: $nsisInstallRoot"
+    }
+    Invoke-CheckedProcess -FilePath $uninstaller.FullName -Arguments @("/S") | Out-Null
+    Wait-InstallRootReleased -InstallRoot $nsisInstallRoot
+
+    Write-Step "Installing MSI and verifying its honored custom or registered default directory"
+    if (Test-Path -LiteralPath $msiRequestedRoot) {
+        Remove-Item -LiteralPath $msiRequestedRoot -Recurse -Force
+    }
+    $msiEntry = Invoke-MsiInstall -PackagePath $MsiPath -RequestedRoot $msiRequestedRoot -ExpectedVersion $CurrentVersion -LogName "current-msi-install.log"
+    $msiInstallRoot = Get-InstallRootFromEntry -Entry $msiEntry -PreferredRoot $msiRequestedRoot
+    if ([System.IO.Path]::GetFullPath($msiInstallRoot).TrimEnd('\') -eq [System.IO.Path]::GetFullPath($msiRequestedRoot).TrimEnd('\')) {
+        Write-Host "MSI honored the Chinese and space-containing INSTALLDIR: $msiInstallRoot"
+    } else {
+        Write-Host "MSI did not honor INSTALLDIR; verified registered default directory instead: $msiInstallRoot"
+    }
+    Invoke-SidecarSmoke -InstallRoot $msiInstallRoot | Out-Null
+    Invoke-MsiUninstall -Entry $msiEntry -FallbackPackage $MsiPath
+    Wait-InstallRootReleased -InstallRoot $msiInstallRoot
+
+    $previous = Find-PreviousStableMsi
+    if ($null -ne $previous) {
+        Write-Step "Installing $($previous.Tag), upgrading with current MSI, smoking sidecar, and uninstalling"
+        $upgradeRoots = [System.Collections.Generic.List[string]]::new()
+        try {
+            $oldEntry = Invoke-MsiInstall -PackagePath $previous.Path -LogName "upgrade-old-install.log"
+            $oldInstallLocation = Get-OptionalProperty -InputObject $oldEntry -Name "InstallLocation"
+            if ($oldInstallLocation) { $upgradeRoots.Add([string]$oldInstallLocation) }
+            $oldProductCode = [string](Get-OptionalProperty -InputObject $oldEntry -Name "PSChildName")
+
+            $currentEntry = Invoke-MsiInstall -PackagePath $MsiPath -ExpectedVersion $CurrentVersion -LogName "upgrade-current-install.log"
+            $currentEntries = @(Get-CalenUninstallEntries)
+            if (-not ($currentEntries | Where-Object { [string](Get-OptionalProperty -InputObject $_ -Name "DisplayVersion") -eq $CurrentVersion })) {
+                throw "Current MSI did not register version $CurrentVersion after upgrade."
+            }
+            $oldStillRegistered = $currentEntries | Where-Object {
+                [string](Get-OptionalProperty -InputObject $_ -Name "PSChildName") -eq $oldProductCode -and
+                [string](Get-OptionalProperty -InputObject $_ -Name "DisplayVersion") -ne $CurrentVersion
+            }
+            if ($oldStillRegistered) {
+                throw "Previous MSI remained registered after current MSI upgrade."
+            }
+            $upgradeRoot = Get-InstallRootFromEntry -Entry $currentEntry
+            $upgradeRoots.Add($upgradeRoot)
+            Invoke-SidecarSmoke -InstallRoot $upgradeRoot | Out-Null
+            Invoke-MsiUninstall -Entry $currentEntry -FallbackPackage $MsiPath
+        } finally {
+            foreach ($entry in @(Get-CalenUninstallEntries)) {
+                Invoke-MsiUninstall -Entry $entry -FallbackPackage $MsiPath
+            }
+            foreach ($root in ($upgradeRoots | Select-Object -Unique)) {
+                if ($root -and (Test-Path -LiteralPath $root)) {
+                    Wait-InstallRootReleased -InstallRoot $root
+                }
+            }
+        }
+    }
+
+    Write-Host "`nWindows installer lifecycle validation passed."
+} finally {
+    $cleanupRoots = [System.Collections.Generic.List[string]]::new()
+    $cleanupRoots.Add($nsisInstallRoot)
+    $cleanupRoots.Add($msiRequestedRoot)
+    foreach ($entry in @(Get-CalenUninstallEntries)) {
+        try {
+            $cleanupRoots.Add((Get-InstallRootFromEntry -Entry $entry))
+        } catch {
+            Write-Warning "Could not resolve cleanup root for installed Calen entry: $_"
+        }
+        try { Invoke-MsiUninstall -Entry $entry -FallbackPackage $MsiPath } catch { Write-Warning $_ }
+    }
+    foreach ($root in ($cleanupRoots | Select-Object -Unique)) {
+        if (Test-Path -LiteralPath $root) {
+            try { Wait-InstallRootReleased -InstallRoot $root } catch { Write-Warning $_ }
+        }
+    }
+}

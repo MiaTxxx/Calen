@@ -105,7 +105,7 @@ Calen is a **local-first** AI agent desktop client. It deeply integrates large l
 
 ## Download & Deployment
 
-The first release containing the stock integration is Windows x64 only. Installers are built by GitHub Actions and signed for the Tauri updater — grab the latest version from [**GitHub Releases**](https://github.com/MiaTxxx/Calen/releases/latest).
+The first release containing the stock integration is Windows x64 only. Installers are built by GitHub Actions and signed for the Tauri updater; once the provider-terms and signing gates are satisfied, published builds will appear on [**GitHub Releases**](https://github.com/MiaTxxx/Calen/releases/latest).
 
 ### System Requirements
 

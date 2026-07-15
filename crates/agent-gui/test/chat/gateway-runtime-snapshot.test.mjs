@@ -6,10 +6,10 @@ import { createTsModuleLoader } from "../helpers/load-ts-module.mjs";
 const loader = createTsModuleLoader();
 
 const { buildGatewayRuntimeSnapshotEntries } = loader.loadModule(
-  "src/pages/chat/gateway/chatRuntimeSnapshot.ts",
+  "src/pages/chat/gateway/chatRuntimeSnapshot.ts"
 );
 const { buildGatewayToolCallPreviewArguments } = loader.loadModule(
-  "src/pages/chat/turns/gatewayToolPreview.ts",
+  "src/pages/chat/turns/gatewayToolPreview.ts"
 );
 const toolPreview = loader.loadModule("src/lib/chat/messages/toolPreview.ts");
 
@@ -58,7 +58,7 @@ test("gateway runtime snapshot projects live rounds into chat entries", () => {
 
   assert.deepEqual(
     entries.map((entry) => entry.kind),
-    ["user", "thinking", "assistant", "tool_call", "tool_result", "assistant"],
+    ["user", "thinking", "assistant", "tool_call", "tool_result", "assistant"]
   );
   assert.equal(entries[0].text, "Run the checks");
   assert.equal(entries[1].text, "I will inspect the repo.");
@@ -95,11 +95,203 @@ test("gateway runtime snapshot carries the same tool preview shape as bridge del
 
   const entry = entries.find((candidate) => candidate.kind === "tool_call");
   assert.ok(entry, "expected a tool_call entry");
-  assert.deepEqual(entry.toolCall.arguments, buildGatewayToolCallPreviewArguments(toolCall));
+  assert.deepEqual(
+    entry.toolCall.arguments,
+    buildGatewayToolCallPreviewArguments(toolCall)
+  );
   assert.ok(entry.toolCall.arguments.content.length <= 4000);
-  const metadata = entry.toolCall.arguments[toolPreview.LIVE_TOOL_PREVIEW_META_KEY];
+  const metadata =
+    entry.toolCall.arguments[toolPreview.LIVE_TOOL_PREVIEW_META_KEY];
   assert.equal(metadata.progress, content.length);
   assert.equal(metadata.fields.content.chars, content.length);
+});
+
+test("gateway runtime snapshot redacts local portfolio tool calls and results", () => {
+  const entries = buildGatewayRuntimeSnapshotEntries({
+    userMessage: null,
+    liveTranscript: {
+      draftAssistantText: "",
+      toolStatus: null,
+      liveRounds: [
+        {
+          key: "round-1",
+          round: 1,
+          runningToolCallIds: [],
+          thinkingOpen: false,
+          blocks: [
+            {
+              kind: "tool",
+              item: {
+                toolCall: {
+                  type: "toolCall",
+                  id: "stock-call-1",
+                  name: "StockPortfolioRead",
+                  arguments: {
+                    action: "transactions",
+                    portfolioId: "portfolio-secret-1",
+                  },
+                },
+                toolResult: {
+                  role: "toolResult",
+                  toolCallId: "stock-call-1",
+                  toolName: "StockPortfolioRead",
+                  content: [
+                    {
+                      type: "text",
+                      text: "portfolio-secret-1 600519 trade-secret-1 1500 家庭资产",
+                    },
+                  ],
+                  details: {
+                    kind: "stock_result",
+                    operation: "portfolio",
+                    result: {
+                      positions: [{ symbol: "600519", quantity: 100 }],
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  assert.equal(entries.length, 2);
+  const serialized = JSON.stringify(entries);
+  assert.doesNotMatch(
+    serialized,
+    /portfolio-secret-1|trade-secret-1|600519|1500|家庭资产/
+  );
+  assert.deepEqual(entries[0].toolCall.arguments, {
+    localOnly: true,
+    redacted: true,
+  });
+  assert.equal(entries[1].toolResult.details.localOnly, true);
+  assert.equal(entries[1].toolResult.details.result, null);
+});
+
+test("gateway runtime snapshot suppresses assistant text after a local portfolio read", () => {
+  const entries = buildGatewayRuntimeSnapshotEntries({
+    userMessage: null,
+    liveTranscript: {
+      draftAssistantText: "",
+      toolStatus: null,
+      liveRounds: [
+        {
+          key: "round-1",
+          round: 1,
+          runningToolCallIds: [],
+          thinkingOpen: false,
+          blocks: [
+            { kind: "text", text: "portfolio-secret-1 before tool" },
+            {
+              kind: "tool",
+              item: {
+                toolCall: {
+                  type: "toolCall",
+                  id: "stock-call-1",
+                  name: "StockPortfolioRead",
+                  arguments: { portfolioId: "portfolio-secret-1" },
+                },
+              },
+            },
+          ],
+        },
+        {
+          key: "round-2",
+          round: 2,
+          runningToolCallIds: [],
+          thinkingOpen: false,
+          blocks: [
+            { kind: "thinking", text: "600519 quantity 100" },
+            { kind: "text", text: "家庭资产 value 150000" },
+          ],
+        },
+      ],
+    },
+  });
+
+  const serialized = JSON.stringify(entries);
+  assert.doesNotMatch(serialized, /portfolio-secret-1|600519|150000|家庭资产/);
+  assert.match(serialized, /did not send asset data to Gateway/);
+  assert.equal(
+    entries.some((entry) => entry.kind === "thinking"),
+    false
+  );
+});
+
+test("gateway runtime snapshot redacts follow-up tools after a local portfolio read", () => {
+  const entries = buildGatewayRuntimeSnapshotEntries({
+    userMessage: null,
+    liveTranscript: {
+      draftAssistantText: "",
+      toolStatus: null,
+      liveRounds: [
+        {
+          key: "round-1",
+          round: 1,
+          runningToolCallIds: [],
+          thinkingOpen: false,
+          blocks: [
+            {
+              kind: "tool",
+              item: {
+                toolCall: {
+                  type: "toolCall",
+                  id: "stock-call-1",
+                  name: "StockPortfolioRead",
+                  arguments: { portfolioId: "portfolio-secret-1" },
+                },
+              },
+            },
+          ],
+        },
+        {
+          key: "round-2",
+          round: 2,
+          runningToolCallIds: [],
+          thinkingOpen: false,
+          blocks: [
+            {
+              kind: "tool",
+              item: {
+                toolCall: {
+                  type: "toolCall",
+                  id: "research-call-1",
+                  name: "StockResearch",
+                  arguments: { symbol: "600519", reason: "held-position" },
+                },
+                toolResult: {
+                  role: "toolResult",
+                  toolCallId: "research-call-1",
+                  toolName: "StockResearch",
+                  content: [
+                    { type: "text", text: "position-derived-result-150000" },
+                  ],
+                  details: { symbol: "600519", quantity: 100 },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  const serialized = JSON.stringify(entries);
+  assert.doesNotMatch(
+    serialized,
+    /portfolio-secret-1|held-position|position-derived-result|600519|150000/
+  );
+  const researchCall = entries.find(
+    (entry) =>
+      entry.kind === "tool_call" && entry.toolCall.name === "StockResearch"
+  );
+  assert.deepEqual(researchCall?.toolCall.arguments, {
+    localOnly: true,
+    redacted: true,
+  });
 });
 
 test("gateway runtime snapshot falls back to draft assistant text", () => {
@@ -118,7 +310,7 @@ test("gateway runtime snapshot falls back to draft assistant text", () => {
 
   assert.deepEqual(
     entries.map((entry) => entry.kind),
-    ["user", "assistant"],
+    ["user", "assistant"]
   );
   assert.equal(entries[1].text, "streaming text");
 });

@@ -4,7 +4,7 @@ import { createTsModuleLoader } from "../helpers/load-ts-module.mjs";
 
 const loader = createTsModuleLoader();
 const { createGatewayBridgeEventController } = loader.loadModule(
-  "src/lib/chat/conversation/run/gatewayBridgeEvents.ts",
+  "src/lib/chat/conversation/run/gatewayBridgeEvents.ts"
 );
 
 function createController(options = {}) {
@@ -145,8 +145,187 @@ test("gateway bridge tool status is normalized and de-duplicated", () => {
         isCompaction: false,
         conversation_id: "conversation-1",
       },
-    ],
+    ]
   );
+});
+
+test("gateway bridge replaces local portfolio tool events with privacy placeholders", () => {
+  const { controller, sent } = createController();
+  const privateArguments = {
+    action: "snapshot",
+    portfolioId: "portfolio-secret-1",
+  };
+  const privateResult = {
+    portfolios: [{ id: "portfolio-secret-1", name: "家庭资产" }],
+    positions: [{ symbol: "600519", quantity: 100 }],
+    transactions: [{ id: "trade-secret-1", price: 1500 }],
+  };
+
+  controller.queueEvent({
+    type: "tool_call_delta",
+    id: "stock-call-1",
+    name: "StockPortfolioRead",
+    arguments: privateArguments,
+    conversation_id: "conversation-1",
+  });
+  controller.queueEvent({
+    type: "tool_call",
+    id: "stock-call-1",
+    name: "StockPortfolioRead",
+    arguments: privateArguments,
+    conversation_id: "conversation-1",
+  });
+  controller.queueEvent({
+    type: "tool_result",
+    id: "stock-call-1",
+    name: "StockPortfolioRead",
+    arguments: privateArguments,
+    content: [{ type: "text", text: JSON.stringify(privateResult) }],
+    details: {
+      kind: "stock_result",
+      operation: "portfolio",
+      result: privateResult,
+    },
+    conversation_id: "conversation-1",
+  });
+
+  assert.equal(sent.length, 3);
+  for (const item of sent) {
+    const serialized = JSON.stringify(item.event);
+    assert.doesNotMatch(
+      serialized,
+      /portfolio-secret-1|trade-secret-1|600519|1500|家庭资产/
+    );
+    assert.deepEqual(item.event.arguments, {
+      localOnly: true,
+      redacted: true,
+    });
+  }
+  assert.deepEqual(sent[2].event.content, [
+    {
+      type: "text",
+      text: "Calen kept this local portfolio result on the desktop and did not send asset data to Gateway.",
+    },
+  ]);
+  assert.deepEqual(sent[2].event.details, {
+    kind: "stock_result",
+    operation: "portfolio",
+    status: "unavailable",
+    localOnly: true,
+    redacted: true,
+    warnings: ["本地资产数据未发送到 Gateway。"],
+    result: null,
+  });
+
+  assert.equal(privateArguments.portfolioId, "portfolio-secret-1");
+  assert.equal(privateResult.positions[0].symbol, "600519");
+});
+
+test("gateway bridge suppresses assistant text, titles, and summaries after a local portfolio read", () => {
+  const { controller, sent } = createController();
+
+  controller.queueEvent({
+    type: "tool_call",
+    id: "stock-call-1",
+    name: "StockPortfolioRead",
+    arguments: { portfolioId: "portfolio-secret-1" },
+    conversation_id: "conversation-1",
+  });
+  controller.queueToken("600519 position value is 150000");
+  controller.queueToken("trade-secret-1");
+  controller.queueTitle("家庭资产 600519", true);
+  controller.queueCheckpoint({
+    activeSegmentIndex: 0,
+    segments: [
+      {
+        segmentIndex: 0,
+        segmentId: "segment-0",
+        messages: [],
+        messageCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+        summary: {
+          role: "summary",
+          id: "summary-private",
+          timestamp: 2,
+          content: "portfolio-secret-1 has 150000 in 600519",
+          summaryMeta: {
+            format: "plain-text-v1",
+            strategy: "cumulative-checkpoint",
+            coversThroughMessageId: "message-1",
+            coveredMessageCount: 1,
+            generatedBy: {
+              providerId: "codex",
+              model: "gpt-test",
+              promptVersion: "summary-v2",
+            },
+          },
+        },
+      },
+    ],
+    historyRenderItems: [],
+    meta: {
+      schemaVersion: 3,
+      activeSegmentIndex: 0,
+      totalSegmentCount: 1,
+      totalMessageCount: 0,
+    },
+  });
+
+  const serialized = JSON.stringify(sent);
+  assert.doesNotMatch(
+    serialized,
+    /portfolio-secret-1|trade-secret-1|600519|150000|家庭资产/
+  );
+  assert.equal(
+    sent.filter(
+      (item) =>
+        item.event.type === "token" &&
+        item.event.text ===
+          "Calen kept this local portfolio result on the desktop and did not send asset data to Gateway."
+    ).length,
+    2
+  );
+  assert.equal(sent[2].event.title, "本地组合分析");
+});
+
+test("gateway bridge redacts follow-up tool events derived from a local portfolio", () => {
+  const { controller, sent } = createController();
+
+  controller.queueEvent({
+    type: "tool_call",
+    id: "stock-call-1",
+    name: "StockPortfolioRead",
+    arguments: { portfolioId: "portfolio-secret-1" },
+    conversation_id: "conversation-1",
+  });
+  controller.queueEvent({
+    type: "tool_call",
+    id: "research-call-1",
+    name: "StockResearch",
+    arguments: { symbol: "600519", reason: "held-position" },
+    conversation_id: "conversation-1",
+  });
+  controller.queueEvent({
+    type: "tool_result",
+    id: "research-call-1",
+    name: "StockResearch",
+    arguments: { symbol: "600519" },
+    content: [{ type: "text", text: "position-derived-result-150000" }],
+    details: { symbol: "600519", quantity: 100 },
+    conversation_id: "conversation-1",
+  });
+
+  const serialized = JSON.stringify(sent);
+  assert.doesNotMatch(
+    serialized,
+    /portfolio-secret-1|held-position|position-derived-result|600519|150000/
+  );
+  assert.deepEqual(sent[1].event.arguments, {
+    localOnly: true,
+    redacted: true,
+  });
+  assert.equal(sent[2].event.details.localOnly, true);
 });
 
 test("gateway bridge close blocks normal events but allows forced title updates", () => {
@@ -174,7 +353,7 @@ test("gateway bridge close blocks normal events but allows forced title updates"
         titleFinal: true,
         conversation_id: "conversation-1",
       },
-    ],
+    ]
   );
 });
 
@@ -329,6 +508,6 @@ test("gateway bridge error can resolve the latest conversation id", () => {
         message: "failed again",
         conversation_id: "conversation-explicit",
       },
-    ],
+    ]
   );
 });

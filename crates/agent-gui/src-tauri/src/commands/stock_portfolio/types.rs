@@ -227,6 +227,19 @@ pub struct CsvImportResult {
     pub imported: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CsvImportRecord {
+    pub id: String,
+    pub portfolio_id: String,
+    pub source_label: String,
+    pub imported_at: i64,
+    pub total_rows: usize,
+    pub success_count: usize,
+    pub failure_count: usize,
+    pub error_summary: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RestoreMode {
@@ -242,6 +255,8 @@ pub struct StockPortfolioBackup {
     pub watchlists: Vec<WatchlistView>,
     pub portfolios: Vec<Portfolio>,
     pub transactions: Vec<TransactionRecord>,
+    #[serde(default)]
+    pub csv_imports: Vec<CsvImportRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

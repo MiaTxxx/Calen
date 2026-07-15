@@ -571,6 +571,11 @@ pub fn run() {
             } else {
                 // Real exit: reclaim every non-isolated managed process
                 // before the OS tears us down (Drop is not guaranteed).
+                if let Some(stock_manager) =
+                    _app.try_state::<Arc<commands::stock::StockResearchManager>>()
+                {
+                    stock_manager.shutdown_cleanup();
+                }
                 managed_process_registry.shutdown_cleanup();
                 power_activity.clear_all();
             }

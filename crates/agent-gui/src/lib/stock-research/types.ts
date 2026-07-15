@@ -1,6 +1,13 @@
 export type StockMarket = "CN" | "HK" | "US" | "UNKNOWN";
 export type StockAssetType = "stock" | "etf" | "index" | "fund" | "unknown";
 export type StockResultStatus = "ok" | "partial" | "unavailable";
+export type StockQuantStrategyId =
+  | "trend"
+  | "mean-reversion"
+  | "breakout"
+  | "momentum"
+  | "volume-price";
+export type StockBacktestStrategyId = "sma-cross" | StockQuantStrategyId | "fused";
 
 export type StockCapability =
   | "quote"
@@ -106,6 +113,21 @@ export interface ResearchAnalysisMetadata {
   limitations: string[];
 }
 
+export interface ResearchEvidenceSection {
+  capability:
+    | "profile"
+    | "financials"
+    | "shareholders"
+    | "dividend"
+    | "moneyFlow"
+    | "news"
+    | "notices"
+    | "etf";
+  status: StockResultStatus;
+  data: unknown;
+  warnings: string[];
+}
+
 export interface ResearchBundle {
   instrument: InstrumentRef;
   title: string;
@@ -114,6 +136,7 @@ export interface ResearchBundle {
   positiveCases: string[];
   risks: string[];
   openQuestions: string[];
+  evidenceSections: ResearchEvidenceSection[];
   experimentalAnalysis: ResearchExperimentalAnalysis[];
   analysisMetadata?: ResearchAnalysisMetadata;
   snapshot?: QuoteSnapshot;
@@ -184,6 +207,8 @@ export interface StockSettingsSavePayload extends StockSettings {
 }
 
 export type StockBackupRestoreMode = "replaceAll" | "merge";
+export type StockCurrency = "CNY" | "HKD" | "USD";
+export type StockTransactionKind = "BUY" | "SELL" | "FEE" | "DIVIDEND" | "SPLIT" | "ADJUSTMENT";
 
 export interface EncryptedStockBackupEnvelope {
   formatVersion: number;
@@ -217,6 +242,107 @@ export interface PortfolioSnapshot {
   asOf: string;
 }
 
+export interface StockWatchlist {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface StockPortfolioInstrument {
+  instrumentId: string;
+  market: string;
+  exchange?: string | null;
+  symbol: string;
+  assetType: string;
+  currency: StockCurrency;
+  displayName: string;
+}
+
+export interface StockWatchlistItem {
+  watchlistId: string;
+  instrument: StockPortfolioInstrument;
+  note?: string | null;
+  addedAt: number;
+}
+
+export interface StockWatchlistView extends StockWatchlist {
+  items: StockWatchlistItem[];
+}
+
+export interface StockPortfolioRecord {
+  id: string;
+  name: string;
+  baseCurrency: StockCurrency;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface StockTransactionInput {
+  id?: string;
+  portfolioId: string;
+  instrument: StockPortfolioInstrument;
+  transactionType: StockTransactionKind;
+  occurredAt: string;
+  quantity?: number | null;
+  price?: number | null;
+  fee?: number | null;
+  cashAmount?: number | null;
+  splitRatio?: number | null;
+  note?: string | null;
+}
+
+export interface StockTransactionRecord extends StockTransactionInput {
+  id: string;
+  createdAt: number;
+}
+
+export interface StockPriceInput {
+  instrumentId: string;
+  currency: StockCurrency;
+  price: number;
+  asOf: string;
+}
+
+export interface StockFxRateInput {
+  fromCurrency: StockCurrency;
+  toCurrency: StockCurrency;
+  rate: number;
+  asOf: string;
+}
+
+export interface StockPositionSnapshot {
+  instrument: StockPortfolioInstrument;
+  quantity: number;
+  averageCost: number;
+  costBasis: number;
+  realizedPnl: number;
+  currentPrice?: number | null;
+  priceAsOf?: string | null;
+  marketValue?: number | null;
+  unrealizedPnl?: number | null;
+}
+
+export interface StockCurrencyTotals {
+  currency: StockCurrency;
+  costBasis: number;
+  realizedPnl: number;
+  marketValue?: number | null;
+  unrealizedPnl?: number | null;
+}
+
+export interface StockBaseCurrencyTotals extends StockCurrencyTotals {
+  fxAsOf?: string | null;
+}
+
+export interface StockPortfolioAnalysis {
+  portfolio: StockPortfolioRecord;
+  positions: StockPositionSnapshot[];
+  totalsByCurrency: StockCurrencyTotals[];
+  baseCurrencyTotals?: StockBaseCurrencyTotals | null;
+  warnings: string[];
+}
+
 export interface StockResolveRequest {
   query: string;
   markets?: StockMarket[];
@@ -229,6 +355,7 @@ export interface StockSnapshotRequest {
 export interface StockResearchRequest {
   instrument: InstrumentRef;
   capabilities?: StockCapability[];
+  strategyIds?: StockQuantStrategyId[];
 }
 export interface MarketBriefRequest {
   market: StockMarket;
@@ -236,7 +363,7 @@ export interface MarketBriefRequest {
 }
 export interface StockBacktestRequest {
   instrument: InstrumentRef;
-  strategy: string;
+  strategy: StockBacktestStrategyId | "moving_average";
   from: string;
   to: string;
   parameters?: Record<string, unknown>;
@@ -261,4 +388,24 @@ export interface StockResearchPort {
     password: string,
     mode: StockBackupRestoreMode,
   ): Promise<void>;
+  watchlistCreate(name: string): Promise<StockWatchlist>;
+  watchlistList(): Promise<StockWatchlistView[]>;
+  watchlistAddItem(
+    watchlistId: string,
+    instrument: StockPortfolioInstrument,
+    note?: string,
+  ): Promise<StockWatchlistItem>;
+  watchlistRemoveItem(watchlistId: string, instrumentId: string): Promise<boolean>;
+  portfolioCreate(name: string, baseCurrency: StockCurrency): Promise<StockPortfolioRecord>;
+  portfolioList(): Promise<StockPortfolioRecord[]>;
+  portfolioRecordTransaction(input: StockTransactionInput): Promise<StockTransactionRecord>;
+  portfolioDeleteTransaction(transactionId: string): Promise<boolean>;
+  portfolioListTransactions(portfolioId: string): Promise<StockTransactionRecord[]>;
+  portfolioAnalyze(
+    portfolioId: string,
+    prices?: StockPriceInput[],
+    fxRates?: StockFxRateInput[],
+  ): Promise<StockPortfolioAnalysis>;
+  portfolioImportCsvTo(portfolioId: string, document: string): Promise<{ imported: number }>;
+  portfolioExportCsvOf(portfolioId: string): Promise<string>;
 }

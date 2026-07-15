@@ -53,10 +53,127 @@ export interface ProviderRegistryOptions {
   fetch?: typeof globalThis.fetch;
   cacheTtlMs?: number;
   timeoutMs?: number;
+  /**
+   * Minimum interval between requests for one provider/capability key.
+   * A value of zero disables proactive throttling while retaining cooldown.
+   */
+  throttleIntervalMs?: number;
+  /** Optional per-provider/capability overrides, e.g. { "eastmoney:snapshot": 1000 }. */
+  throttleIntervalsMs?: Readonly<Record<string, number>>;
+  throttleStore?: ThrottleStore;
   failureThreshold?: number;
   circuitOpenMs?: number;
   cooldownBaseMs?: number;
   maxAttempts?: number;
+}
+
+export interface ThrottleStore {
+  acquire(
+    key: string,
+    minIntervalMs: number,
+    signal?: AbortSignal
+  ): Promise<void>;
+  release(key: string): void;
+}
+
+interface ThrottleWaiter {
+  intervalMs: number;
+  resolve: () => void;
+  reject: (reason?: unknown) => void;
+  signal: AbortSignal | undefined;
+  onAbort: (() => void) | undefined;
+  timer: ReturnType<typeof setTimeout> | undefined;
+}
+
+interface ThrottleState {
+  busy: boolean;
+  lastReleasedAt: number;
+  queue: ThrottleWaiter[];
+}
+
+/**
+ * Process-local, per-key rate limiter. The interface is deliberately tiny so
+ * Tauri can replace it with a persisted ThrottleStore without changing the
+ * ProviderRegistry contract.
+ */
+export class MemoryThrottleStore implements ThrottleStore {
+  private readonly states = new Map<string, ThrottleState>();
+  private readonly now: () => number;
+
+  constructor(now: () => number = () => Date.now()) {
+    this.now = now;
+  }
+
+  acquire(
+    key: string,
+    minIntervalMs: number,
+    signal?: AbortSignal
+  ): Promise<void> {
+    if (signal?.aborted)
+      return Promise.reject(signal.reason ?? new Error("Request cancelled"));
+    const state = this.states.get(key) ?? {
+      busy: false,
+      lastReleasedAt: 0,
+      queue: [],
+    };
+    this.states.set(key, state);
+    return new Promise<void>((resolve, reject) => {
+      const waiter: ThrottleWaiter = {
+        intervalMs: Math.max(0, minIntervalMs),
+        resolve,
+        reject,
+        signal,
+        onAbort: undefined,
+        timer: undefined,
+      };
+      waiter.onAbort = () => {
+        if (waiter.timer !== undefined) clearTimeout(waiter.timer);
+        const queuedIndex = state.queue.indexOf(waiter);
+        if (queuedIndex >= 0) state.queue.splice(queuedIndex, 1);
+        if (state.busy && queuedIndex < 0) state.busy = false;
+        reject(signal?.reason ?? new Error("Request cancelled"));
+        this.pump(key, state);
+      };
+      signal?.addEventListener("abort", waiter.onAbort, { once: true });
+      state.queue.push(waiter);
+      this.pump(key, state);
+    });
+  }
+
+  release(key: string): void {
+    const state = this.states.get(key);
+    if (!state) return;
+    state.lastReleasedAt = this.now();
+    state.busy = false;
+    this.pump(key, state);
+  }
+
+  private pump(key: string, state: ThrottleState): void {
+    if (state.busy || !state.queue.length) return;
+    const waiter = state.queue.shift()!;
+    if (waiter.signal?.aborted) {
+      waiter.onAbort?.();
+      return;
+    }
+    state.busy = true;
+    const delay = Math.max(
+      0,
+      waiter.intervalMs - (this.now() - state.lastReleasedAt)
+    );
+    const grant = () => {
+      waiter.timer = undefined;
+      waiter.signal?.removeEventListener("abort", waiter.onAbort!);
+      if (waiter.signal?.aborted) {
+        state.busy = false;
+        waiter.reject(waiter.signal.reason ?? new Error("Request cancelled"));
+        this.pump(key, state);
+        return;
+      }
+      waiter.resolve();
+    };
+    if (delay > 0) waiter.timer = setTimeout(grant, delay);
+    else grant();
+  }
 }
 
 export class ProviderRegistry {
@@ -67,6 +184,9 @@ export class ProviderRegistry {
   private readonly fetchImpl: typeof globalThis.fetch;
   private readonly cacheTtlMs: number;
   private readonly timeoutMs: number;
+  private readonly throttleIntervalMs: number;
+  private readonly throttleIntervalsMs: Readonly<Record<string, number>>;
+  private readonly throttleStore: ThrottleStore;
   private readonly failureThreshold: number;
   private readonly circuitOpenMs: number;
   private readonly cooldownBaseMs: number;
@@ -81,6 +201,11 @@ export class ProviderRegistry {
     this.fetchImpl = options.fetch ?? globalThis.fetch;
     this.cacheTtlMs = options.cacheTtlMs ?? 15_000;
     this.timeoutMs = options.timeoutMs ?? 8_000;
+    this.throttleIntervalMs = Math.max(0, options.throttleIntervalMs ?? 1_000);
+    this.throttleIntervalsMs = options.throttleIntervalsMs ?? {};
+    this.throttleStore =
+      options.throttleStore ??
+      new MemoryThrottleStore(() => this.now().getTime());
     this.failureThreshold = options.failureThreshold ?? 3;
     this.circuitOpenMs = options.circuitOpenMs ?? 60_000;
     this.cooldownBaseMs = options.cooldownBaseMs ?? 60_000;
@@ -130,7 +255,27 @@ export class ProviderRegistry {
       if (signal?.aborted)
         throw signal.reason ?? new Error("Request cancelled");
       const startedAt = this.now().getTime();
+      const throttleKey = `${provider.id}:${capability}`;
+      const throttleIntervalMs = Math.max(
+        0,
+        this.throttleIntervalsMs[throttleKey] ??
+          this.throttleIntervalsMs[provider.id] ??
+          this.throttleIntervalMs
+      );
+      let throttled = false;
+      let upstreamStarted = false;
       try {
+        await this.withTimeout(
+          (throttleSignal) =>
+            this.throttleStore.acquire(
+              throttleKey,
+              throttleIntervalMs,
+              throttleSignal
+            ),
+          signal
+        );
+        throttled = true;
+        upstreamStarted = true;
         const evidence = await this.withTimeout(
           (providerSignal) =>
             operation(provider, {
@@ -168,7 +313,9 @@ export class ProviderRegistry {
         if (signal?.aborted) throw signal.reason ?? error;
         const message = error instanceof Error ? error.message : String(error);
         warnings.push(`${provider.id}: ${message}`);
-        this.recordFailure(provider, error);
+        if (upstreamStarted) this.recordFailure(provider, error);
+      } finally {
+        if (throttled) this.throttleStore.release(throttleKey);
       }
     }
     if (!candidates.length)

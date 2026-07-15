@@ -10,10 +10,11 @@ use std::{
 use uuid::Uuid;
 
 const DB_FILENAME: &str = "stock-portfolio.sqlite3";
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const BACKUP_SCHEMA_VERSION: u32 = 1;
 const ENVELOPE_FORMAT_VERSION: u32 = 1;
 const EPSILON: f64 = 1e-8;
+const DEFAULT_CSV_IMPORT_SOURCE: &str = "Calen CSV import";
 
 /// Password protection is deliberately a boundary. The repository owns the
 /// versioned backup contract while a platform-approved cipher owns key
@@ -352,17 +353,73 @@ impl StockPortfolioRepository {
         portfolio_id: &str,
         document: &str,
     ) -> Result<CsvImportResult, String> {
+        self.import_transactions_csv_with_source(
+            portfolio_id,
+            document,
+            DEFAULT_CSV_IMPORT_SOURCE,
+        )
+    }
+
+    pub fn import_transactions_csv_with_source(
+        &mut self,
+        portfolio_id: &str,
+        document: &str,
+        source_label: &str,
+    ) -> Result<CsvImportResult, String> {
+        ensure_portfolio_exists(&self.conn, portfolio_id)?;
+        let source_label = normalize_csv_import_source(source_label);
+        let imported_at = now_millis();
+        match self.import_transactions_csv_transaction(
+            portfolio_id,
+            document,
+            &source_label,
+            imported_at,
+        ) {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                let total_rows = csv_data_row_count(document);
+                let record = CsvImportRecord {
+                    id: Uuid::new_v4().to_string(),
+                    portfolio_id: portfolio_id.to_string(),
+                    source_label,
+                    imported_at,
+                    total_rows,
+                    success_count: 0,
+                    failure_count: total_rows,
+                    error_summary: Some(csv_import_error_summary(&error)),
+                };
+                match insert_csv_import_record(&self.conn, &record) {
+                    Ok(()) => Err(error),
+                    Err(audit_error) => Err(format!(
+                        "{error}; failed to persist CSV import history: {audit_error}"
+                    )),
+                }
+            }
+        }
+    }
+
+    fn import_transactions_csv_transaction(
+        &mut self,
+        portfolio_id: &str,
+        document: &str,
+        source_label: &str,
+        imported_at: i64,
+    ) -> Result<CsvImportResult, String> {
         let portfolio = load_portfolio(&self.conn, portfolio_id)?;
         let rows = csv::decode(document)?;
         if rows.is_empty() {
             return Err("CSV document is empty".to_string());
         }
+        let total_rows = rows.len().saturating_sub(1);
         let headers = csv_header_map(&rows[0])?;
         let mut records = Vec::new();
         for (index, row) in rows.iter().enumerate().skip(1) {
             let input = transaction_from_csv_row(&portfolio, &headers, row)
                 .map_err(|e| format!("CSV row {}: {e}", index + 1))?;
-            records.push(normalize_transaction(input)?);
+            records.push(
+                normalize_transaction(input)
+                    .map_err(|e| format!("CSV row {}: {e}", index + 1))?,
+            );
         }
 
         let transaction = self
@@ -375,6 +432,19 @@ impl StockPortfolioRepository {
         }
         validate_ledger(&transaction, &portfolio.id)?;
         touch_portfolio(&transaction, &portfolio.id)?;
+        insert_csv_import_record(
+            &transaction,
+            &CsvImportRecord {
+                id: Uuid::new_v4().to_string(),
+                portfolio_id: portfolio.id.clone(),
+                source_label: source_label.to_string(),
+                imported_at,
+                total_rows,
+                success_count: records.len(),
+                failure_count: total_rows.saturating_sub(records.len()),
+                error_summary: None,
+            },
+        )?;
         transaction
             .commit()
             .map_err(|e| format!("提交 CSV 导入失败：{e}"))?;
@@ -383,12 +453,49 @@ impl StockPortfolioRepository {
         })
     }
 
+    pub fn list_csv_import_records(
+        &self,
+        portfolio_id: &str,
+    ) -> Result<Vec<CsvImportRecord>, String> {
+        ensure_portfolio_exists(&self.conn, portfolio_id)?;
+        let mut statement = self
+            .conn
+            .prepare(
+                r#"
+                SELECT id, portfolio_id, source_label, imported_at, total_rows,
+                       success_count, failure_count, error_summary
+                FROM stock_csv_import
+                WHERE portfolio_id = ?1
+                ORDER BY imported_at DESC, id DESC
+                "#,
+            )
+            .map_err(|e| format!("prepare stock CSV import history query: {e}"))?;
+        let rows = statement
+            .query_map([portfolio_id], |row| {
+                Ok(CsvImportRecord {
+                    id: row.get(0)?,
+                    portfolio_id: row.get(1)?,
+                    source_label: row.get(2)?,
+                    imported_at: row.get(3)?,
+                    total_rows: row.get::<_, i64>(4)? as usize,
+                    success_count: row.get::<_, i64>(5)? as usize,
+                    failure_count: row.get::<_, i64>(6)? as usize,
+                    error_summary: row.get(7)?,
+                })
+            })
+            .map_err(|e| format!("query stock CSV import history: {e}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("read stock CSV import history: {e}"))
+    }
+
     pub fn export_backup_document(&self) -> Result<StockPortfolioBackup, String> {
         let watchlists = self.list_watchlists()?;
         let portfolios = self.list_portfolios()?;
         let mut transactions = Vec::new();
+        let mut csv_imports = Vec::new();
         for portfolio in &portfolios {
             transactions.extend(self.list_transactions(&portfolio.id)?);
+            csv_imports.extend(self.list_csv_import_records(&portfolio.id)?);
         }
         Ok(StockPortfolioBackup {
             schema_version: BACKUP_SCHEMA_VERSION,
@@ -396,6 +503,7 @@ impl StockPortfolioRepository {
             watchlists,
             portfolios,
             transactions,
+            csv_imports,
         })
     }
 
@@ -426,6 +534,10 @@ impl StockPortfolioRepository {
         for record in &backup.transactions {
             validate_transaction_record(record)?;
             insert_transaction_upsert(&transaction, record)?;
+        }
+        for record in &backup.csv_imports {
+            ensure_csv_import_record_matches_backup(record, &backup.portfolios)?;
+            insert_csv_import_record(&transaction, record)?;
         }
         for portfolio in &backup.portfolios {
             validate_ledger(&transaction, &portfolio.id)?;
@@ -574,11 +686,96 @@ fn initialize_schema(conn: &Connection) -> Result<(), String> {
             ON stock_transaction(portfolio_id, occurred_at, created_at, id);
         CREATE INDEX IF NOT EXISTS idx_stock_transaction_instrument
             ON stock_transaction(portfolio_id, instrument_id, occurred_at);
-        PRAGMA user_version = 1;
+        CREATE TABLE IF NOT EXISTS stock_csv_import (
+            id TEXT PRIMARY KEY,
+            portfolio_id TEXT NOT NULL,
+            source_label TEXT NOT NULL,
+            imported_at INTEGER NOT NULL,
+            total_rows INTEGER NOT NULL CHECK(total_rows >= 0),
+            success_count INTEGER NOT NULL CHECK(success_count >= 0),
+            failure_count INTEGER NOT NULL CHECK(failure_count >= 0),
+            error_summary TEXT,
+            FOREIGN KEY (portfolio_id) REFERENCES stock_portfolio(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_stock_csv_import_portfolio_time
+            ON stock_csv_import(portfolio_id, imported_at DESC, id DESC);
+        PRAGMA user_version = 2;
         COMMIT;
         "#,
     )
     .map_err(|e| format!("初始化股票账本失败：{e}"))
+}
+
+fn normalize_csv_import_source(value: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        DEFAULT_CSV_IMPORT_SOURCE.to_string()
+    } else {
+        value.chars().take(255).collect()
+    }
+}
+
+fn csv_data_row_count(document: &str) -> usize {
+    csv::decode(document)
+        .map(|rows| rows.len().saturating_sub(1))
+        .unwrap_or(0)
+}
+
+fn csv_import_error_summary(error: &str) -> String {
+    const MAX_CHARS: usize = 1_000;
+    let mut summary: String = error.chars().take(MAX_CHARS).collect();
+    if error.chars().count() > MAX_CHARS {
+        summary.push_str("...");
+    }
+    summary
+}
+
+fn insert_csv_import_record(
+    conn: &Connection,
+    record: &CsvImportRecord,
+) -> Result<(), String> {
+    conn.execute(
+        r#"
+        INSERT INTO stock_csv_import (
+            id, portfolio_id, source_label, imported_at, total_rows,
+            success_count, failure_count, error_summary
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        ON CONFLICT(id) DO UPDATE SET
+            portfolio_id = excluded.portfolio_id,
+            source_label = excluded.source_label,
+            imported_at = excluded.imported_at,
+            total_rows = excluded.total_rows,
+            success_count = excluded.success_count,
+            failure_count = excluded.failure_count,
+            error_summary = excluded.error_summary
+        "#,
+        params![
+            record.id,
+            record.portfolio_id,
+            record.source_label,
+            record.imported_at,
+            record.total_rows as i64,
+            record.success_count as i64,
+            record.failure_count as i64,
+            record.error_summary,
+        ],
+    )
+    .map_err(|e| format!("persist stock CSV import history: {e}"))?;
+    Ok(())
+}
+
+fn ensure_csv_import_record_matches_backup(
+    record: &CsvImportRecord,
+    portfolios: &[Portfolio],
+) -> Result<(), String> {
+    if record.id.trim().is_empty()
+        || record.source_label.trim().is_empty()
+        || !portfolios.iter().any(|portfolio| portfolio.id == record.portfolio_id)
+        || record.success_count.saturating_add(record.failure_count) < record.total_rows
+    {
+        return Err("invalid stock CSV import record in backup".to_string());
+    }
+    Ok(())
 }
 
 fn load_watchlist_items(

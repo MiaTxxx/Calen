@@ -10,9 +10,9 @@ Calen 的只读股票研究 sidecar。运行时仅依赖 Node.js 24，不启动 
 
 - `resolve`：解析 CN/HK/US 标的；代码可离线解析，名称搜索使用免费 Provider。
 - `snapshot`：获取归一化行情快照；`includeHistory=true` 时在 `data.chart.bars` 返回最多 120 根 K 线，并可合并 `data.profile` 与 `data.metrics`。
-- `research`：`capabilities` 是实际交付清单；结果在 `data.capabilities[能力]` 中逐项返回 `status/data/warnings`，支持公司资料、财务三表、股东、分红、资金流、新闻、公告、ETF、技术指标、评分、策略和 Evaluator。
+- `research`：`capabilities` 是实际交付清单；结果在 `data.capabilities[能力]` 中逐项返回 `status/data/warnings`，支持公司资料、财务三表、股东、分红、资金流、新闻、公告、ETF、技术指标、评分、策略和 Evaluator。可选 `strategyIds`：`trend`、`mean-reversion`、`breakout`、`momentum`、`volume-price`。
 - `marketBrief`：在 `data.sections` 返回 `limitUp`、`limitDown`、`hotSectors`、`moneyFlow`、`dragonTiger`、`unusualMoves` 和带算法版本的派生 `sentiment`。
-- `backtest`：运行有界 SMA 交叉回测；信号在收盘形成，只在下一根 K 线开盘执行。
+- `backtest`：运行有界 SMA 交叉或策略注册表回测（趋势、均值回归、突破、动量、量价、`fused`）；信号在收盘形成，只在下一根 K 线开盘执行。
 - `status`：返回服务状态、Provider 能力、熔断和冷却信息。
 
 所有数据结果都包含 `status`、`sources`、`asOf`、`retrievedAt`、`cached` 和 `warnings`；`status` 仅为 `ok | partial | unavailable`。任一请求能力缺失时不会返回 `ok`，也不会生成缺失事实。
@@ -55,4 +55,4 @@ node dist/stdio.mjs
 
 默认免费数据源仍只有腾讯行情与东方财富。显式启用新浪后，sidecar 会以 GB18030/GBK 解码其公开搜索和行情响应；新浪日 K 会明确提示接口未单独标注复权口径。BaoStock 快照、Tushare 与 ZZShare 的日线快照均不是实时行情，会在结果中标注数据口径或延迟。所有 Provider 都通过同一 Registry 执行超时、缓存、回退和健康熔断；免费源的 403/429/5xx 还会触发阶梯冷却，缺失能力只会降级为 `partial/unavailable`。
 
-回测及评分均为实验性研究工具，不构成投资建议，也不提供交易或下单能力。
+技术指标、策略融合、质量维度与 Evaluator、回测均为实验性研究工具；结果不代表任何真实机构观点，不构成投资建议，也不提供交易或下单能力。量化实现来源与修改说明见 `NOTICE.md` 的“量化研究来源与修改说明”。
