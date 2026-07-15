@@ -29,12 +29,17 @@ function runValidation(env = {}) {
   });
 }
 
-test("base Tauri config does not embed an updater trust root", () => {
+test("base Tauri config embeds the Calen updater public key", () => {
   const config = JSON.parse(
     readFileSync(path.join(guiRoot, "src-tauri/tauri.conf.json"), "utf8")
   );
 
-  assert.equal(config.plugins.updater.pubkey, "");
+  const decodedPublicKey = Buffer.from(
+    config.plugins.updater.pubkey,
+    "base64"
+  ).toString("utf8");
+  assert.match(decodedPublicKey, /^untrusted comment: minisign public key:/);
+  assert.match(decodedPublicKey, /\nRW/);
   assert.deepEqual(config.plugins.updater.endpoints, []);
 });
 
