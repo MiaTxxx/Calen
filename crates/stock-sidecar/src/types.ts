@@ -18,8 +18,14 @@ export type StockCapability =
   | "technical"
   | "score"
   | "strategy"
+  | "evaluator"
   | "backtest"
   | "marketBrief";
+
+export type StockResearchCapability = Exclude<
+  StockCapability,
+  "resolve" | "backtest" | "marketBrief"
+>;
 
 export interface InstrumentRef {
   id: string;
@@ -31,7 +37,7 @@ export interface InstrumentRef {
   name: string;
 }
 
-export type EvidenceStatus = "complete" | "partial" | "unavailable";
+export type EvidenceStatus = "ok" | "partial" | "unavailable";
 
 export interface EvidenceSource {
   id: string;
@@ -72,6 +78,9 @@ export interface StockSnapshot {
   change?: number;
   changePercent?: number;
   marketTime: string;
+  chart?: { bars: PriceBar[]; limit: number };
+  profile?: unknown;
+  metrics?: Record<string, number | string | null>;
 }
 
 export interface PriceBar {
@@ -91,10 +100,14 @@ export interface StockEvidenceResult<T = unknown> extends EvidenceEnvelope {
 export interface StockSnapshotRequest {
   instrument: InstrumentRef;
   maxAgeMs?: number;
+  includeHistory?: boolean;
+  historyLimit?: number;
+  includeProfile?: boolean;
 }
 export interface StockResearchRequest {
   instrument: InstrumentRef;
   historyLimit?: number;
+  capabilities?: StockResearchCapability[];
 }
 export interface MarketBriefRequest {
   market?: Market;
@@ -141,7 +154,11 @@ export interface ProviderStatus {
   id: string;
   capabilities: StockCapability[];
   priority: number;
+  state: "ready" | "disabled" | "unconfigured" | "cooldown" | "unavailable";
+  enabled: boolean;
+  configured: boolean;
   available: boolean;
+  warnings?: string[];
   circuitOpenUntil?: string;
   cooldownUntil?: string;
   consecutiveFailures: number;
@@ -176,6 +193,38 @@ export interface StockProvider {
     request: HistoryRequest,
     context: ProviderContext
   ): Promise<ProviderEvidence<PriceBar[]>>;
+  profile?(
+    instrument: InstrumentRef,
+    context: ProviderContext
+  ): Promise<ProviderEvidence<unknown>>;
+  financials?(
+    instrument: InstrumentRef,
+    context: ProviderContext
+  ): Promise<ProviderEvidence<unknown>>;
+  shareholders?(
+    instrument: InstrumentRef,
+    context: ProviderContext
+  ): Promise<ProviderEvidence<unknown>>;
+  dividend?(
+    instrument: InstrumentRef,
+    context: ProviderContext
+  ): Promise<ProviderEvidence<unknown>>;
+  moneyFlow?(
+    instrument: InstrumentRef,
+    context: ProviderContext
+  ): Promise<ProviderEvidence<unknown>>;
+  news?(
+    instrument: InstrumentRef,
+    context: ProviderContext
+  ): Promise<ProviderEvidence<unknown>>;
+  notices?(
+    instrument: InstrumentRef,
+    context: ProviderContext
+  ): Promise<ProviderEvidence<unknown>>;
+  etf?(
+    instrument: InstrumentRef,
+    context: ProviderContext
+  ): Promise<ProviderEvidence<unknown>>;
   marketBrief?(
     request: MarketBriefRequest,
     context: ProviderContext

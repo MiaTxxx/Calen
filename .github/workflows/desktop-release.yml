@@ -11,7 +11,7 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   NODE_VERSION: 24
@@ -26,6 +26,8 @@ jobs:
       release_tag: ${{ steps.version.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -34,6 +36,15 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: node scripts/release/prepare-app-version-from-tag.mjs "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT" --json
+
+      - name: Validate stock provider terms approval
+        env:
+          CALEN_STOCK_PROVIDER_TERMS_APPROVED: ${{ vars.CALEN_STOCK_PROVIDER_TERMS_APPROVED }}
+        run: |
+          if [ "$CALEN_STOCK_PROVIDER_TERMS_APPROVED" != "true" ]; then
+            echo "Set repository variable CALEN_STOCK_PROVIDER_TERMS_APPROVED=true only after written provider terms approval."
+            exit 1
+          fi
 
   windows:
     name: Windows x64
@@ -133,6 +144,8 @@ jobs:
   publish:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs:
       - release-metadata
       - windows
@@ -144,6 +157,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ needs.release-metadata.outputs.release_tag }}
           fetch-depth: 0
       - uses: actions/download-artifact@v8
         with:
@@ -183,6 +197,8 @@ jobs:
           node -e 'const m=require("./release-artifacts/latest.json"); if(Object.keys(m.platforms).some(k=>!k.startsWith("windows-"))) process.exit(1)'
           gh release upload "$RELEASE_TAG" \
             release-artifacts/Calen-*-Windows-x64-Setup.exe \
+            release-artifacts/Calen-*-Windows-x64-Setup.exe.sig \
             release-artifacts/Calen-*-Windows-x64.msi \
+            release-artifacts/Calen-*-Windows-x64.msi.sig \
             release-artifacts/latest.json \
             --clobber

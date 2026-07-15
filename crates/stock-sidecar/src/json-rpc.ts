@@ -117,6 +117,23 @@ function validDate(value: unknown): boolean {
   );
 }
 
+const RESEARCH_CAPABILITIES = new Set([
+  "snapshot",
+  "history",
+  "profile",
+  "financials",
+  "shareholders",
+  "dividend",
+  "moneyFlow",
+  "news",
+  "notices",
+  "etf",
+  "technical",
+  "score",
+  "strategy",
+  "evaluator",
+]);
+
 function validateParams(
   method: string,
   params: Record<string, unknown>
@@ -135,13 +152,37 @@ function validateParams(
       return "snapshot.instrument 缺失或格式无效";
     if (!validInteger(params.maxAgeMs, 0, 86_400_000))
       return "snapshot.maxAgeMs 必须是有效的非负整数";
+    if (
+      params.includeHistory !== undefined &&
+      typeof params.includeHistory !== "boolean"
+    )
+      return "snapshot.includeHistory 必须是布尔值";
+    if (
+      params.includeProfile !== undefined &&
+      typeof params.includeProfile !== "boolean"
+    )
+      return "snapshot.includeProfile 必须是布尔值";
+    if (!validInteger(params.historyLimit, 1, 120))
+      return "snapshot.historyLimit 必须是 1-120 的整数";
     return null;
   }
   if (method === "research") {
     if (!validInstrument(params.instrument))
       return "research.instrument 缺失或格式无效";
-    if (!validInteger(params.historyLimit, 20, 2_000))
-      return "research.historyLimit 必须是 20-2000 的整数";
+    if (!validInteger(params.historyLimit, 1, 2_000))
+      return "research.historyLimit 必须是 1-2000 的整数";
+    if (params.capabilities !== undefined) {
+      if (!Array.isArray(params.capabilities) || !params.capabilities.length)
+        return "research.capabilities 必须是非空数组";
+      if (
+        params.capabilities.some(
+          (capability) =>
+            typeof capability !== "string" ||
+            !RESEARCH_CAPABILITIES.has(capability)
+        )
+      )
+        return "research.capabilities 包含未知或不可用于研究的能力";
+    }
     return null;
   }
   if (method === "marketBrief") {

@@ -69,7 +69,7 @@ Release 仅构建 `x86_64-pc-windows-msvc`，公开资产固定为：
 - `Calen-<tag>-Windows-x64.msi`
 - Windows-only `latest.json`
 
-安装器对应的 `.sig` 仅用于生成 Tauri updater manifest，不作为 GitHub Release 的公开资产。Tauri updater 私钥签名是发布门禁；首版无 Authenticode，Windows 可能显示“未知发布者”。不发布 portable、Linux 或 macOS 包。
+安装器对应的 `.sig` 会与 EXE/MSI 和 `latest.json` 一同上传，供 Tauri updater 校验。Tauri updater 私钥签名是发布门禁；首版无 Authenticode，Windows 可能显示“未知发布者”。不发布 portable、Linux 或 macOS 包。
 
 验收至少覆盖：中文/空格安装路径、机器无系统 Node、离线、403/429、超时、取消、sidecar 崩溃与单次重启；Provider 回退、缓存、限流和部分失败；财务/公告字段归一化；资产流水和多币种盈亏；回测防未来数据、确定性和版本元数据；普通聊天不读取持仓，Gateway 不接收明文资产或 Provider Key。
 
@@ -78,3 +78,7 @@ Release 仅构建 `x86_64-pc-windows-msvc`，公开资产固定为：
 Opptrix 为 Apache-2.0。直接复制或实质改编的代码必须保留原版权头、标明修改，并登记到 `THIRD_PARTY_NOTICES.md`；仅借鉴架构思想时也在 ADR 中记录来源路径。Calen 的 MIT 许可不覆盖第三方数据使用权。
 
 每个 Provider 上线前必须单独审查服务条款、许可、地域限制、缓存/再分发限制和频率限制。未经确认的数据源不得默认启用或随安装包再分发。产品始终声明数据可能延迟或错误，内容仅供研究与信息参考，不构成投资建议。
+
+首版腾讯与东方财富的上线边界、缓存/再分发限制和停止条件记录在 `docs/provider-compliance-review.md`；其他 Provider 保持禁用和未配置状态。
+
+公开 Release 还必须通过 `CALEN_STOCK_PROVIDER_TERMS_APPROVED=true` 门禁；在取得书面授权或正式合规批准前，只允许开发和本地验证，不得发布安装包。

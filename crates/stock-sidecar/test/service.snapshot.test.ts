@@ -16,7 +16,7 @@ test("snapshot returns normalized Tencent evidence without requiring an API key"
 
   const result = await service.snapshot({ instrument });
 
-  assert.equal(result.status, "complete");
+  assert.equal(result.status, "ok");
   assert.equal(result.data?.price, 1500.5);
   assert.equal(result.data?.instrument.name, "贵州茅台");
   assert.equal(result.data?.previousClose, 1490);
@@ -60,4 +60,58 @@ test("snapshot reports unavailable when every network provider fails", async () 
   assert.equal(result.data, undefined);
   assert.match(result.warnings.join("\n"), /offline/);
   assert.equal(result.sources.length, 0);
+});
+
+test("snapshot optionally merges bounded chart, profile, and derived metrics", async () => {
+  const bars = Array.from({ length: 40 }, (_, index) => ({
+    time: `2026-06-${String(index + 1).padStart(2, "0")}`,
+    open: 100 + index,
+    high: 102 + index,
+    low: 99 + index,
+    close: 101 + index,
+  }));
+  const provider: StockProvider = {
+    id: "bundle",
+    priority: 1,
+    capabilities: ["snapshot", "history", "profile"],
+    async snapshot(ref) {
+      return {
+        data: {
+          instrument: ref,
+          price: 140,
+          previousClose: 138,
+          changePercent: 1.45,
+          marketTime: "2026-07-15",
+        },
+        asOf: "2026-07-15",
+      };
+    },
+    async history(_ref, request) {
+      return { data: bars.slice(-(request.limit ?? 30)), asOf: "2026-07-15" };
+    },
+    async profile() {
+      return {
+        data: { industry: "白酒", marketCap: 1570000000000 },
+        asOf: "2026-07-15",
+      };
+    },
+  };
+  const service = createStockResearchService({ providers: [provider] });
+
+  const result = await service.snapshot({
+    instrument,
+    includeHistory: true,
+    historyLimit: 30,
+    includeProfile: true,
+  });
+
+  assert.equal(result.status, "ok");
+  assert.equal(result.data?.price, 140);
+  assert.equal(result.data?.chart?.bars.length, 30);
+  assert.equal((result.data?.profile as { industry: string }).industry, "白酒");
+  assert.equal(result.data?.metrics?.periodReturnPercent, 26.13);
+  assert.deepEqual(
+    result.sources.map((source) => source.capability),
+    ["snapshot", "history", "profile"]
+  );
 });

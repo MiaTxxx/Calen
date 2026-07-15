@@ -226,7 +226,25 @@ function ResearchView() {
     try {
       setResearch({
         state: "ready",
-        data: await stockResearch.research({ instrument: selected }),
+        data: await stockResearch.research({
+          instrument: selected,
+          capabilities: [
+            "quote",
+            "history",
+            "profile",
+            "financials",
+            "shareholders",
+            "dividends",
+            "capital_flow",
+            "news",
+            "notices",
+            ...(selected.assetType === "etf" ? (["etf"] as const) : []),
+            "technical",
+            "score",
+            "strategy",
+            "evaluator",
+          ],
+        }),
       });
     } catch (error) {
       setResearch({ state: "error", message: formatStockError(error) });
@@ -366,7 +384,12 @@ function SnapshotCard({
           {data.instrument.currency}
         </span>
       </div>
-      <StockChart values={chart} positive={up} className="mt-4" />
+      <StockChart
+        values={chart}
+        bars={data.chart}
+        positive={up}
+        className="mt-4"
+      />
       {data.facts?.length ? (
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           {data.facts.map((fact) => (

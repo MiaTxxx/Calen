@@ -76,6 +76,40 @@ test("desktop release publishes only Windows installers and a Windows updater ma
     releaseWorkflow,
     /Calen-\$\{LIVEAGENT_RELEASE_TAG\}-Windows-x64\.msi/
   );
+  assert.match(
+    releaseWorkflow,
+    /release-artifacts\/Calen-\*-Windows-x64-Setup\.exe\.sig/
+  );
+  assert.match(
+    releaseWorkflow,
+    /release-artifacts\/Calen-\*-Windows-x64\.msi\.sig/
+  );
   assert.match(releaseWorkflow, /needs\.windows\.result == 'success'/);
   assert.match(releaseWorkflow, /some\(k=>!k\.startsWith\("windows-"\)\)/);
+});
+
+test("desktop release resolves metadata, builds, and publishes from the same tag", () => {
+  assert.match(
+    releaseWorkflow,
+    /ref: \$\{\{ github\.event\.inputs\.tag \|\| github\.ref \}\}/
+  );
+
+  const resolvedTagCheckouts = releaseWorkflow.match(
+    /ref: \$\{\{ needs\.release-metadata\.outputs\.release_tag \}\}/g
+  );
+  assert.equal(resolvedTagCheckouts?.length, 2);
+});
+
+test("desktop release grants write access only to the publishing job", () => {
+  assert.match(releaseWorkflow, /^permissions:\n  contents: read$/m);
+  assert.match(
+    releaseWorkflow,
+    /^  publish:\n(?:.*\n){0,4}    permissions:\n      contents: write$/m
+  );
+});
+
+test("desktop release is blocked until stock provider terms are explicitly approved", () => {
+  assert.match(releaseWorkflow, /CALEN_STOCK_PROVIDER_TERMS_APPROVED/);
+  assert.match(releaseWorkflow, /written provider terms approval/);
+  assert.match(releaseWorkflow, /exit 1/);
 });

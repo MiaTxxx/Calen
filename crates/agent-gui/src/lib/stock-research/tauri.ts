@@ -1,20 +1,26 @@
 import { invoke } from "@tauri-apps/api/core";
+import {
+  mapStockBacktestResult,
+  mapStockMarketBriefResult,
+  mapStockResearchResult,
+  mapStockResolveEnvelope,
+  mapStockServiceStatus,
+  mapStockSnapshotResult,
+  toSidecarBacktestRequest,
+  toSidecarMarketBriefRequest,
+  toSidecarResearchRequest,
+  toSidecarResolveRequest,
+  toSidecarSnapshotRequest,
+} from "./contracts";
 import type {
-  BacktestResult,
   EncryptedStockBackupEnvelope,
-  InstrumentRef,
-  MarketBrief,
   MarketBriefRequest,
   PortfolioSnapshot,
-  QuoteSnapshot,
-  ResearchBundle,
   StockBacktestRequest,
   StockBackupRestoreMode,
-  StockEvidenceResult,
   StockResearchPort,
   StockResearchRequest,
   StockResolveRequest,
-  StockServiceStatus,
   StockSettings,
   StockSettingsSavePayload,
   StockSnapshotRequest,
@@ -39,35 +45,44 @@ const commands = {
 
 export class TauriStockResearchAdapter implements StockResearchPort {
   resolve(request: StockResolveRequest) {
-    return invoke<InstrumentRef[]>(commands.resolve, { request });
+    return invoke<unknown>(commands.resolve, {
+      request: toSidecarResolveRequest(request),
+    }).then(mapStockResolveEnvelope);
   }
 
   snapshot(request: StockSnapshotRequest) {
-    return invoke<StockEvidenceResult<QuoteSnapshot>>(commands.snapshot, {
-      request,
-    });
+    return invoke<unknown>(commands.snapshot, {
+      request: toSidecarSnapshotRequest(request),
+    }).then(mapStockSnapshotResult);
   }
 
   research(request: StockResearchRequest) {
-    return invoke<StockEvidenceResult<ResearchBundle>>(commands.research, {
-      request,
-    });
+    return invoke<unknown>(commands.research, {
+      request: toSidecarResearchRequest(request),
+    }).then(mapStockResearchResult);
   }
 
   marketBrief(request: MarketBriefRequest) {
-    return invoke<StockEvidenceResult<MarketBrief>>(commands.marketBrief, {
-      request,
-    });
+    return invoke<unknown>(commands.marketBrief, {
+      request: toSidecarMarketBriefRequest(request),
+    }).then((raw) =>
+      mapStockMarketBriefResult(
+        raw,
+        request.session === "pre_open" || request.session === "close"
+          ? request.session
+          : "on_demand"
+      )
+    );
   }
 
   backtest(request: StockBacktestRequest) {
-    return invoke<StockEvidenceResult<BacktestResult>>(commands.backtest, {
-      request,
-    });
+    return invoke<unknown>(commands.backtest, {
+      request: toSidecarBacktestRequest(request),
+    }).then(mapStockBacktestResult);
   }
 
   status() {
-    return invoke<StockServiceStatus>(commands.status);
+    return invoke<unknown>(commands.status).then(mapStockServiceStatus);
   }
 
   settingsGet() {

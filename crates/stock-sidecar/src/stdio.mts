@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { createStockResearchService } from "./service.ts";
+import { createStockResearchServiceFromEnvironment } from "./config.ts";
 import { runJsonRpcStdio } from "./json-rpc.ts";
 
-const service = createStockResearchService();
+const service = createStockResearchServiceFromEnvironment();
 
 await runJsonRpcStdio({
   input: process.stdin,

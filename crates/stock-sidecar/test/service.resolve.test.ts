@@ -8,7 +8,7 @@ test("resolve normalizes an A-share code into a stable InstrumentRef", async () 
 
   const result = await service.resolve({ query: "600519" });
 
-  assert.equal(result.status, "complete");
+  assert.equal(result.status, "ok");
   assert.deepEqual(result.instruments, [
     {
       id: "CN:600519",

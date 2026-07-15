@@ -13,6 +13,30 @@ env:
   NODE_VERSION: 22.19.0
 
 jobs:
+  stock-sidecar:
+    name: Stock Sidecar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install pnpm
+        run: npm install -g pnpm@10.32.1
+
+      - name: Install dependencies
+        working-directory: crates/stock-sidecar
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck, test, and build sidecar
+        working-directory: crates/stock-sidecar
+        run: |
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
   gateway:
     name: Gateway
     runs-on: ubuntu-latest
@@ -190,6 +214,32 @@ jobs:
         env:
           CARGO_TERM_COLOR: always
         run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml chat_history --lib
+
+  tauri-windows-check:
+    name: Tauri Windows Check
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install protobuf compiler
+        shell: pwsh
+        run: |
+          choco install protoc -y --no-progress
+          "$env:ChocolateyInstall\lib\protoc\tools\bin" | Out-File -Append $env:GITHUB_PATH
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/agent-gui/src-tauri
+
+      - name: Check Tauri backend on Windows
+        env:
+          CARGO_TERM_COLOR: always
+        run: cargo check --manifest-path crates/agent-gui/src-tauri/Cargo.toml --tests --target x86_64-pc-windows-msvc
 
   mirror:
     name: GUI/WebUI Mirror Check

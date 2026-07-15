@@ -6,7 +6,7 @@
     "typecheck": "pnpm --dir crates/stock-sidecar typecheck && pnpm --dir crates/agent-gui exec tsc --noEmit && pnpm --dir crates/agent-gateway/web exec tsc --noEmit",
     "test": "pnpm run test:stock-sidecar && pnpm run test:gui && pnpm run test:gateway",
     "test:stock-sidecar": "pnpm --dir crates/stock-sidecar test",
-    "test:gui": "pnpm --dir crates/agent-gui test:release && pnpm --dir crates/agent-gui exec node --test test/i18n/translations.test.mjs",
+    "test:gui": "pnpm --dir crates/agent-gui test:release && pnpm --dir crates/agent-gui exec node --test --experimental-strip-types test/stock/*.test.mjs test/i18n/translations.test.mjs",
     "test:gateway": "pnpm --dir crates/agent-gateway/web test"
   },
   "devDependencies": {

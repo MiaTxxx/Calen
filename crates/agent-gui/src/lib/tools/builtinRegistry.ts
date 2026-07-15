@@ -29,28 +29,39 @@ import { createMemoryTools } from "./memoryTools";
 import { createShellTools } from "./shellTools";
 import type { SkillAccessPolicy } from "./skillAccessPolicy";
 import { createSkillTools } from "./skillTools";
-import { createSSHManagerTools, type SshManagerSessionChange } from "./sshManagerTools";
+import {
+  createSSHManagerTools,
+  type SshManagerSessionChange,
+} from "./sshManagerTools";
 import { createStockResearchTools } from "./stockResearchTools";
 import type { SystemToolId, SystemToolRuntimeScope } from "./systemToolOptions";
 import { createTerminalTools } from "./terminalTools";
 import { createTodoTools, type TodoToolState } from "./todoTools";
-import { createTunnelManagerTools, type TunnelManagerChange } from "./tunnelManagerTools";
+import {
+  createTunnelManagerTools,
+  type TunnelManagerChange,
+} from "./tunnelManagerTools";
 
 export type BuiltinToolRegistry = {
   tools: BuiltinToolBundle["tools"];
   executeToolCall: (
     toolCall: ToolCall,
     signal?: AbortSignal,
-    context?: BuiltinToolExecutionContext,
+    context?: BuiltinToolExecutionContext
   ) => Promise<ToolResultMessage>;
   metadataByName: Map<string, BuiltinToolMetadata>;
   hasTool: (toolName: string) => boolean;
 };
 
-function createBuiltinToolRegistry(bundles: BuiltinToolBundle[]): BuiltinToolRegistry {
+function createBuiltinToolRegistry(
+  bundles: BuiltinToolBundle[]
+): BuiltinToolRegistry {
   const tools: BuiltinToolBundle["tools"] = [];
   const metadataByName = new Map<string, BuiltinToolMetadata>();
-  const executorsByName = new Map<string, BuiltinToolBundle["executeToolCall"]>();
+  const executorsByName = new Map<
+    string,
+    BuiltinToolBundle["executeToolCall"]
+  >();
   const canonicalToolNameByLookupKey = new Map<string, string | null>();
 
   const registerCanonicalToolName = (toolName: string) => {
@@ -66,7 +77,9 @@ function createBuiltinToolRegistry(bundles: BuiltinToolBundle[]): BuiltinToolReg
 
   const resolveToolName = (toolName: string) => {
     if (executorsByName.has(toolName)) return toolName;
-    const canonical = canonicalToolNameByLookupKey.get(toolName.trim().toLowerCase());
+    const canonical = canonicalToolNameByLookupKey.get(
+      toolName.trim().toLowerCase()
+    );
     return canonical && executorsByName.has(canonical) ? canonical : null;
   };
 
@@ -115,7 +128,9 @@ function createBuiltinToolRegistry(bundles: BuiltinToolBundle[]): BuiltinToolReg
         };
       }
       const effectiveToolCall =
-        resolvedToolName === toolCall.name ? toolCall : { ...toolCall, name: resolvedToolName };
+        resolvedToolName === toolCall.name
+          ? toolCall
+          : { ...toolCall, name: resolvedToolName };
       return execute(effectiveToolCall, signal, context);
     },
   };
@@ -153,13 +168,18 @@ type BuildBuiltinBaseToolRegistryParams = {
   sshHosts?: SshHostConfig[];
   associatedSshHostIds?: string[];
   sshManagerRemoteAllowed?: boolean;
-  onSshSessionsChanged?: (change: SshManagerSessionChange) => void | Promise<void>;
+  onSshSessionsChanged?: (
+    change: SshManagerSessionChange
+  ) => void | Promise<void>;
   onTunnelsChanged?: (change: TunnelManagerChange) => void | Promise<void>;
+  portfolioReadAuthorized?: boolean;
 };
 
 const resolveHomeDir = () => homeDir();
 
-async function buildBaseBuiltinToolBundles(params: BuildBuiltinBaseToolRegistryParams) {
+async function buildBaseBuiltinToolBundles(
+  params: BuildBuiltinBaseToolRegistryParams
+) {
   const baseBundles: BuiltinToolBundle[] = [
     createFsTools({
       workdir: params.workdir,
@@ -208,7 +228,9 @@ async function buildBaseBuiltinToolBundles(params: BuildBuiltinBaseToolRegistryP
       mode: params.memoryToolMode ?? "rw",
     }),
     createTunnelManagerTools({
-      enabled: params.remoteWebTunnelsEnabled === true && params.runtimeScope === "chat",
+      enabled:
+        params.remoteWebTunnelsEnabled === true &&
+        params.runtimeScope === "chat",
       runtimeScope: params.runtimeScope,
       projectPathKey: params.tunnelProjectPathKey,
       publicBaseUrl: params.tunnelPublicBaseUrl,
@@ -243,7 +265,7 @@ async function buildBaseBuiltinToolBundles(params: BuildBuiltinBaseToolRegistryP
         servers: enabledServers,
         onLoadError: params.onMcpLoadError,
         loadFailureMode: params.mcpLoadFailureMode,
-      }),
+      })
     );
   }
 
@@ -254,18 +276,27 @@ export async function buildBuiltinToolRegistry(
   params: BuildBuiltinBaseToolRegistryParams & {
     subagentRuntime?: SubagentRuntimeConfig;
     todoState?: TodoToolState;
-  },
+  }
 ) {
   const baseBundles = await buildBaseBuiltinToolBundles(params);
   const todoBundles =
     params.runtimeScope === "chat" && params.todoState
       ? [createTodoTools({ state: params.todoState })]
       : [];
-  const stockBundles = [createStockResearchTools({ runtimeScope: params.runtimeScope })];
+  const stockBundles = [
+    createStockResearchTools({
+      runtimeScope: params.runtimeScope,
+      portfolioReadAuthorized: params.portfolioReadAuthorized,
+    }),
+  ];
 
   const subagentRuntime = params.subagentRuntime;
   if (!subagentRuntime) {
-    return createBuiltinToolRegistry([...baseBundles, ...stockBundles, ...todoBundles]);
+    return createBuiltinToolRegistry([
+      ...baseBundles,
+      ...stockBundles,
+      ...todoBundles,
+    ]);
   }
 
   const baseRegistry = createBuiltinToolRegistry(baseBundles);
@@ -315,7 +346,7 @@ export async function buildBuiltinToolRegistry(
             selectedSystemToolIds: [],
             mcpLoadFailureMode: "continue",
             memoryToolMode: "ro",
-          }),
+          })
         ),
     }),
   ]);

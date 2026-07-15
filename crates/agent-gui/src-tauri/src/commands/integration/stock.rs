@@ -423,8 +423,8 @@ fn default_stock_settings() -> Value {
         "providers": [
             { "id": "tencent", "enabled": true },
             { "id": "eastmoney", "enabled": true },
-            { "id": "sinafinance", "enabled": true },
-            { "id": "baostock", "enabled": true },
+            { "id": "sinafinance", "enabled": false },
+            { "id": "baostock", "enabled": false },
             { "id": "zzshare", "enabled": false },
             { "id": "tushare", "enabled": false },
             { "id": "tickflow", "enabled": false },

@@ -165,3 +165,38 @@ export function createTencentProvider(): StockProvider {
     },
   };
 }
+
+export function createTencentBasicProfileProvider(): StockProvider {
+  const quoteProvider = createTencentProvider();
+  return {
+    id: "tencent-basic-profile",
+    priority: 30,
+    free: true,
+    capabilities: ["profile"],
+    async profile(instrument, context): Promise<ProviderEvidence<unknown>> {
+      const quote = await quoteProvider.snapshot!(instrument, context);
+      if (!quote.data) {
+        const result: ProviderEvidence<unknown> = {
+          data: null,
+          asOf: quote.asOf,
+        };
+        if (quote.warnings?.length) result.warnings = quote.warnings;
+        return result;
+      }
+      return {
+        data: {
+          symbol: quote.data.instrument.symbol,
+          name: quote.data.instrument.name,
+          market: quote.data.instrument.market,
+          exchange: quote.data.instrument.exchange,
+          currency: quote.data.instrument.currency,
+          coverage: "basic-quote-identity",
+        },
+        asOf: quote.asOf,
+        warnings: [
+          "腾讯基础资料仅包含证券身份与交易市场，不包含完整公司档案。",
+        ],
+      };
+    },
+  };
+}

@@ -1,13 +1,23 @@
 import { makeInstrument } from "../instruments.ts";
 import type {
   InstrumentRef,
-  MarketBriefRequest,
   PriceBar,
   ProviderEvidence,
   StockProvider,
   StockResolveRequest,
 } from "../types.ts";
 import { ProviderError } from "./registry.ts";
+import { fetchEastmoneyMarketBrief } from "./eastmoney-market.ts";
+import {
+  fetchEastmoneyFinancials,
+  fetchEastmoneyEtf,
+  fetchEastmoneyDividend,
+  fetchEastmoneyMoneyFlow,
+  fetchEastmoneyNews,
+  fetchEastmoneyNotices,
+  fetchEastmoneyProfile,
+  fetchEastmoneyShareholders,
+} from "./eastmoney-research.ts";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -74,7 +84,19 @@ export function createEastmoneyProvider(): StockProvider {
     id: "eastmoney",
     priority: 20,
     free: true,
-    capabilities: ["resolve", "history", "marketBrief"],
+    capabilities: [
+      "resolve",
+      "history",
+      "profile",
+      "financials",
+      "shareholders",
+      "dividend",
+      "moneyFlow",
+      "news",
+      "notices",
+      "etf",
+      "marketBrief",
+    ],
     async resolve(
       request: StockResolveRequest,
       context
@@ -82,6 +104,7 @@ export function createEastmoneyProvider(): StockProvider {
       const url = new URL("https://searchapi.eastmoney.com/api/suggest/get");
       url.searchParams.set("input", request.query);
       url.searchParams.set("type", "14");
+      // Eastmoney 网页搜索接口的公开固定参数，不是用户 API Key 或私密凭据。
       url.searchParams.set("token", "D43BF722C8E33BDC906FB84D85E326E8");
       const payload = await fetchJson(url, context.signal, context.fetch);
       const table = object(payload.QuotationCodeTable);
@@ -158,63 +181,14 @@ export function createEastmoneyProvider(): StockProvider {
         asOf: bars.at(-1)?.time ?? context.now().toISOString(),
       };
     },
-    async marketBrief(
-      request: MarketBriefRequest,
-      context
-    ): Promise<ProviderEvidence<unknown>> {
-      if (request.market && request.market !== "CN") {
-        return {
-          data: null,
-          asOf: context.now().toISOString(),
-          warnings: ["东方财富市场概览首版仅支持 A 股"],
-        };
-      }
-      const url = new URL("https://push2.eastmoney.com/api/qt/clist/get");
-      url.searchParams.set("pn", "1");
-      url.searchParams.set(
-        "pz",
-        String(Math.min(Math.max(request.limit ?? 20, 1), 100))
-      );
-      url.searchParams.set("po", "1");
-      url.searchParams.set("np", "1");
-      url.searchParams.set("fltt", "2");
-      url.searchParams.set("invt", "2");
-      url.searchParams.set("fid", "f3");
-      url.searchParams.set("fs", "m:0+t:6,m:1+t:2");
-      url.searchParams.set("fields", "f12,f14,f2,f3,f4,f5,f6");
-      const payload = await fetchJson(url, context.signal, context.fetch);
-      const diff = object(payload.data)?.diff;
-      const rows = Array.isArray(diff) ? diff : [];
-      const movers = rows.flatMap((value) => {
-        const item = object(value);
-        const symbol = typeof item?.f12 === "string" ? item.f12 : undefined;
-        const name = typeof item?.f14 === "string" ? item.f14 : undefined;
-        const price = number(item?.f2);
-        const changePercent = number(item?.f3);
-        const change = number(item?.f4);
-        if (
-          !symbol ||
-          !name ||
-          price === undefined ||
-          changePercent === undefined
-        )
-          return [];
-        return [
-          {
-            symbol,
-            name,
-            price,
-            change: change ?? 0,
-            changePercent,
-            volume: number(item?.f5) ?? 0,
-            turnover: number(item?.f6) ?? 0,
-          },
-        ];
-      });
-      return {
-        data: movers.length ? { market: "CN", movers } : null,
-        asOf: context.now().toISOString(),
-      };
-    },
+    profile: fetchEastmoneyProfile,
+    financials: fetchEastmoneyFinancials,
+    shareholders: fetchEastmoneyShareholders,
+    dividend: fetchEastmoneyDividend,
+    moneyFlow: fetchEastmoneyMoneyFlow,
+    news: fetchEastmoneyNews,
+    notices: fetchEastmoneyNotices,
+    etf: fetchEastmoneyEtf,
+    marketBrief: fetchEastmoneyMarketBrief,
   };
 }

@@ -184,6 +184,13 @@ export class ProviderRegistry {
         id: provider.id,
         capabilities: [...provider.capabilities],
         priority: provider.priority,
+        state: this.isAvailable(provider.id, currentMs)
+          ? "ready"
+          : state.cooldownUntilMs > currentMs
+            ? "cooldown"
+            : "unavailable",
+        enabled: true,
+        configured: true,
         available: this.isAvailable(provider.id, currentMs),
         consecutiveFailures: state.consecutiveFailures,
       };

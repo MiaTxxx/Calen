@@ -5,15 +5,20 @@ import { createDefaultProviders } from "./providers/defaults.ts";
 import {
   ProviderRegistry,
   type ProviderRegistryOptions,
+  type ProviderQueryResult,
 } from "./providers/registry.ts";
 import type {
+  EvidenceSource,
   InstrumentSearchResult,
   MarketBriefRequest,
+  PriceBar,
+  ProviderStatus,
   StockBacktestRequest,
   StockBacktestResult,
   StockEvidenceResult,
   StockProvider,
   StockResearchPort,
+  StockResearchCapability,
   StockResearchRequest,
   StockServiceStatus,
   StockSnapshot,
@@ -21,8 +26,31 @@ import type {
   StockResolveRequest,
 } from "./types.ts";
 
+const DEFAULT_RESEARCH_CAPABILITIES: StockResearchCapability[] = [
+  "snapshot",
+  "history",
+  "technical",
+  "score",
+  "strategy",
+  "evaluator",
+];
+
+const REMOTE_RESEARCH_CAPABILITIES = new Set<StockResearchCapability>([
+  "snapshot",
+  "history",
+  "profile",
+  "financials",
+  "shareholders",
+  "dividend",
+  "moneyFlow",
+  "news",
+  "notices",
+  "etf",
+]);
+
 export interface CreateStockResearchServiceOptions extends ProviderRegistryOptions {
   providers?: StockProvider[];
+  providerCatalog?: ProviderStatus[];
 }
 
 export function createStockResearchService(
@@ -30,6 +58,7 @@ export function createStockResearchService(
 ): StockResearchPort {
   const now = options.now ?? (() => new Date());
   const providers = options.providers ?? createDefaultProviders();
+  const providerCatalog = options.providerCatalog ?? [];
   const registry = new ProviderRegistry(providers, options);
   return {
     async resolve(
@@ -39,7 +68,7 @@ export function createStockResearchService(
       const instrument = normalizeInstrument(request.query, request.market);
       if (instrument)
         return {
-          status: "complete",
+          status: "ok",
           instruments: [instrument],
           sources: [
             {
@@ -73,7 +102,7 @@ export function createStockResearchService(
           warnings: result.warnings,
         };
       return {
-        status: "complete",
+        status: result.warnings.length ? "partial" : "ok",
         instruments: result.data,
         sources: [result.source],
         asOf: result.source.asOf,
@@ -87,14 +116,14 @@ export function createStockResearchService(
       signal?: AbortSignal
     ): Promise<StockEvidenceResult<StockSnapshot>> {
       const retrievedAt = now().toISOString();
-      const result = await registry.query(
+      const quote = await registry.query(
         "snapshot",
         request.instrument.id,
         (provider, context) => provider.snapshot!(request.instrument, context),
         signal,
         request.maxAgeMs
       );
-      if (!result.data || !result.source) {
+      if (!quote.data || !quote.source) {
         return {
           status: "unavailable",
           instrument: request.instrument,
@@ -102,70 +131,297 @@ export function createStockResearchService(
           asOf: retrievedAt,
           retrievedAt,
           cached: false,
-          warnings: result.warnings,
+          warnings: quote.warnings,
         };
       }
+      const historyLimit = Math.min(
+        Math.max(request.historyLimit ?? 30, 1),
+        120
+      );
+      const includeProfile = request.includeProfile ?? false;
+      const [history, profile] = await Promise.all([
+        request.includeHistory
+          ? registry.query(
+              "history",
+              `${request.instrument.id}:snapshot:${historyLimit}`,
+              (provider, context) =>
+                provider.history!(
+                  request.instrument,
+                  { limit: historyLimit },
+                  context
+                ),
+              signal
+            )
+          : Promise.resolve(null),
+        includeProfile
+          ? registry.query(
+              "profile",
+              `${request.instrument.id}:snapshot`,
+              (provider, context) =>
+                provider.profile!(request.instrument, context),
+              signal
+            )
+          : Promise.resolve(null),
+      ]);
+      const bars = Array.isArray(history?.data)
+        ? (history.data as PriceBar[])
+        : [];
+      const firstClose = bars[0]?.close;
+      const metrics: Record<string, number | string | null> = {
+        price: quote.data.price,
+        previousClose: quote.data.previousClose ?? null,
+        change: quote.data.change ?? null,
+        changePercent: quote.data.changePercent ?? null,
+        high: quote.data.high ?? null,
+        low: quote.data.low ?? null,
+        volume: quote.data.volume ?? null,
+        historyBars: bars.length,
+        periodReturnPercent:
+          firstClose && firstClose > 0
+            ? Math.round((quote.data.price / firstClose - 1) * 100 * 100) / 100
+            : null,
+      };
+      const profileRecord =
+        profile?.data && typeof profile.data === "object"
+          ? (profile.data as Record<string, unknown>)
+          : undefined;
+      for (const key of [
+        "marketCap",
+        "floatMarketCap",
+        "pe",
+        "pb",
+        "industry",
+      ] as const) {
+        const value = profileRecord?.[key];
+        if (typeof value === "number" || typeof value === "string")
+          metrics[key] = value;
+      }
+      const data: StockSnapshot = { ...quote.data, metrics };
+      if (request.includeHistory && bars.length)
+        data.chart = { bars, limit: historyLimit };
+      if (includeProfile && profile?.data != null) data.profile = profile.data;
+      const sources = [quote.source, history?.source, profile?.source].filter(
+        (source) => source !== undefined
+      );
+      const warnings = [
+        ...quote.warnings,
+        ...(history?.warnings.map((warning) => `history: ${warning}`) ?? []),
+        ...(profile?.warnings.map((warning) => `profile: ${warning}`) ?? []),
+      ];
+      if (request.includeHistory && !history?.data)
+        warnings.push("history: 请求了 K 线图，但没有可用历史行情");
+      if (includeProfile && !profile?.data)
+        warnings.push("profile: 请求了公司资料，但没有可用数据");
+      const missingRequested =
+        (request.includeHistory && !history?.data) ||
+        (includeProfile && !profile?.data);
       return {
-        status: "complete",
+        status: missingRequested || warnings.length ? "partial" : "ok",
         instrument: request.instrument,
-        data: result.data,
-        sources: [result.source],
-        asOf: result.source.asOf,
-        retrievedAt: result.source.retrievedAt,
-        cached: result.cached,
-        warnings: result.warnings,
+        data,
+        sources,
+        asOf:
+          sources
+            .map((source) => source.asOf)
+            .sort()
+            .at(-1) ?? quote.source.asOf,
+        retrievedAt,
+        cached: sources.length > 0 && sources.every((source) => source.cached),
+        warnings,
       };
     },
     async research(
       request: StockResearchRequest,
       signal?: AbortSignal
     ): Promise<StockEvidenceResult> {
-      const snapshot = await registry.query(
-        "snapshot",
-        request.instrument.id,
-        (provider, context) => provider.snapshot!(request.instrument, context),
-        signal
-      );
-      const history = await registry.query(
-        "history",
-        `${request.instrument.id}:${request.historyLimit ?? 120}`,
-        (provider, context) =>
-          provider.history!(
-            request.instrument,
-            { limit: request.historyLimit ?? 120 },
-            context
-          ),
-        signal
-      );
       const retrievedAt = now().toISOString();
-      const sources = [snapshot.source, history.source].filter(
-        (source) => source !== undefined
+      const requested = [
+        ...new Set(request.capabilities ?? DEFAULT_RESEARCH_CAPABILITIES),
+      ];
+      const needsHistory = requested.some(
+        (capability) =>
+          capability === "technical" ||
+          capability === "score" ||
+          capability === "strategy" ||
+          capability === "evaluator"
       );
-      const warnings = [...snapshot.warnings, ...history.warnings];
-      if (!snapshot.data && !history.data) {
-        return {
-          status: "unavailable",
-          instrument: request.instrument,
-          sources: [],
-          asOf: retrievedAt,
-          retrievedAt,
-          cached: false,
-          warnings,
-        };
-      }
-      const bars = history.data ?? [];
+      const remoteNeeded = [
+        ...new Set([
+          ...requested.filter((capability) =>
+            REMOTE_RESEARCH_CAPABILITIES.has(capability)
+          ),
+          ...(needsHistory ? ["history" as const] : []),
+        ]),
+      ];
+      const remoteEntries = await Promise.all(
+        remoteNeeded.map(async (capability) => {
+          const cacheKey =
+            capability === "history"
+              ? `${request.instrument.id}:${request.historyLimit ?? 120}`
+              : request.instrument.id;
+          const result = await registry.query(
+            capability,
+            cacheKey,
+            (provider, context) => {
+              switch (capability) {
+                case "snapshot":
+                  return provider.snapshot!(request.instrument, context);
+                case "history":
+                  return provider.history!(
+                    request.instrument,
+                    { limit: request.historyLimit ?? 120 },
+                    context
+                  );
+                case "profile":
+                  return provider.profile!(request.instrument, context);
+                case "financials":
+                  return provider.financials!(request.instrument, context);
+                case "shareholders":
+                  return provider.shareholders!(request.instrument, context);
+                case "dividend":
+                  return provider.dividend!(request.instrument, context);
+                case "moneyFlow":
+                  return provider.moneyFlow!(request.instrument, context);
+                case "news":
+                  return provider.news!(request.instrument, context);
+                case "notices":
+                  return provider.notices!(request.instrument, context);
+                case "etf":
+                  return provider.etf!(request.instrument, context);
+                default:
+                  throw new Error(`不支持的远程研究能力：${capability}`);
+              }
+            },
+            signal
+          );
+          return [capability, result] as const;
+        })
+      );
+      const remoteResults = new Map<
+        StockResearchCapability,
+        ProviderQueryResult<unknown>
+      >(remoteEntries);
+      const historyResult = remoteResults.get("history");
+      const bars = Array.isArray(historyResult?.data)
+        ? (historyResult.data as PriceBar[])
+        : [];
       const hasAnalysisSample = bars.length >= 20;
-      if (!hasAnalysisSample)
-        warnings.push("历史行情不足 20 根，技术指标、评分和 Evaluator 不可用");
+      const analysisWarnings = hasAnalysisSample
+        ? []
+        : ["历史行情不足 20 根，技术指标、评分和 Evaluator 不可用"];
+      const snapshotData = remoteResults.get("snapshot")?.data as
+        StockSnapshot | null | undefined;
       const analysis = hasAnalysisSample
-        ? evaluateResearch(snapshot.data ?? undefined, bars)
+        ? evaluateResearch(snapshotData ?? undefined, bars)
         : { technical: null, score: null, evaluator: null };
+      const strategy = hasAnalysisSample
+        ? {
+            algorithm: "calen.trend-context@1.0.0",
+            bias: analysis.technical?.trend ?? "neutral",
+            action: "research-only",
+            disclaimer: "仅描述历史数据特征，不构成买卖建议。",
+          }
+        : null;
+      const capabilities: Record<
+        string,
+        {
+          status: "ok" | "partial" | "unavailable";
+          data: unknown;
+          warnings: string[];
+        }
+      > = {};
+      const warnings: string[] = [];
+      const sources: EvidenceSource[] = [];
+      for (const capability of requested) {
+        if (
+          capability === "technical" ||
+          capability === "score" ||
+          capability === "strategy" ||
+          capability === "evaluator"
+        ) {
+          const data =
+            capability === "technical"
+              ? analysis.technical
+              : capability === "score"
+                ? analysis.score
+                : capability === "evaluator"
+                  ? analysis.evaluator
+                  : strategy;
+          const sectionWarnings =
+            data === null
+              ? [...analysisWarnings]
+              : (historyResult?.warnings ?? []).map(
+                  (warning) => `历史行情证据：${warning}`
+                );
+          capabilities[capability] = {
+            status:
+              data === null
+                ? "unavailable"
+                : sectionWarnings.length
+                  ? "partial"
+                  : "ok",
+            data,
+            warnings: sectionWarnings,
+          };
+          warnings.push(
+            ...sectionWarnings.map((warning) => `${capability}: ${warning}`)
+          );
+          continue;
+        }
+        const result = remoteResults.get(capability);
+        const sectionWarnings = (result?.warnings ?? []).map(
+          (warning) => `${capability}: ${warning}`
+        );
+        const sectionStatus =
+          result?.data == null
+            ? "unavailable"
+            : sectionWarnings.length
+              ? "partial"
+              : "ok";
+        capabilities[capability] = {
+          status: sectionStatus,
+          data: result?.data ?? null,
+          warnings: sectionWarnings,
+        };
+        warnings.push(...sectionWarnings);
+        if (result?.source) sources.push(result.source);
+      }
+      for (const capability of remoteNeeded) {
+        const result = remoteResults.get(capability);
+        if (result?.source) sources.push(result.source);
+        if (!requested.includes(capability)) {
+          warnings.push(
+            ...(result?.warnings.map(
+              (warning) => `${capability}(supporting): ${warning}`
+            ) ?? [])
+          );
+        }
+      }
+      const requestedStatuses = requested.map(
+        (capability) => capabilities[capability]!.status
+      );
+      const status = requestedStatuses.every((value) => value === "ok")
+        ? "ok"
+        : requestedStatuses.every((value) => value === "unavailable")
+          ? "unavailable"
+          : "partial";
+      const uniqueSources = sources.filter(
+        (source, index, all) =>
+          all.findIndex(
+            (candidate) =>
+              candidate.provider === source.provider &&
+              candidate.capability === source.capability
+          ) === index
+      );
       return {
-        status: snapshot.data && history.data ? "complete" : "partial",
+        status,
         instrument: request.instrument,
         data: {
-          facts: { snapshot: snapshot.data ?? null, historyBars: bars.length },
+          requestedCapabilities: requested,
+          capabilities,
+          facts: { snapshot: snapshotData ?? null, historyBars: bars.length },
           ...analysis,
+          strategy,
           analysisMetadata: {
             sample: {
               start: bars[0]?.time ?? null,
@@ -175,14 +431,16 @@ export function createStockResearchService(
             limitations: ["实验性量化研究结果，不构成投资建议。"],
           },
         },
-        sources,
+        sources: uniqueSources,
         asOf:
-          sources
+          uniqueSources
             .map((source) => source.asOf)
             .sort()
             .at(-1) ?? retrievedAt,
         retrievedAt,
-        cached: sources.length > 0 && sources.every((source) => source.cached),
+        cached:
+          uniqueSources.length > 0 &&
+          uniqueSources.every((source) => source.cached),
         warnings,
       };
     },
@@ -207,7 +465,7 @@ export function createStockResearchService(
           warnings: result.warnings,
         };
       return {
-        status: "complete",
+        status: result.warnings.length ? "partial" : "ok",
         data: result.data,
         sources: [result.source],
         asOf: result.source.asOf,
@@ -248,13 +506,20 @@ export function createStockResearchService(
       return result;
     },
     async status(): Promise<StockServiceStatus> {
-      const providerStatus = registry.status();
+      const runtimeStatus = registry.status();
+      const runtimeIds = new Set(runtimeStatus.map((provider) => provider.id));
+      const providerStatus = [
+        ...runtimeStatus,
+        ...providerCatalog.filter((provider) => !runtimeIds.has(provider.id)),
+      ];
       const available = providerStatus.filter(
         (provider) => provider.available
       ).length;
       return {
         state:
-          available === providerStatus.length
+          available > 0 &&
+          available ===
+            providerStatus.filter((provider) => provider.enabled).length
             ? "ready"
             : available > 0
               ? "degraded"

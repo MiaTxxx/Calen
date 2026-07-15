@@ -16,6 +16,7 @@ export type StockCapability =
   | "technical"
   | "score"
   | "strategy"
+  | "evaluator"
   | "backtest"
   | "market_topic";
 

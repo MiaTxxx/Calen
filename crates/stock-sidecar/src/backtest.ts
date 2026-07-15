@@ -159,7 +159,7 @@ export function runBacktest(
   const finalEquity = cash + quantity * last.close;
   const retrievedAt = now;
   return {
-    status: "complete",
+    status: "ok",
     sources: [
       {
         id: "calen-backtest",

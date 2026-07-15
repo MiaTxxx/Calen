@@ -2,7 +2,10 @@ export { createStockResearchService } from "./service.ts";
 export { makeInstrument, normalizeInstrument } from "./instruments.ts";
 export { ProviderError, ProviderRegistry } from "./providers/registry.ts";
 export { createDefaultProviders } from "./providers/defaults.ts";
-export { createTencentProvider } from "./providers/tencent.ts";
+export {
+  createTencentBasicProfileProvider,
+  createTencentProvider,
+} from "./providers/tencent.ts";
 export { createEastmoneyProvider } from "./providers/eastmoney.ts";
 export {
   analyzeTechnicals,
@@ -12,4 +15,8 @@ export {
 } from "./analytics.ts";
 export { runBacktest } from "./backtest.ts";
 export { dispatchJsonRpc, runJsonRpcStdio } from "./json-rpc.ts";
+export {
+  createStockResearchServiceFromEnvironment,
+  loadStockRuntimeConfig,
+} from "./config.ts";
 export type * from "./types.ts";

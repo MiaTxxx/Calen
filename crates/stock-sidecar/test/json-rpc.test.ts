@@ -82,6 +82,41 @@ test("JSON-RPC rejects invalid method params with -32602", async () => {
         method: "marketBrief",
         params: { market: "CRYPTO", limit: 0 },
       }),
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 12,
+        method: "research",
+        params: {
+          instrument: {
+            id: "CN:600519",
+            symbol: "600519",
+            name: "贵州茅台",
+            market: "CN",
+            exchange: "SSE",
+            assetType: "stock",
+            currency: "CNY",
+          },
+          capabilities: ["resolve", "madeUp"],
+        },
+      }),
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 13,
+        method: "snapshot",
+        params: {
+          instrument: {
+            id: "CN:600519",
+            symbol: "600519",
+            name: "贵州茅台",
+            market: "CN",
+            exchange: "SSE",
+            assetType: "stock",
+            currency: "CNY",
+          },
+          includeHistory: true,
+          historyLimit: 1000,
+        },
+      }),
     ].join("\n")
   );
   await completed;
@@ -92,7 +127,7 @@ test("JSON-RPC rejects invalid method params with -32602", async () => {
     .map((line) => JSON.parse(line));
   assert.deepEqual(
     responses.map((response) => response.error.code),
-    [-32602, -32602, -32602]
+    [-32602, -32602, -32602, -32602, -32602]
   );
   assert.ok(
     responses.every((response) => /Invalid params/.test(response.error.message))

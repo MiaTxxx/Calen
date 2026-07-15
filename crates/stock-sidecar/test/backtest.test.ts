@@ -26,7 +26,7 @@ test("backtest executes a close-derived signal only at the next bar open", async
     strategy: { shortWindow: 2, longWindow: 3 },
   });
 
-  assert.equal(result.status, "complete");
+  assert.equal(result.status, "ok");
   assert.equal(result.trades[0]?.side, "buy");
   assert.equal(result.trades[0]?.signalTime, "2026-07-04");
   assert.equal(result.trades[0]?.executionTime, "2026-07-05");

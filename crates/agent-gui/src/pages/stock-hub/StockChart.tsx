@@ -1,37 +1,121 @@
+import {
+  type CandlestickData,
+  CandlestickSeries,
+  ColorType,
+  createChart,
+  type Time,
+} from "lightweight-charts";
+import { useEffect, useMemo, useRef } from "react";
+
 import { cn } from "../../lib/shared/utils";
 import { buildSparklinePath } from "../../lib/stock-research";
 
-export function StockChart(props: {
-  values: readonly number[];
-  height?: number;
-  positive?: boolean;
+export type StockChartBar = {
+  time: string;
+  open?: number;
+  high?: number;
+  low?: number;
+  close: number;
+};
+
+function candleData(bars: readonly StockChartBar[]): CandlestickData<Time>[] {
+  return bars.flatMap((bar) => {
+    if (
+      !bar.time ||
+      bar.open === undefined ||
+      bar.high === undefined ||
+      bar.low === undefined ||
+      ![bar.open, bar.high, bar.low, bar.close].every(Number.isFinite)
+    ) {
+      return [];
+    }
+    return [
+      {
+        time: bar.time as Time,
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+      },
+    ];
+  });
+}
+
+function CandlestickChart(props: {
+  data: readonly CandlestickData<Time>[];
+  height: number;
   className?: string;
-  label?: string;
+  label: string;
 }) {
-  const {
-    values,
-    height = 180,
-    positive = true,
-    className,
-    label = "价格走势",
-  } = props;
+  const { data, height, className, label } = props;
+  const hostRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const styles = getComputedStyle(document.documentElement);
+    const foreground =
+      styles.getPropertyValue("--foreground").trim() || "#71717a";
+    const border = styles.getPropertyValue("--border").trim() || "#d4d4d8";
+    const chart = createChart(host, {
+      width: Math.max(host.clientWidth, 1),
+      height,
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: foreground,
+        attributionLogo: false,
+      },
+      grid: {
+        vertLines: { color: border },
+        horzLines: { color: border },
+      },
+      rightPriceScale: { borderColor: border },
+      timeScale: { borderColor: border, timeVisible: false },
+      localization: { locale: "zh-CN" },
+    });
+    const series = chart.addSeries(CandlestickSeries, {
+      upColor: "#dc2626",
+      downColor: "#059669",
+      borderUpColor: "#dc2626",
+      borderDownColor: "#059669",
+      wickUpColor: "#dc2626",
+      wickDownColor: "#059669",
+    });
+    series.setData([...data]);
+    chart.timeScale().fitContent();
+    const resize = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width && Number.isFinite(width))
+        chart.applyOptions({ width, height });
+    });
+    resize.observe(host);
+    return () => {
+      resize.disconnect();
+      chart.remove();
+    };
+  }, [data, height]);
+
+  return (
+    <div
+      ref={hostRef}
+      role="img"
+      aria-label={label}
+      className={cn("w-full overflow-hidden rounded-xl", className)}
+      style={{ height }}
+    />
+  );
+}
+
+function SparklineChart(props: {
+  values: readonly number[];
+  height: number;
+  positive: boolean;
+  className?: string;
+  label: string;
+}) {
+  const { values, height, positive, className, label } = props;
   const width = 720;
   const path = buildSparklinePath(values, width, height - 24);
-
-  if (!path) {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center rounded-xl border border-dashed border-border/50 text-xs text-muted-foreground",
-          className
-        )}
-        style={{ height }}
-      >
-        暂无可绘制的行情数据
-      </div>
-    );
-  }
-
   const color = positive ? "hsl(0 68% 52%)" : "hsl(155 56% 38%)";
   return (
     <svg
@@ -73,5 +157,60 @@ export function StockChart(props: {
         strokeLinecap="round"
       />
     </svg>
+  );
+}
+
+export function StockChart(props: {
+  values?: readonly number[];
+  bars?: readonly StockChartBar[];
+  height?: number;
+  positive?: boolean;
+  className?: string;
+  label?: string;
+}) {
+  const {
+    values = [],
+    bars = [],
+    height = 180,
+    positive = true,
+    className,
+    label = "价格走势",
+  } = props;
+  const candles = useMemo(() => candleData(bars), [bars]);
+
+  if (candles.length) {
+    return (
+      <CandlestickChart
+        data={candles}
+        height={height}
+        className={className}
+        label={label}
+      />
+    );
+  }
+
+  const path = buildSparklinePath(values, 720, height - 24);
+  if (!path) {
+    return (
+      <div
+        className={cn(
+          "flex items-center justify-center rounded-xl border border-dashed border-border/50 text-xs text-muted-foreground",
+          className
+        )}
+        style={{ height }}
+      >
+        暂无可绘制的行情数据
+      </div>
+    );
+  }
+
+  return (
+    <SparklineChart
+      values={values}
+      height={height}
+      positive={positive}
+      className={className}
+      label={label}
+    />
   );
 }

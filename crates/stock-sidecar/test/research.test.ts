@@ -81,7 +81,7 @@ test("research combines facts with versioned technical score and evaluator outpu
     evaluator: { rating: string };
   };
 
-  assert.equal(result.status, "complete");
+  assert.equal(result.status, "ok");
   assert.equal(data.technical.rsi14, 100);
   assert.equal(data.technical.trend, "bullish");
   assert.equal(data.score.algorithm, "calen.technical-score@1.0.0");
@@ -91,4 +91,72 @@ test("research combines facts with versioned technical score and evaluator outpu
     result.sources.map((source) => source.capability),
     ["snapshot", "history"]
   );
+});
+
+test("research marks every requested but unavailable capability as partial", async () => {
+  const provider: StockProvider = {
+    id: "core-only",
+    priority: 1,
+    capabilities: ["snapshot", "history"],
+    async snapshot(ref) {
+      return {
+        data: { instrument: ref, price: 129, marketTime: "2026-07-15" },
+        asOf: "2026-07-15",
+      };
+    },
+    async history() {
+      return { data: bars, asOf: "2026-07-15" };
+    },
+  };
+  const service = createStockResearchService({ providers: [provider] });
+  const result = await service.research({
+    instrument,
+    historyLimit: 30,
+    capabilities: [
+      "snapshot",
+      "history",
+      "financials",
+      "notices",
+      "technical",
+      "score",
+    ],
+  });
+  const data = result.data as {
+    capabilities: Record<string, { status: string; data: unknown }>;
+  };
+
+  assert.equal(result.status, "partial");
+  assert.equal(data.capabilities.snapshot!.status, "ok");
+  assert.equal(data.capabilities.history!.status, "ok");
+  assert.equal(data.capabilities.technical!.status, "ok");
+  assert.equal(data.capabilities.score!.status, "ok");
+  assert.equal(data.capabilities.financials!.status, "unavailable");
+  assert.equal(data.capabilities.notices!.status, "unavailable");
+  assert.equal(data.capabilities.financials!.data, null);
+  assert.match(
+    result.warnings.join("\n"),
+    /financials.*没有可用 Provider|notices.*没有可用 Provider/
+  );
+});
+
+test("local analytics include their implicit history evidence source", async () => {
+  const provider: StockProvider = {
+    id: "history-evidence",
+    priority: 1,
+    capabilities: ["history"],
+    async history() {
+      return { data: bars, asOf: "2026-07-15" };
+    },
+  };
+  const service = createStockResearchService({ providers: [provider] });
+  const result = await service.research({
+    instrument,
+    capabilities: ["technical", "score", "strategy", "evaluator"],
+  });
+  assert.equal(result.status, "ok");
+  assert.deepEqual(
+    result.sources.map((source) => source.capability),
+    ["history"]
+  );
+  assert.equal(result.cached, false);
 });

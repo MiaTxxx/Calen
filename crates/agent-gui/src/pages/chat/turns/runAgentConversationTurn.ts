@@ -37,6 +37,7 @@ import {
   upsertHostedSearchToRound,
   upsertToolCallToRound,
 } from "../../../lib/chat/messages/uiMessages";
+import { getUserMessageDisplayText } from "../../../lib/chat/messages/uploadedFiles";
 import { runAssistantWithTools } from "../../../lib/chat/runner/agentRunner";
 import type { StreamDebugLogger } from "../../../lib/debug/agentDebug";
 import { assistantMessageToText } from "../../../lib/providers/llm";
@@ -65,6 +66,7 @@ import type { BuiltinToolExecutionContext } from "../../../lib/tools/builtinType
 import { createFileToolState } from "../../../lib/tools/fileToolState";
 import type { SkillAccessPolicy } from "../../../lib/tools/skillAccessPolicy";
 import type { SshManagerSessionChange } from "../../../lib/tools/sshManagerTools";
+import { isExplicitStockPortfolioRequest } from "../../../lib/tools/stockPortfolioAuthorization";
 import { getOrCreateTodoToolState } from "../../../lib/tools/todoTools";
 import type { TunnelManagerChange } from "../../../lib/tools/tunnelManagerTools";
 import {
@@ -96,7 +98,8 @@ const AGENT_PERF_LOG_THRESHOLD_MS = 250;
 const TOOL_CALL_DELTA_RAF_FALLBACK_DELAY_MS = 64;
 
 function perfNowMs() {
-  return typeof performance !== "undefined" && typeof performance.now === "function"
+  return typeof performance !== "undefined" &&
+    typeof performance.now === "function"
     ? performance.now()
     : Date.now();
 }
@@ -130,7 +133,7 @@ export function scheduleToolCallDeltaFlush(callback: () => void) {
   if (typeof globalThis.setTimeout === "function") {
     timeoutId = globalThis.setTimeout(
       run,
-      canUseAnimationFrame ? TOOL_CALL_DELTA_RAF_FALLBACK_DELAY_MS : 0,
+      canUseAnimationFrame ? TOOL_CALL_DELTA_RAF_FALLBACK_DELAY_MS : 0
     );
   } else if (!canUseAnimationFrame && typeof queueMicrotask === "function") {
     queueMicrotask(run);
@@ -155,7 +158,7 @@ function finishAgentPerfSpan(
   span: string,
   startedAt: number,
   fields: Record<string, unknown> = {},
-  thresholdMs = AGENT_PERF_LOG_THRESHOLD_MS,
+  thresholdMs = AGENT_PERF_LOG_THRESHOLD_MS
 ) {
   const durationMs = Math.round(perfNowMs() - startedAt);
   const payload = {
@@ -174,11 +177,16 @@ function finishAgentPerfSpan(
 }
 
 function isSubagentCardToolCall(toolCall: ToolCall) {
-  return toolCall.name === AGENT_TOOL_NAME && isSubagentCardArguments(toolCall.arguments);
+  return (
+    toolCall.name === AGENT_TOOL_NAME &&
+    isSubagentCardArguments(toolCall.arguments)
+  );
 }
 
 // Only enabled, non-empty templates are resolvable from Agent calls.
-function enabledSubagentTemplates(agentTemplates: AppSettings["agents"]): SubagentTemplate[] {
+function enabledSubagentTemplates(
+  agentTemplates: AppSettings["agents"]
+): SubagentTemplate[] {
   return (agentTemplates ?? [])
     .filter((template) => template.enabled && template.prompt.trim())
     .map((template) => ({
@@ -192,7 +200,10 @@ function enabledSubagentTemplates(agentTemplates: AppSettings["agents"]): Subage
 // The parent Agent call is suppressed in favor of the per-agent cards; a
 // rejected batch (error result) stays visible so validation failures are
 // never silent.
-function shouldShowToolEvent(toolCall: ToolCall, toolResult?: ToolResultMessage) {
+function shouldShowToolEvent(
+  toolCall: ToolCall,
+  toolResult?: ToolResultMessage
+) {
   if (toolCall.name !== AGENT_TOOL_NAME) return true;
   if (isSubagentCardToolCall(toolCall)) return true;
   return toolResult?.isError === true;
@@ -244,32 +255,39 @@ export type RunAgentConversationTurnParams = {
   buildPreparedContext: (
     state: ConversationViewState,
     tools?: Context["tools"],
-    options?: { includeAbortedMessages?: boolean; includeUploadedFilesMetadata?: boolean },
+    options?: {
+      includeAbortedMessages?: boolean;
+      includeUploadedFilesMetadata?: boolean;
+    }
   ) => Context;
   compaction: CompactionController;
   cancellation: TurnCancellation;
   resetLiveTranscript: (store: LiveTranscriptStore) => void;
   updateLiveRounds: (
     updater: (prev: LiveRound[]) => LiveRound[],
-    store: LiveTranscriptStore,
+    store: LiveTranscriptStore
   ) => void;
   batchLiveRoundsUpdate: (
     updater: (prev: LiveRound[]) => LiveRound[],
-    store: LiveTranscriptStore,
+    store: LiveTranscriptStore
   ) => void;
   updateToolStatus: (status: string | null, store: LiveTranscriptStore) => void;
   commitVisibleAbortedConversation: () => boolean;
   updateConversationRuntimeEntry: (
     conversationId: string,
-    updater: (prev: ConversationRuntimeEntry) => ConversationRuntimeEntry,
+    updater: (prev: ConversationRuntimeEntry) => ConversationRuntimeEntry
   ) => ConversationRuntimeEntry;
-  persistConversationWithHistorySync: (params: PersistConversationParams) => Promise<boolean>;
+  persistConversationWithHistorySync: (
+    params: PersistConversationParams
+  ) => Promise<boolean>;
   memoryExtractionModel?: MemoryExtractionModelConfig;
   onMemoryExtractionModelFailure?: (model: MemoryExtractionModelConfig) => void;
   memoryExtractionStatusText?: MemoryExtractionStatusText;
 };
 
-export async function runAgentConversationTurn(params: RunAgentConversationTurnParams) {
+export async function runAgentConversationTurn(
+  params: RunAgentConversationTurnParams
+) {
   const {
     providerId,
     model,
@@ -322,7 +340,9 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
   } = params;
 
   if (!effectiveWorkdir) {
-    throw new Error("Tool mode requires a project directory from the chat sidebar.");
+    throw new Error(
+      "Tool mode requires a project directory from the chat sidebar."
+    );
   }
 
   // Reset per-turn dedup state so <already-written-this-turn> reflects only
@@ -364,7 +384,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     {
       conversationId,
       identityCount: subagentStore?.listIdentities().length ?? 0,
-    },
+    }
   );
   const refreshParentMessageBusSnapshot = async () => {
     parentMessageBusSnapshot = await loadParentBusSnapshot();
@@ -389,6 +409,33 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
   const todoState = getOrCreateTodoToolState(conversationId);
   const subagentScheduler = createSubagentScheduler();
   const runtimePlatform = await resolveRuntimePlatform();
+  const currentConversationState = getNextConversationState();
+  const activeSegment =
+    currentConversationState.segments[
+      currentConversationState.activeSegmentIndex
+    ] ??
+    currentConversationState.segments[
+      currentConversationState.segments.length - 1
+    ];
+  let latestUserMessage: Message | undefined;
+  for (
+    let index = (activeSegment?.messages.length ?? 0) - 1;
+    index >= 0;
+    index -= 1
+  ) {
+    const message = activeSegment?.messages[index];
+    if (message?.role === "user") {
+      latestUserMessage = message;
+      break;
+    }
+  }
+  const portfolioReadAuthorized = latestUserMessage
+    ? isExplicitStockPortfolioRequest(
+        getUserMessageDisplayText(
+          latestUserMessage as Message & Record<string, unknown>
+        )
+      )
+    : false;
   const buildRegistryStartedAt = perfNowMs();
   const builtinRegistry = await buildBuiltinToolRegistry({
     workdir: effectiveWorkdir,
@@ -413,6 +460,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     sshManagerRemoteAllowed,
     onSshSessionsChanged,
     onTunnelsChanged,
+    portfolioReadAuthorized,
     onMcpLoadError: (message) => {
       const warning = `MCP 工具加载失败，已跳过并继续对话：${message || "未知错误"}`;
       console.warn(warning);
@@ -430,10 +478,15 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
         }
       : undefined,
   });
-  finishAgentPerfSpan(conversationDebugLogger, "builtin_registry.build", buildRegistryStartedAt, {
-    toolCount: builtinRegistry.tools.length,
-    enabledMcpServerCount: selectEnabledMcpServers(getMcpSettings()).length,
-  });
+  finishAgentPerfSpan(
+    conversationDebugLogger,
+    "builtin_registry.build",
+    buildRegistryStartedAt,
+    {
+      toolCount: builtinRegistry.tools.length,
+      enabledMcpServerCount: selectEnabledMcpServers(getMcpSettings()).length,
+    }
+  );
   const combinedTools = builtinRegistry.tools;
 
   const preCompactionStartedAt = perfNowMs();
@@ -441,7 +494,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     budgetContext: withSubagentRuntimeContext(
       buildPreparedContext(getNextConversationState(), combinedTools, {
         includeUploadedFilesMetadata: true,
-      }),
+      })
     ),
     tools: combinedTools,
     includeUploadedFilesMetadata: true,
@@ -452,13 +505,13 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     preCompactionStartedAt,
     {
       toolCount: combinedTools.length,
-    },
+    }
   );
 
   const combinedExecutor: (
     toolCall: ToolCall,
     signal?: AbortSignal,
-    context?: BuiltinToolExecutionContext,
+    context?: BuiltinToolExecutionContext
   ) => Promise<Message> = (tc, signal, context) =>
     builtinRegistry.executeToolCall(tc, signal, context);
 
@@ -476,7 +529,10 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     current: null,
   };
 
-  function commitAssistantRoundMeta(assistant: AssistantMessage, round: number) {
+  function commitAssistantRoundMeta(
+    assistant: AssistantMessage,
+    round: number
+  ) {
     gatewayBridgeEvents.queueToken("", {
       round,
       provider: assistant.provider,
@@ -498,7 +554,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
             usageTotalTokens: assistant.usage?.totalTokens,
           },
         })),
-      transcriptStore,
+      transcriptStore
     );
   }
 
@@ -528,12 +584,15 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
             },
           ];
       return updateLiveRound(withRound, round, (target) =>
-        upsertHostedSearchToRound(collapseThinking(target), hostedSearch),
+        upsertHostedSearchToRound(collapseThinking(target), hostedSearch)
       );
     }, transcriptStore);
   }
 
-  const pendingToolCallDeltas = new Map<string, { round: number; toolCall: ToolCall }>();
+  const pendingToolCallDeltas = new Map<
+    string,
+    { round: number; toolCall: ToolCall }
+  >();
   let cancelPendingToolCallDeltaFlush: (() => void) | null = null;
 
   function toolCallDeltaKey(round: number, toolCallId: string) {
@@ -563,7 +622,10 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
       let next = prev;
       for (const { round, toolCall } of deltas) {
         next = updateLiveRound(next, round, (target) => {
-          const withToolCall = upsertToolCallToRound(collapseThinking(target), toolCall);
+          const withToolCall = upsertToolCallToRound(
+            collapseThinking(target),
+            toolCall
+          );
           return markToolCallRunningInRound(withToolCall, toolCall);
         });
       }
@@ -573,12 +635,17 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
 
   function schedulePendingToolCallDeltaFlush() {
     if (cancelPendingToolCallDeltaFlush !== null) return;
-    cancelPendingToolCallDeltaFlush = scheduleToolCallDeltaFlush(flushPendingToolCallDeltas);
+    cancelPendingToolCallDeltaFlush = scheduleToolCallDeltaFlush(
+      flushPendingToolCallDeltas
+    );
   }
 
   function queueToolCallDelta(toolCall: ToolCall, round: number) {
     if (!shouldShowToolEvent(toolCall)) return;
-    pendingToolCallDeltas.set(toolCallDeltaKey(round, toolCall.id), { round, toolCall });
+    pendingToolCallDeltas.set(toolCallDeltaKey(round, toolCall.id), {
+      round,
+      toolCall,
+    });
     schedulePendingToolCallDeltaFlush();
   }
 
@@ -601,7 +668,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
       pendingAgentContext ??
         buildPreparedContext(getNextConversationState(), combinedTools, {
           includeUploadedFilesMetadata: true,
-        }),
+        })
     );
     pendingAgentContext = null;
     // 主请求跑在派生 scope 上：mid-stream 压缩只 abort 该 scope，用户停止
@@ -640,7 +707,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
                 thinkingOpen: false,
               },
             ],
-            transcriptStore,
+            transcriptStore
           );
         },
         onTextDelta: (delta, round) => {
@@ -652,7 +719,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
                 const nextTarget = collapseThinking(target);
                 return appendTextDeltaToRound(nextTarget, delta);
               }),
-            transcriptStore,
+            transcriptStore
           );
 
           protectionCheckChars += delta.length;
@@ -667,7 +734,8 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
 
           protectionCheckChars = 0;
           // O(1) 账本判定，触发时才 abort 本地 scope 并在 catch 中构建压缩输入。
-          if (!compaction.shouldProtectMidStream(streamedAgentText.length)) return;
+          if (!compaction.shouldProtectMidStream(streamedAgentText.length))
+            return;
           midStreamCompactionRequested = true;
           scope.controller.abort();
         },
@@ -684,7 +752,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
                 ...appendThinkingDeltaToRound(target, delta),
                 thinkingOpen: true,
               })),
-            transcriptStore,
+            transcriptStore
           );
         },
         onHostedSearch: (hostedSearch, round) => {
@@ -706,10 +774,13 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
             (prev) =>
               updateLiveRound(prev, round, (target) => {
                 const nextTarget = collapseThinking(target);
-                const withToolCall = upsertToolCallToRound(nextTarget, toolCall);
+                const withToolCall = upsertToolCallToRound(
+                  nextTarget,
+                  toolCall
+                );
                 return markToolCallRunningInRound(withToolCall, toolCall);
               }),
-            transcriptStore,
+            transcriptStore
           );
         },
         onToolCallDelta: (toolCall, round) => {
@@ -734,10 +805,13 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
           batchLiveRoundsUpdate(
             (prev) =>
               updateLiveRound(prev, round, (target) => {
-                const withToolCall = upsertToolCallToRound(collapseThinking(target), toolCall);
+                const withToolCall = upsertToolCallToRound(
+                  collapseThinking(target),
+                  toolCall
+                );
                 return markToolCallRunningInRound(withToolCall, toolCall);
               }),
-            transcriptStore,
+            transcriptStore
           );
         },
         onToolResult: (toolCall, toolResult, round) => {
@@ -762,23 +836,27 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
             (prev) =>
               updateLiveRound(prev, round, (target) => {
                 const tr: ToolResultMessage = toolResult as ToolResultMessage;
-                const nextTarget = attachToolResultToRound(collapseThinking(target), toolCall, tr);
+                const nextTarget = attachToolResultToRound(
+                  collapseThinking(target),
+                  toolCall,
+                  tr
+                );
 
                 return {
                   ...nextTarget,
-                  runningToolCallIds: (nextTarget.runningToolCallIds || []).filter(
-                    (id) => id !== toolCall.id,
-                  ),
+                  runningToolCallIds: (
+                    nextTarget.runningToolCallIds || []
+                  ).filter((id) => id !== toolCall.id),
                 };
               }),
-            transcriptStore,
+            transcriptStore
           );
         },
         onAssistantMessage: (assistant, round) => {
           if (assistant.role !== "assistant") return;
           hookLifecycle.ensureMessageEnded();
           const toolCallCount = assistant.content.filter(
-            (block) => block.type === "toolCall",
+            (block) => block.type === "toolCall"
           ).length;
           hookLifecycle.assistantMessageCompleted(round, toolCallCount);
           if (toolCallCount === 0 && assistant.stopReason !== "toolUse") {
@@ -796,12 +874,12 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
           await refreshParentMessageBusSnapshot();
           const tempState = appendMessagesToConversation(
             getNextConversationState(),
-            emittedMessages,
+            emittedMessages
           );
           const tempContext = withSubagentRuntimeContext(
             buildPreparedContext(tempState, combinedTools, {
               includeUploadedFilesMetadata: true,
-            }),
+            })
           );
           const compactedContext = await compaction.compactDuringRun({
             trigger: "post-tool",
@@ -834,7 +912,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
         {
           emittedMessageCount: result.emittedMessages.length,
           messageCount: result.messages.length,
-        },
+        }
       );
     } catch (error) {
       if (!midStreamCompactionRequested) {
@@ -852,10 +930,13 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
         text: streamedAgentText,
         stopReason: "aborted",
       });
-      const tempState = appendMessagesToConversation(getNextConversationState(), [
-        ...latestAgentEmittedMessages,
-        ...(partialAssistant ? [partialAssistant] : []),
-      ]);
+      const tempState = appendMessagesToConversation(
+        getNextConversationState(),
+        [
+          ...latestAgentEmittedMessages,
+          ...(partialAssistant ? [partialAssistant] : []),
+        ]
+      );
       latestAgentEmittedMessages = [];
       applyConversationState(tempState);
 
@@ -866,7 +947,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
           buildPreparedContext(tempState, combinedTools, {
             includeAbortedMessages: true,
             includeUploadedFilesMetadata: true,
-          }),
+          })
         ),
         tools: combinedTools,
         includeAbortedMessages: true,
@@ -902,11 +983,14 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
 
   const finalState = appendMessagesToConversation(
     getNextConversationState(),
-    result.emittedMessages,
+    result.emittedMessages
   );
   let completedState = finalState;
   const gatewayAssistantText = assistantMessageToText(result.assistant);
-  if (!gatewayBridgeEvents.hasForwardedText() && gatewayAssistantText.length > 0) {
+  if (
+    !gatewayBridgeEvents.hasForwardedText() &&
+    gatewayAssistantText.length > 0
+  ) {
     gatewayBridgeEvents.queueToken(gatewayAssistantText, {
       round: activeAgentRound || 1,
     });
@@ -915,10 +999,12 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     assistantStopReason !== "error" && assistantStopReason !== "aborted";
   const memoryRoundOffset = Math.max(
     activeAgentRound || pendingTerminalAssistantMetaRef.current?.round || 1,
-    1,
+    1
   );
 
-  const runPostTurnMemoryExtraction = (visibleEvents?: MemoryExtractionVisibleEvents) => {
+  const runPostTurnMemoryExtraction = (
+    visibleEvents?: MemoryExtractionVisibleEvents
+  ) => {
     const currentMemoryExtractionModel: MemoryExtractionModelConfig = {
       providerId,
       model,
@@ -929,8 +1015,12 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     // next user turn cannot kill an in-flight extraction mid-write.
     return memoryExtraction.requestExtraction({
       primary: memoryExtractionModel ?? currentMemoryExtractionModel,
-      fallback: memoryExtractionModel ? currentMemoryExtractionModel : undefined,
-      onPrimaryFailure: memoryExtractionModel ? onMemoryExtractionModelFailure : undefined,
+      fallback: memoryExtractionModel
+        ? currentMemoryExtractionModel
+        : undefined,
+      onPrimaryFailure: memoryExtractionModel
+        ? onMemoryExtractionModelFailure
+        : undefined,
       sessionId,
       conversationId,
       workdir: conversationCwd ?? effectiveWorkdir,
@@ -956,7 +1046,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
               thinkingOpen: false,
             },
           ],
-          transcriptStore,
+          transcriptStore
         );
       },
       onTextDelta: (delta, round) => {
@@ -964,9 +1054,9 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
         batchLiveRoundsUpdate(
           (prev) =>
             updateLiveRound(prev, round, (target) =>
-              appendTextDeltaToRound(collapseThinking(target), delta),
+              appendTextDeltaToRound(collapseThinking(target), delta)
             ),
-          transcriptStore,
+          transcriptStore
         );
       },
       onThinkingDelta: (delta, round) => {
@@ -982,7 +1072,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
               ...appendThinkingDeltaToRound(target, delta),
               thinkingOpen: true,
             })),
-          transcriptStore,
+          transcriptStore
         );
       },
       onToolCall: (toolCall, round) => {
@@ -998,10 +1088,13 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
         batchLiveRoundsUpdate(
           (prev) =>
             updateLiveRound(prev, round, (target) => {
-              const withToolCall = upsertToolCallToRound(collapseThinking(target), toolCall);
+              const withToolCall = upsertToolCallToRound(
+                collapseThinking(target),
+                toolCall
+              );
               return markToolCallRunningInRound(withToolCall, toolCall);
             }),
-          transcriptStore,
+          transcriptStore
         );
       },
       onToolExecutionStart: (toolCall, round) => {
@@ -1017,10 +1110,13 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
         batchLiveRoundsUpdate(
           (prev) =>
             updateLiveRound(prev, round, (target) => {
-              const withToolCall = upsertToolCallToRound(collapseThinking(target), toolCall);
+              const withToolCall = upsertToolCallToRound(
+                collapseThinking(target),
+                toolCall
+              );
               return markToolCallRunningInRound(withToolCall, toolCall);
             }),
-          transcriptStore,
+          transcriptStore
         );
       },
       onToolResult: (toolCall, toolResult, round) => {
@@ -1042,17 +1138,17 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
               const nextTarget = attachToolResultToRound(
                 collapseThinking(target),
                 toolCall,
-                toolResult,
+                toolResult
               );
 
               return {
                 ...nextTarget,
-                runningToolCallIds: (nextTarget.runningToolCallIds || []).filter(
-                  (id) => id !== toolCall.id,
-                ),
+                runningToolCallIds: (
+                  nextTarget.runningToolCallIds || []
+                ).filter((id) => id !== toolCall.id),
               };
             }),
-          transcriptStore,
+          transcriptStore
         );
       },
       onAssistantMessage: commitAssistantRoundMeta,
@@ -1064,7 +1160,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     if (extraction.emittedMessages.length > 0) {
       completedState = appendRenderOnlyMessagesToConversation(
         finalState,
-        extraction.emittedMessages,
+        extraction.emittedMessages
       );
     }
   }
@@ -1072,7 +1168,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
   if (pendingTerminalAssistantMeta) {
     commitAssistantRoundMeta(
       pendingTerminalAssistantMeta.assistant,
-      pendingTerminalAssistantMeta.round,
+      pendingTerminalAssistantMeta.round
     );
   }
   hookLifecycle.endAgent();
