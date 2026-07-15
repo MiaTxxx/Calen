@@ -4,7 +4,9 @@ mod repository;
 mod types;
 
 use cipher::CalenBackupCipher;
-pub use repository::{BackupCipher, StockPortfolioRepository};
+#[cfg(test)]
+pub use repository::BackupCipher;
+pub use repository::StockPortfolioRepository;
 pub use types::*;
 
 async fn run_repository<T, F>(operation: &'static str, action: F) -> Result<T, String>

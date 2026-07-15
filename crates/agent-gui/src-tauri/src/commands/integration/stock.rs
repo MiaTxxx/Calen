@@ -157,37 +157,35 @@ impl StockResearchManager {
         let encoded = serde_json::to_vec(&envelope)
             .map_err(|error| RequestFailure::Transport(format!("序列化股票请求失败：{error}")))?;
 
-        let process = state
-            .process
-            .as_mut()
-            .ok_or_else(|| RequestFailure::Transport("股票 sidecar 未启动".to_string()))?;
-        if let Err(error) = process.stdin.write_all(&encoded).await {
-            let failure = RequestFailure::Transport(format!("写入股票 sidecar 失败：{error}"));
-            self.fail_running_process(&mut state, &failure).await;
-            return Err(failure);
-        }
-        if let Err(error) = process.stdin.write_all(b"\n").await {
-            let failure = RequestFailure::Transport(format!("写入股票请求分隔符失败：{error}"));
-            self.fail_running_process(&mut state, &failure).await;
-            return Err(failure);
-        }
-        if let Err(error) = process.stdin.flush().await {
-            let failure =
-                RequestFailure::Transport(format!("刷新股票 sidecar stdin 失败：{error}"));
-            self.fail_running_process(&mut state, &failure).await;
-            return Err(failure);
-        }
+        let outcome = {
+            let process = state
+                .process
+                .as_mut()
+                .ok_or_else(|| RequestFailure::Transport("股票 sidecar 未启动".to_string()))?;
+            async {
+                process.stdin.write_all(&encoded).await.map_err(|error| {
+                    RequestFailure::Transport(format!("写入股票 sidecar 失败：{error}"))
+                })?;
+                process.stdin.write_all(b"\n").await.map_err(|error| {
+                    RequestFailure::Transport(format!("写入股票请求分隔符失败：{error}"))
+                })?;
+                process.stdin.flush().await.map_err(|error| {
+                    RequestFailure::Transport(format!("刷新股票 sidecar stdin 失败：{error}"))
+                })?;
 
-        let read = read_matching_response(&mut process.stdout, request_id);
-        tokio::pin!(read);
-        let outcome = tokio::select! {
-            _ = &mut cancel_rx => Err(RequestFailure::Cancelled),
-            response = tokio::time::timeout(Duration::from_millis(timeout_ms), &mut read) => {
-                match response {
-                    Ok(result) => result,
-                    Err(_) => Err(RequestFailure::Timeout),
+                let read = read_matching_response(&mut process.stdout, request_id);
+                tokio::pin!(read);
+                tokio::select! {
+                    _ = &mut cancel_rx => Err(RequestFailure::Cancelled),
+                    response = tokio::time::timeout(Duration::from_millis(timeout_ms), &mut read) => {
+                        match response {
+                            Ok(result) => result,
+                            Err(_) => Err(RequestFailure::Timeout),
+                        }
+                    }
                 }
             }
+            .await
         };
 
         match outcome {
