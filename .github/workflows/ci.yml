@@ -240,8 +240,6 @@ jobs:
           pnpm --dir crates/stock-sidecar verify:bundle
 
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
 
       - name: Install protobuf compiler
         shell: pwsh
@@ -256,12 +254,12 @@ jobs:
       - name: Check Tauri backend on Windows
         env:
           CARGO_TERM_COLOR: always
-        run: cargo check --manifest-path crates/agent-gui/src-tauri/Cargo.toml --tests --target x86_64-pc-windows-msvc
+        run: cargo check --manifest-path crates/agent-gui/src-tauri/Cargo.toml --tests
 
       - name: Test stock lifecycle on Windows
         env:
           CARGO_TERM_COLOR: always
-        run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml stock::tests --lib --target x86_64-pc-windows-msvc
+        run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml stock::tests --lib
 
   mirror:
     name: GUI/WebUI Mirror Check
