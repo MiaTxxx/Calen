@@ -302,7 +302,7 @@ test("notices extract a real PDF attachment when the content API has no inline b
           `callback(${JSON.stringify({
             data: {
               notice_title: "PDF 公告",
-              notice_content: "",
+              notice_content: "公告内容详见附件",
               attach_url_web: "https://example.com/notice.pdf",
               attach_type: "pdf",
               page_size: 1,

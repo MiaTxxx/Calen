@@ -519,6 +519,12 @@ function extractNoticeHtmlContent(html: string): string | null {
   return null;
 }
 
+function noticeContentNeedsAttachment(content: string | null): boolean {
+  if (!content) return true;
+  if (content.length < 20) return true;
+  return /^(?:公告)?内容?详见附件[。.]?$/i.test(content.replace(/\s+/g, ""));
+}
+
 function parseJsonpRecord(raw: string): UnknownRecord {
   const trimmed = raw.trim();
   try {
@@ -679,11 +685,12 @@ export async function fetchEastmoneyNotices(
           title: detail.title ?? item.title,
           pdfUrl: detail.pdfUrl ?? null,
         };
-        if (detail.content) {
+        const inlineContent = detail.content;
+        if (!noticeContentNeedsAttachment(inlineContent)) {
           return {
             item: {
               ...detailedItem,
-              content: detail.content,
+              content: inlineContent,
               contentStatus: "content-api",
             },
             warnings: detail.warnings,
@@ -718,19 +725,36 @@ export async function fetchEastmoneyNotices(
             }
           } catch (pdfError) {
             return {
-              item: detailedItem,
+              item: inlineContent
+                ? {
+                    ...detailedItem,
+                    content: inlineContent,
+                    contentStatus: "content-api",
+                  }
+                : detailedItem,
               warnings: [
                 ...detail.warnings,
-                `公告内容接口未返回正文，PDF 提取失败：${pdfError instanceof Error ? pdfError.message : String(pdfError)}`,
+                ...(inlineContent
+                  ? ["公告内容接口仅返回过短或附件占位文本"]
+                  : []),
+                `${inlineContent ? "公告正文需附件补全" : "公告内容接口未返回正文"}，PDF 提取失败：${pdfError instanceof Error ? pdfError.message : String(pdfError)}`,
               ],
             };
           }
         }
         return {
-          item: detailedItem,
+          item: inlineContent
+            ? {
+                ...detailedItem,
+                content: inlineContent,
+                contentStatus: "content-api",
+              }
+            : detailedItem,
           warnings: [
             ...detail.warnings,
-            "公告内容接口未返回正文，且未提供可解析的 PDF 附件",
+            inlineContent
+              ? "公告内容接口仅返回过短或附件占位文本，且未提供可解析的 PDF 附件"
+              : "公告内容接口未返回正文，且未提供可解析的 PDF 附件",
           ],
         };
       } catch (contentError) {
