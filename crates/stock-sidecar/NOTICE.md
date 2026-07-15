@@ -9,4 +9,30 @@
 - 来源目录：`Opptrix-main/packages/a-stock-layer`、`Opptrix-main/packages/research-hub`、`Opptrix-main/packages/stock-eval`
 - 上游许可证：`Opptrix-main/LICENSE`
 
-当前文件清单中没有逐行复制的 Opptrix 源文件；Calen 适配实现是面向独立 JSON-RPC sidecar 的重新实现，没有引入 Opptrix 的 Electron、Fastify、React UI、DuckDB、better-sqlite3 或完整 ToolRegistry。若后续直接复制或修改 Opptrix 源文件，必须在本文件补充具体文件、上游提交号、版权声明和修改说明，并随分发物携带 Apache License 2.0 文本。
+Calen 没有逐文件照搬 Opptrix 的产品层；所有适配器均面向独立 JSON-RPC sidecar 和稳定 `StockProvider` 接口进行精简实现，没有引入 Opptrix 的 Electron、Fastify、React UI、DuckDB、better-sqlite3 或完整 ToolRegistry。BaoStock 与 Fuyao 文件明确使用了上游协议、端点和 DTO 归一化思路并进行了精简重写/修改，因此按 Apache-2.0 来源适配记录如下。分发包含这些适配实现时，必须同时保留本 NOTICE 和 `dist/licenses/opptrix-Apache-2.0.txt`。
+
+## Provider 适配来源与修改说明
+
+| Opptrix 来源                                                                                                       | Calen 文件                     | 使用与修改说明                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------ | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Opptrix-main/packages/a-stock-layer/src/providers/sinafinance`                                                    | `src/providers/sinafinance.ts` | 参考能力边界和公开页面入口，按 `StockProvider` 独立实现 GB18030/GBK 解码、搜索、快照与日 K；未复制上游 Handler 或 HTTP 客户端。                                                               |
+| `Opptrix-main/packages/a-stock-layer/src/providers/baostock/api`、`normalize/klines.ts`、`normalize/quotes.ts`     | `src/providers/baostock.ts`    | **精简重写/修改** BaoStock TCP wire、匿名登录、压缩日 K 响应和字段归一化；改为纯 Node `net`、`AbortSignal`、有界分页和 Calen 证据接口，仅保留快照与日 K。文件头保留了 adapted 来源说明。      |
+| `Opptrix-main/packages/a-stock-layer/src/providers/tushare`                                                        | `src/providers/tushare.ts`     | 参考 Tushare 请求和 A 股字段映射，精简为搜索、日线快照、日 K 与公司资料；凭据仅在请求体中使用，错误和状态不输出 Token。                                                                       |
+| `Opptrix-main/packages/a-stock-layer/src/providers/tickflow`                                                       | `src/providers/tickflow.ts`    | 参考 TickFlow OpenAPI 路径和紧凑 K 线结构，精简为 CN/HK/US 快照与日 K；API Key 仅进入请求头。                                                                                                 |
+| `Opptrix-main/packages/a-stock-layer/src/providers/zzshare`                                                        | `src/providers/zzshare.ts`     | 参考 ZZShare v3 接口和字段口径，精简为 A 股搜索、日线快照、日 K 与公司资料；支持服务定义的 `sdk-key: anonymous` 和可选用户 Key。                                                              |
+| `Opptrix-main/packages/a-stock-layer/src/providers/tonghuashun/api`、`normalize/index.ts`、`markets/cn/handler.ts` | `src/providers/fuyao.ts`       | **精简重写/修改** Fuyao 端点、`thscode`、快照和历史 DTO 映射；改为 Calen fetch Provider，仅保留 A 股搜索、快照与日 K，并新增 Key 脱敏、超时/取消和证据元数据。文件头保留了 adapted 来源说明。 |
+
+上述来源目录来自用户提供的本地 Opptrix 快照；该目录没有独立 Git 元数据，无法可靠列出上游提交号。若后续引入新的逐字复制或实质改编文件，必须继续补充“上游路径 → Calen 文件”、版权头和具体修改说明。
+
+新浪标的搜索使用 `suggest3.sinajs.cn`，快照使用 `hq.sinajs.cn`，日 K 使用 `CN_MarketData.getKLineData`。这些接口以及 BaoStock、Tushare、TickFlow、ZZShare 和 Fuyao 服务均受各自数据条款约束；开源代码许可证不构成数据访问、缓存、再分发或商业使用授权。六个可选 Provider 在独立条款审批完成前均默认禁用。
+
+## PDF 文本抽取
+
+公告 PDF 文本抽取使用以下随 sidecar bundle 分发的第三方软件：
+
+- unpdf 1.6.2，Copyright (c) 2023-PRESENT Johann Schopplich，MIT License，<https://github.com/unjs/unpdf>
+- PDF.js 5.6.205，Mozilla contributors，Apache License 2.0，<https://github.com/mozilla/pdf.js>
+
+unpdf 的发布产物内联了 PDF.js 5.6.205；Calen 再将该产物打入自包含的 `dist/stdio.mjs`，因此运行时不会加载独立的 `unpdf` 或 `pdfjs-dist` 包。完整许可证分别位于 `licenses/unpdf-MIT.txt` 与 `licenses/pdfjs-Apache-2.0.txt`，构建时会连同本 NOTICE 复制到 `dist/`。
+
+东方财富公告列表来自 `https://np-anotice-stock.eastmoney.com/api/security/ann`，正文与真实附件地址来自 `https://np-cnotice-stock.eastmoney.com/api/content/ann` 的 `notice_content` 与 `attach_url_web` 字段。单个附件限制为 25 MiB、200 页和 100000 个提取字符。旧式 CMap、扫描件、加密或损坏 PDF 可能只返回 `partial` 证据；Calen 会保留来源与警告，不补造正文。市场数据接口和公告内容仍受数据站点自身条款约束，开源软件许可证不构成数据授权。

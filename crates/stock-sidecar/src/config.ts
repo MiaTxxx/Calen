@@ -19,7 +19,7 @@ const KNOWN_PROVIDERS = [
   "fuyao",
 ] as const;
 
-const KEY_PROVIDERS = new Set(["zzshare", "tushare", "tickflow", "fuyao"]);
+const KEY_PROVIDERS = new Set(["tushare", "tickflow", "fuyao"]);
 
 type Environment = Record<string, string | undefined>;
 
@@ -64,9 +64,10 @@ export function loadStockRuntimeConfig(
   const settings = parseObject(env.CALEN_STOCK_SETTINGS);
   const keysPayload = parseObject(env.CALEN_STOCK_PROVIDER_KEYS);
   const providerKeys = Object.fromEntries(
-    Object.entries(keysPayload).filter(
-      (entry): entry is [string, string] =>
-        typeof entry[1] === "string" && entry[1].length > 0
+    Object.entries(keysPayload).flatMap(([id, value]) =>
+      typeof value === "string" && value.trim()
+        ? [[id, value.trim()] as const]
+        : []
     )
   );
   const enabled = settings.enabled !== false;
@@ -85,30 +86,36 @@ export function loadStockRuntimeConfig(
     }
   }
   const implemented = new Set<string>(IMPLEMENTED_PROVIDER_IDS);
+  const isRuntimeConfigured = (id: string) =>
+    implemented.has(id) &&
+    (!KEY_PROVIDERS.has(id) || Boolean(providerKeys[id]));
   const enabledProviderIds = enabled
     ? [...providerEnabled]
-        .filter(([id, isEnabled]) => isEnabled && implemented.has(id))
+        .filter(([id, isEnabled]) => isEnabled && isRuntimeConfigured(id))
         .map(([id]) => id)
     : [];
   const providerCatalog: ProviderStatus[] = KNOWN_PROVIDERS.flatMap(
     (id, index) => {
       const isEnabled = enabled && providerEnabled.get(id) === true;
-      if (isEnabled && implemented.has(id)) return [];
+      const runtimeConfigured = isRuntimeConfigured(id);
+      if (isEnabled && runtimeConfigured) return [];
       const implementedProvider = implemented.has(id);
       const status: ProviderStatus = {
         id,
         capabilities: [],
         priority: 900 + index,
-        state: isEnabled && !implementedProvider ? "unconfigured" : "disabled",
+        state: isEnabled && !runtimeConfigured ? "unconfigured" : "disabled",
         enabled: isEnabled,
-        configured:
-          implementedProvider ||
-          (KEY_PROVIDERS.has(id) && Boolean(providerKeys[id])),
+        configured: runtimeConfigured,
         available: false,
         consecutiveFailures: 0,
       };
-      if (isEnabled && !implementedProvider)
-        status.warnings = [`Provider ${id} 尚未实现，未注册到运行时`];
+      if (isEnabled && !runtimeConfigured)
+        status.warnings = [
+          implementedProvider && KEY_PROVIDERS.has(id)
+            ? `Provider ${id} 缺少 API Key，未注册到运行时`
+            : `Provider ${id} 尚未实现，未注册到运行时`,
+        ];
       else if (!isEnabled) status.warnings = [`Provider ${id} 已禁用`];
       return [status];
     }
@@ -133,7 +140,10 @@ export function createStockResearchServiceFromEnvironment(
   const config = loadStockRuntimeConfig(env);
   return createStockResearchService({
     ...overrides,
-    providers: createDefaultProviders(config.enabledProviderIds),
+    providers: createDefaultProviders(
+      config.enabledProviderIds,
+      config.providerKeys
+    ),
     providerCatalog: config.providerCatalog,
     timeoutMs: config.timeoutMs,
     cacheTtlMs: config.cacheTtlMs,

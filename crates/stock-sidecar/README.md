@@ -15,9 +15,30 @@ Calen 的只读股票研究 sidecar。运行时仅依赖 Node.js 24，不启动 
 - `backtest`：运行有界 SMA 交叉回测；信号在收盘形成，只在下一根 K 线开盘执行。
 - `status`：返回服务状态、Provider 能力、熔断和冷却信息。
 
-所有数据结果都包含 `status`、`sources`、`asOf`、`retrievedAt`、`cached` 和 `warnings`；`status` 仅为 `ok | partial | unavailable`。任一请求能力缺失时不会返回 `ok`，也不会生成缺失事实。公告会尝试抽取前 3 条 HTML 正文；未抽取成功的条目仅返回页面、派生 PDF URL 和标题摘要。PDF 文本抽取尚不可用并会显式警告。
+所有数据结果都包含 `status`、`sources`、`asOf`、`retrievedAt`、`cached` 和 `warnings`；`status` 仅为 `ok | partial | unavailable`。任一请求能力缺失时不会返回 `ok`，也不会生成缺失事实。
 
-启动时读取 `CALEN_STOCK_SETTINGS` 和 `CALEN_STOCK_PROVIDER_KEYS`。只有当前真实实现且启用的 Provider 会注册；新浪、BaoStock 和 Key Provider 在实现前只会显示为 `disabled/unconfigured`，Key 仅驻留内存且不会输出到状态或日志。
+## 公告正文与 PDF 边界
+
+东方财富公告先通过 `np-anotice-stock.eastmoney.com/api/security/ann` 获取列表，再通过 `np-cnotice-stock.eastmoney.com/api/content/ann` 按 `art_code` 和 `page_index` 获取 JSONP 正文。正文接口提供 `notice_content` 和真实附件字段 `attach_url_web`；sidecar 会合并分页正文，并仅使用该真实附件地址作为 PDF 回退，不再根据公告编号派生 PDF URL。为限制网络与解析开销，每次研究仅富化前 3 条公告，其余条目保留标题、时间和详情页。
+
+当正文接口没有可用文本时，sidecar 使用内联在 `unpdf@1.6.2` 中的 PDF.js 5.6.205 解析附件。单个 PDF 最大 25 MiB，最多解析 200 页并保留 100000 个字符；超过边界会截断或拒绝解析，并通过 `warnings` 和 `partial` 状态明确呈现。扫描件、加密文件、损坏文件以及依赖未随 bundle 分发的旧式 CMap 字体映射的 PDF 可能无法提取正文；此时保留公告列表、详情页和真实附件来源，不推测或补造缺失文本。
+
+## Provider 能力与启用条件
+
+启动时读取 `CALEN_STOCK_SETTINGS` 和 `CALEN_STOCK_PROVIDER_KEYS`。只有已经实现、被用户显式启用且满足凭据条件的 Provider 才会注册；状态使用 `disabled/unconfigured/ready` 区分禁用、缺少必要 Key 和可参与查询。当前工程能力如下：
+
+| Provider            | 当前能力                                                                       | 鉴权条件                                                       | 默认状态                                     |
+| ------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------- | -------------------------------------------- |
+| 腾讯行情            | CN/HK/US 快照与日 K；有限基础证券身份                                          | 无用户 Key                                                     | 开发默认启用；公开 Release 仍受合规门禁阻断  |
+| 东方财富            | 标的搜索、日 K、公司资料、财务、股东、分红、资金流、新闻、公告、ETF 与市场专题 | 无用户 Key；网页固定参数不是用户凭据                           | 开发默认启用；公开 Release 仍受合规门禁阻断  |
+| 新浪财经            | A 股标的搜索、快照、日 K                                                       | 无用户 Key                                                     | 默认禁用，需用户显式启用                     |
+| BaoStock            | 上交所/深交所 A 股日 K，以及由最近日 K 构造的延迟快照                          | 内置匿名 TCP 登录，无用户 Key                                  | 默认禁用，需用户显式启用                     |
+| Tushare             | A 股标的搜索、日线快照、日 K、公司资料                                         | 必须配置 Token                                                 | 默认禁用；启用但无 Token 时为 `unconfigured` |
+| TickFlow            | CN/HK/US 快照与日 K                                                            | 必须配置 API Key                                               | 默认禁用；启用但无 Key 时为 `unconfigured`   |
+| ZZShare             | A 股标的搜索、日线收盘快照、日 K、公司资料                                     | 未配置 Key 时使用服务定义的 `sdk-key: anonymous`；也可选填 Key | 默认禁用，需用户显式启用                     |
+| Fuyao（同花顺扶摇） | A 股标的搜索、快照、日 K                                                       | 必须配置 API Key，使用 `X-api-key` 与固定 Referer              | 默认禁用；启用但无 Key 时为 `unconfigured`   |
+
+Provider Key 只注入对应请求并驻留 sidecar 进程内存，不进入 URL、Provider 状态、日志或 Gateway。错误消息会避免回显配置的 Key。上述六个可选 Provider 虽已完成本地工程验证，但其服务条款、缓存、再分发、商业使用和地域限制尚未获得批准；实现存在不等于允许随公开安装包启用或传播数据。
 
 ## 开发
 
@@ -26,9 +47,12 @@ pnpm install
 pnpm test
 pnpm typecheck
 pnpm build
+pnpm verify:bundle
 node dist/stdio.mjs
 ```
 
-默认免费数据源为腾讯行情与东方财富，均不需要 API Key。东方财富接口属于网页内部公开接口、没有 SLA；Provider Registry 会执行超时、缓存、回退、健康熔断和阶梯冷却，缺失章节会降级呈现。
+`pnpm build` 生成自包含的 `dist/stdio.mjs`，并将 `NOTICE.md`、unpdf MIT、PDF.js Apache-2.0 与 Opptrix Apache-2.0 许可证复制到 `dist/`。运行时无需安装 npm 依赖；Windows 安装包仍需同时携带 Node.js 24 x64 运行时。
+
+默认免费数据源仍只有腾讯行情与东方财富。显式启用新浪后，sidecar 会以 GB18030/GBK 解码其公开搜索和行情响应；新浪日 K 会明确提示接口未单独标注复权口径。BaoStock 快照、Tushare 与 ZZShare 的日线快照均不是实时行情，会在结果中标注数据口径或延迟。所有 Provider 都通过同一 Registry 执行超时、缓存、回退和健康熔断；免费源的 403/429/5xx 还会触发阶梯冷却，缺失能力只会降级为 `partial/unavailable`。
 
 回测及评分均为实验性研究工具，不构成投资建议，也不提供交易或下单能力。

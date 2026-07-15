@@ -93,13 +93,27 @@ jobs:
         run: |
           pnpm --dir crates/stock-sidecar install --frozen-lockfile
           pnpm --dir crates/stock-sidecar build
+          pnpm --dir crates/stock-sidecar verify:bundle
           $resourceDir = "crates/agent-gui/src-tauri/resources/stock-sidecar"
           New-Item -ItemType Directory -Force "$resourceDir/dist" | Out-Null
           Copy-Item (Get-Command node).Source "$resourceDir/node.exe"
           Copy-Item "crates/stock-sidecar/dist/*" "$resourceDir/dist" -Recurse -Force
           Copy-Item "crates/stock-sidecar/package.json" "$resourceDir/package.json" -Force
-          if (-not (Test-Path "$resourceDir/dist/stdio.mjs")) {
-            throw "Stock sidecar entrypoint was not generated."
+          $requiredSidecarFiles = @(
+            "$resourceDir/node.exe",
+            "$resourceDir/dist/stdio.mjs",
+            "$resourceDir/dist/NOTICE.md",
+            "$resourceDir/dist/licenses/unpdf-MIT.txt",
+            "$resourceDir/dist/licenses/pdfjs-Apache-2.0.txt",
+            "$resourceDir/dist/licenses/opptrix-Apache-2.0.txt"
+          )
+          foreach ($requiredFile in $requiredSidecarFiles) {
+            if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
+              throw "Required stock sidecar resource was not generated: $requiredFile"
+            }
+          }
+          if (Test-Path -LiteralPath "$resourceDir/node_modules") {
+            throw "Stock sidecar resource must not contain node_modules."
           }
 
       - name: Validate updater signing configuration

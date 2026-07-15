@@ -1,4 +1,5 @@
 import { ProviderError } from "./registry.ts";
+import { extractPdfPlainText } from "../pdf-text.ts";
 import type {
   InstrumentRef,
   ProviderContext,
@@ -83,6 +84,33 @@ async function fetchText(
       status: response.status,
     });
   return response.text();
+}
+
+async function fetchPdf(
+  url: URL,
+  context: ProviderContext,
+  referer: string
+): Promise<Uint8Array> {
+  const init: RequestInit = {
+    headers: { Accept: "application/pdf", Referer: referer },
+  };
+  if (context.signal) init.signal = context.signal;
+  const response = await context.fetch(url, init);
+  if (!response.ok)
+    throw new ProviderError(`HTTP ${response.status}`, {
+      status: response.status,
+    });
+  const declaredSize = finite(response.headers.get("content-length"));
+  if (declaredSize !== undefined && declaredSize > 25 * 1024 * 1024) {
+    throw new ProviderError("公告 PDF 超过 25 MiB 解析上限");
+  }
+  const data = new Uint8Array(await response.arrayBuffer());
+  if (data.byteLength > 25 * 1024 * 1024)
+    throw new ProviderError("公告 PDF 超过 25 MiB 解析上限");
+  const signature = new TextDecoder("ascii").decode(data.slice(0, 8));
+  if (!signature.startsWith("%PDF-"))
+    throw new ProviderError("公告附件不是有效 PDF");
+  return data;
 }
 
 function firstRow(payload: UnknownRecord): UnknownRecord | undefined {
@@ -491,6 +519,112 @@ function extractNoticeHtmlContent(html: string): string | null {
   return null;
 }
 
+function parseJsonpRecord(raw: string): UnknownRecord {
+  const trimmed = raw.trim();
+  try {
+    const parsed = record(JSON.parse(trimmed));
+    if (parsed) return parsed;
+  } catch {
+    // Eastmoney's content endpoint normally wraps JSON in the requested callback.
+  }
+  const first = trimmed.indexOf("(");
+  const last = trimmed.lastIndexOf(")");
+  const parsed = record(
+    JSON.parse(
+      first >= 0 && last > first ? trimmed.slice(first + 1, last) : trimmed
+    )
+  );
+  if (!parsed) throw new ProviderError("东方财富公告内容接口返回无效 JSONP");
+  return parsed;
+}
+
+function normalizeNoticeAttachmentUrl(value: unknown): string | undefined {
+  const candidate = text(value);
+  if (!candidate) return undefined;
+  if (candidate.startsWith("//")) return `https:${candidate}`;
+  try {
+    const url = new URL(candidate, "https://pdf.dfcfw.com/");
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    url.protocol = "https:";
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+async function fetchEastmoneyNoticeContent(
+  artCode: string,
+  context: ProviderContext
+): Promise<{
+  title?: string;
+  content: string | null;
+  pdfUrl?: string;
+  warnings: string[];
+}> {
+  const fetchPage = async (pageIndex: number) => {
+    const url = new URL(
+      "https://np-cnotice-stock.eastmoney.com/api/content/ann"
+    );
+    url.searchParams.set("art_code", artCode);
+    url.searchParams.set("client_source", "web");
+    url.searchParams.set("page_index", String(pageIndex));
+    url.searchParams.set("cb", "callback");
+    const payload = parseJsonpRecord(
+      await fetchText(url, context, "https://data.eastmoney.com/notices/")
+    );
+    const data = record(payload.data) ?? record(payload.result);
+    if (!data) throw new ProviderError("东方财富公告内容接口缺少 data");
+    return data;
+  };
+
+  const firstPage = await fetchPage(1);
+  const pageCount = Math.max(
+    1,
+    Math.min(
+      20,
+      Math.floor(
+        finite(firstPage.page_size) ?? finite(firstPage.total_page) ?? 1
+      )
+    )
+  );
+  const pages: UnknownRecord[] = [firstPage];
+  const warnings: string[] = [];
+  for (let pageIndex = 2; pageIndex <= pageCount; pageIndex += 1) {
+    try {
+      pages.push(await fetchPage(pageIndex));
+    } catch (error) {
+      warnings.push(
+        `公告正文第 ${pageIndex}/${pageCount} 页获取失败：${error instanceof Error ? error.message : String(error)}`
+      );
+      break;
+    }
+  }
+  const content = pages
+    .map((page) => stripHtml(page.notice_content))
+    .filter((page): page is string => Boolean(page))
+    .join("\n\n")
+    .slice(0, 100_000);
+  const result: {
+    title?: string;
+    content: string | null;
+    pdfUrl?: string;
+    warnings: string[];
+  } = { content: content || null, warnings };
+  const title = text(firstPage.notice_title);
+  const attachments = Array.isArray(firstPage.attach_list)
+    ? firstPage.attach_list.map(record).filter(Boolean)
+    : [];
+  const preferredAttachment =
+    attachments.find((attachment) => text(attachment?.attach_type) === "0") ??
+    attachments[0];
+  const pdfUrl = normalizeNoticeAttachmentUrl(
+    firstPage.attach_url_web ?? preferredAttachment?.attach_url
+  );
+  if (title) result.title = title;
+  if (pdfUrl) result.pdfUrl = pdfUrl;
+  return result;
+}
+
 export async function fetchEastmoneyNotices(
   instrument: InstrumentRef,
   context: ProviderContext
@@ -527,45 +661,116 @@ export async function fetchEastmoneyNotices(
         publishedAt: text(row?.notice_date) ?? text(row?.display_time),
         url: pageUrl,
         pageUrl,
-        pdfUrl: `https://pdf.dfcfw.com/pdf/H2_${artCode}_1.pdf`,
+        pdfUrl: null,
         summary: title,
         content: null,
         contentStatus: "summary-only",
-        pdfUrlDerived: true,
+        pdfUrlDerived: false,
       },
     ];
   });
-  const enrichedItems = await Promise.all(
+  const enriched = await Promise.all(
     items.map(async (item, index) => {
-      if (index >= 3) return item;
+      if (index >= 3) return { item, warnings: [] as string[] };
       try {
-        const html = await fetchText(
-          new URL(item.pageUrl),
-          context,
-          "https://data.eastmoney.com/notices/"
-        );
-        const content = extractNoticeHtmlContent(html);
-        return content
-          ? { ...item, content, contentStatus: "html-extracted" }
-          : item;
-      } catch {
-        return item;
+        const detail = await fetchEastmoneyNoticeContent(item.id, context);
+        const detailedItem = {
+          ...item,
+          title: detail.title ?? item.title,
+          pdfUrl: detail.pdfUrl ?? null,
+        };
+        if (detail.content) {
+          return {
+            item: {
+              ...detailedItem,
+              content: detail.content,
+              contentStatus: "content-api",
+            },
+            warnings: detail.warnings,
+          };
+        }
+        if (detail.pdfUrl) {
+          try {
+            const pdf = await fetchPdf(
+              new URL(detail.pdfUrl),
+              context,
+              item.pageUrl
+            );
+            const extracted = await extractPdfPlainText(pdf);
+            if (extracted.text.length >= 20) {
+              return {
+                item: {
+                  ...detailedItem,
+                  content: extracted.text,
+                  contentStatus: "pdf-extracted",
+                  pdfPages: extracted.totalPages,
+                  pdfParsedPages: extracted.parsedPages,
+                },
+                warnings: [
+                  ...detail.warnings,
+                  ...(extracted.truncated
+                    ? [
+                        `公告 PDF 共 ${extracted.totalPages} 页，正文已按 ${extracted.parsedPages} 页或 100000 字符上限截断`,
+                      ]
+                    : []),
+                ],
+              };
+            }
+          } catch (pdfError) {
+            return {
+              item: detailedItem,
+              warnings: [
+                ...detail.warnings,
+                `公告内容接口未返回正文，PDF 提取失败：${pdfError instanceof Error ? pdfError.message : String(pdfError)}`,
+              ],
+            };
+          }
+        }
+        return {
+          item: detailedItem,
+          warnings: [
+            ...detail.warnings,
+            "公告内容接口未返回正文，且未提供可解析的 PDF 附件",
+          ],
+        };
+      } catch (contentError) {
+        try {
+          const html = await fetchText(
+            new URL(item.pageUrl),
+            context,
+            "https://data.eastmoney.com/notices/"
+          );
+          const content = extractNoticeHtmlContent(html);
+          if (content) {
+            return {
+              item: { ...item, content, contentStatus: "html-extracted" },
+              warnings: ["公告内容接口不可用，已回退提取公告页面 HTML"],
+            };
+          }
+        } catch {
+          // Preserve the list evidence and report the failed enrichment below.
+        }
+        return {
+          item,
+          warnings: [
+            `公告正文提取失败：${contentError instanceof Error ? contentError.message : String(contentError)}`,
+          ],
+        };
       }
     })
   );
-  const extractedCount = enrichedItems.filter(
-    (item) => item.contentStatus === "html-extracted"
-  ).length;
+  const enrichedItems = enriched.map((entry) => entry.item);
+  const enrichmentWarnings = enriched.flatMap((entry) => entry.warnings);
+  if (items.length > 3) {
+    enrichmentWarnings.push(
+      `为限制网络与解析开销，仅提取前 3 条公告正文；其余 ${items.length - 3} 条保留标题与详情页`
+    );
+  }
   const result: ProviderEvidence<unknown> = {
     data: enrichedItems.length ? { items: enrichedItems } : null,
     asOf: enrichedItems[0]?.publishedAt ?? context.now().toISOString(),
   };
-  if (enrichedItems.length) {
-    result.warnings = [
-      `前 ${Math.min(3, enrichedItems.length)} 条公告中已抽取 ${extractedCount} 条 HTML 正文；其余仅有标题摘要。`,
-      "PDF 文本抽取尚不可用；返回的 PDF URL 为派生地址，访问失败时以公告页面为准。",
-    ];
-  }
+  if (enrichmentWarnings.length) result.warnings = enrichmentWarnings;
   return result;
 }
 

@@ -10,13 +10,18 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node scripts/build.mjs",
     "start": "node dist/stdio.mjs",
     "test": "node --test --experimental-strip-types test/**/*.test.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "verify:bundle": "node scripts/verify-bundle.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "esbuild": "0.28.1",
     "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "unpdf": "1.6.2"
   }
 }

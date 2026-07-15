@@ -23,10 +23,10 @@ const STOCK_SETTINGS_DB: &str = "stock-settings.sqlite3";
 const STOCK_KEYRING_SERVICE: &str = "Calen Stock Research";
 const KEYED_PROVIDERS: &[&str] = &["zzshare", "tushare", "tickflow", "fuyao"];
 // Keep this list limited to adapters that both exist in the sidecar and read a
-// provider key at runtime. The current sidecar only registers free providers
-// (Tencent and Eastmoney), so no keyed provider is eligible yet. Adding a keyed
-// adapter requires updating this list in the same change as the adapter.
-const IMPLEMENTED_KEYED_PROVIDERS: &[&str] = &[];
+// provider key at runtime. Providers remain disabled by default; this allow-list
+// only permits Credential Manager reads after the user explicitly enables one.
+const IMPLEMENTED_KEYED_PROVIDERS: &[&str] =
+    &["zzshare", "tushare", "tickflow", "fuyao"];
 
 #[derive(Debug)]
 struct StockProcess {
@@ -920,29 +920,78 @@ mod tests {
             "defaultMarket": "INVALID",
             "timeoutMs": 999999,
             "cacheTtlMinutes": 99999,
-            "providers": [{ "id": "tushare", "enabled": true, "key": "secret" }],
-            "providerKeyUpdates": { "tushare": "secret" }
+            "providers": [
+                { "id": "zzshare", "enabled": true, "key": "zz-secret" },
+                { "id": "tushare", "enabled": true, "key": "tu-secret" },
+                { "id": "tickflow", "enabled": true, "key": "tf-secret" },
+                { "id": "fuyao", "enabled": true, "key": "fy-secret" }
+            ],
+            "providerKeyUpdates": {
+                "zzshare": "zz-secret",
+                "tushare": "tu-secret",
+                "tickflow": "tf-secret",
+                "fuyao": "fy-secret"
+            }
         }));
         assert_eq!(settings["defaultMarket"], "CN");
         assert_eq!(settings["timeoutMs"], MAX_TIMEOUT_MS);
         assert_eq!(settings["cacheTtlMinutes"], 1440);
         assert!(settings.get("providerKeyUpdates").is_none());
-        assert!(!settings.to_string().contains("secret"));
+        let public_json = settings.to_string();
+        assert!(!public_json.contains("secret"));
     }
 
     #[test]
-    fn provider_keys_include_only_enabled_implemented_provider() {
+    fn production_keyed_provider_allow_list_matches_sidecar_adapters() {
+        assert_eq!(
+            IMPLEMENTED_KEYED_PROVIDERS,
+            &["zzshare", "tushare", "tickflow", "fuyao"]
+        );
+    }
+
+    #[test]
+    fn provider_keys_include_only_enabled_configured_providers() {
         let settings = normalize_stock_settings(json!({
             "enabled": true,
-            "providers": [{ "id": "tushare", "enabled": true }]
+            "providers": [
+                { "id": "zzshare", "enabled": true },
+                { "id": "tushare", "enabled": true },
+                { "id": "tickflow", "enabled": true },
+                { "id": "fuyao", "enabled": true }
+            ]
         }));
-        let keys = load_provider_keys_with(&settings, &["tushare"], |provider| {
-            assert_eq!(provider, "tushare");
-            Ok(Some("  tushare-secret  ".to_string()))
-        })
+        let mut requested = Vec::new();
+        let keys = load_provider_keys_with(
+            &settings,
+            IMPLEMENTED_KEYED_PROVIDERS,
+            |provider| {
+                requested.push(provider.to_string());
+                Ok(match provider {
+                    "zzshare" => Some("  zzshare-secret  ".to_string()),
+                    "tushare" => None,
+                    "tickflow" => Some("   ".to_string()),
+                    "fuyao" => Some("fuyao-secret".to_string()),
+                    _ => unreachable!("production allow-list contains an unexpected provider"),
+                })
+            },
+        )
         .expect("load provider keys");
 
-        assert_eq!(keys.get("tushare").map(String::as_str), Some("tushare-secret"));
+        assert_eq!(
+            requested,
+            IMPLEMENTED_KEYED_PROVIDERS
+                .iter()
+                .map(|provider| (*provider).to_string())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(keys.len(), 2);
+        assert_eq!(
+            keys.get("zzshare").map(String::as_str),
+            Some("zzshare-secret")
+        );
+        assert_eq!(keys.get("fuyao").map(String::as_str), Some("fuyao-secret"));
+        assert!(!keys.contains_key("tushare"));
+        assert!(!keys.contains_key("tickflow"));
     }
 
     #[test]
@@ -951,38 +1000,36 @@ mod tests {
             "enabled": true,
             "providers": [{ "id": "tushare", "enabled": false }]
         }));
-        let keys = load_provider_keys_with(&settings, &["tushare"], |_provider| {
-            Ok(Some("saved-secret".to_string()))
-        })
+        let keys = load_provider_keys_with(
+            &settings,
+            IMPLEMENTED_KEYED_PROVIDERS,
+            |_provider| panic!("disabled providers must not trigger Credential Manager reads"),
+        )
         .expect("load provider keys");
 
         assert!(keys.is_empty());
     }
 
     #[test]
-    fn provider_keys_skip_unimplemented_and_unconfigured_providers() {
+    fn provider_keys_skip_all_providers_when_stock_service_is_disabled() {
         let settings = normalize_stock_settings(json!({
-            "enabled": true,
+            "enabled": false,
             "providers": [
                 { "id": "zzshare", "enabled": true },
-                { "id": "tushare", "enabled": true }
+                { "id": "tushare", "enabled": true },
+                { "id": "tickflow", "enabled": true },
+                { "id": "fuyao", "enabled": true }
             ]
         }));
-        let mut requested = Vec::new();
-        let keys = load_provider_keys_with(&settings, &["tushare"], |provider| {
-            requested.push(provider.to_string());
-            Ok(match provider {
-                // A saved key for an unimplemented provider must never be
-                // considered by the production allow-list.
-                "zzshare" => Some("unimplemented-secret".to_string()),
-                // Simulate a provider with no credential in the keyring.
-                "tushare" => None,
-                _ => None,
-            })
-        })
+        let keys = load_provider_keys_with(
+            &settings,
+            IMPLEMENTED_KEYED_PROVIDERS,
+            |_provider| {
+                panic!("disabled stock service must not trigger Credential Manager reads")
+            },
+        )
         .expect("load provider keys");
 
         assert!(keys.is_empty());
-        assert_eq!(requested, vec!["tushare"]);
     }
 }

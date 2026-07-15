@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createStockResearchService, makeInstrument } from "../src/index.ts";
+import { extractPdfPlainText } from "../src/pdf-text.ts";
 
 const instrument = makeInstrument(
   "CN",
@@ -11,6 +12,44 @@ const instrument = makeInstrument(
   "CNY",
   "贵州茅台"
 );
+
+function createTextPdf(text: string): Uint8Array {
+  const textOperations = (text.match(/.{1,40}/g) ?? [])
+    .map((chunk, index) => `${index ? "0 -20 Td " : ""}(${chunk}) Tj`)
+    .join(" ");
+  const stream = `BT /F1 18 Tf 72 720 Td ${textOperations} ET`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${Buffer.byteLength(stream, "ascii")} >>\nstream\n${stream}\nendstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(pdf, "ascii"));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xrefOffset = Buffer.byteLength(pdf, "ascii");
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets.slice(1)) {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return new Uint8Array(Buffer.from(pdf, "ascii"));
+}
+
+test("PDF extraction reports deterministic character truncation metadata", async () => {
+  const result = await extractPdfPlainText(createTextPdf("A".repeat(1_500)), {
+    maxChars: 1_000,
+  });
+
+  assert.equal(result.totalPages, 1);
+  assert.equal(result.parsedPages, 1);
+  assert.equal(result.text.length, 1_000);
+  assert.equal(result.truncated, true);
+});
 
 test("Eastmoney research normalizes profile, three statements, money flow, news, and notices", async () => {
   const fetchMock: typeof fetch = async (input) => {
@@ -98,6 +137,22 @@ test("Eastmoney research normalizes profile, three statements, money flow, news,
         },
       });
     }
+    if (url.hostname === "np-cnotice-stock.eastmoney.com") {
+      const page = Number(url.searchParams.get("page_index"));
+      const payload = {
+        data: {
+          notice_title: "年度报告",
+          notice_content:
+            page === 1
+              ? "<p>年度报告正文第一页。</p>"
+              : "<p>年度报告正文第二页。</p>",
+          attach_url_web: "https://pdf.dfcfw.com/pdf/H2_AN202604010001_1.pdf",
+          attach_type: "pdf",
+          page_size: 2,
+        },
+      };
+      return new Response(`callback(${JSON.stringify(payload)})`);
+    }
     if (
       url.hostname === "data.eastmoney.com" &&
       url.pathname.includes("/notices/detail/")
@@ -177,11 +232,15 @@ test("Eastmoney research normalizes profile, three statements, money flow, news,
     sections.news!.data.items[0].url,
     "https://finance.eastmoney.com/a/1.html"
   );
-  assert.equal(sections.notices!.status, "partial");
-  assert.match(sections.notices!.data.items[0].pdfUrl, /AN202604010001/);
-  assert.match(sections.notices!.data.items[0].content, /年度报告正文内容/);
-  assert.equal(sections.notices!.data.items[0].contentStatus, "html-extracted");
-  assert.match(result.warnings.join("\n"), /PDF 文本抽取尚不可用/);
+  assert.equal(sections.notices!.status, "ok");
+  assert.equal(
+    sections.notices!.data.items[0].pdfUrl,
+    "https://pdf.dfcfw.com/pdf/H2_AN202604010001_1.pdf"
+  );
+  assert.equal(sections.notices!.data.items[0].pdfUrlDerived, false);
+  assert.match(sections.notices!.data.items[0].content, /正文第一页/);
+  assert.match(sections.notices!.data.items[0].content, /正文第二页/);
+  assert.equal(sections.notices!.data.items[0].contentStatus, "content-api");
 });
 
 test("financials preserve successful statements when one Eastmoney statement endpoint fails", async () => {
@@ -218,4 +277,114 @@ test("financials preserve successful statements when one Eastmoney statement end
   assert.equal(section.data.statements.income.netProfit, 10);
   assert.equal(section.data.statements.balance, null);
   assert.equal(section.data.statements.cashFlow.operatingCashFlow, 12);
+});
+
+test("notices extract a real PDF attachment when the content API has no inline body", async () => {
+  const pdf = createTextPdf("PDF notice body with enough content");
+  const service = createStockResearchService({
+    fetch: async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "np-anotice-stock.eastmoney.com") {
+        return Response.json({
+          data: {
+            list: [
+              {
+                title: "PDF 公告",
+                notice_date: "2026-04-02",
+                art_code: "AN202604020001",
+              },
+            ],
+          },
+        });
+      }
+      if (url.hostname === "np-cnotice-stock.eastmoney.com") {
+        return new Response(
+          `callback(${JSON.stringify({
+            data: {
+              notice_title: "PDF 公告",
+              notice_content: "",
+              attach_url_web: "https://example.com/notice.pdf",
+              attach_type: "pdf",
+              page_size: 1,
+            },
+          })})`
+        );
+      }
+      if (url.href === "https://example.com/notice.pdf") {
+        return new Response(pdf.buffer as ArrayBuffer, {
+          headers: { "Content-Type": "application/pdf" },
+        });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    },
+  });
+
+  const result = await service.research({
+    instrument,
+    capabilities: ["notices"],
+  });
+  const section = (
+    result.data as {
+      capabilities: Record<string, { status: string; data: any }>;
+    }
+  ).capabilities.notices!;
+
+  assert.equal(section.status, "ok", JSON.stringify(section));
+  assert.equal(section.data.items[0].pdfUrl, "https://example.com/notice.pdf");
+  assert.equal(section.data.items[0].contentStatus, "pdf-extracted");
+  assert.match(section.data.items[0].content, /PDF notice body/);
+});
+
+test("notices preserve retrieved pages when a later content page fails", async () => {
+  const service = createStockResearchService({
+    fetch: async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "np-anotice-stock.eastmoney.com") {
+        return Response.json({
+          data: {
+            list: [
+              {
+                title: "分页公告",
+                notice_date: "2026-04-03",
+                art_code: "AN202604030001",
+              },
+            ],
+          },
+        });
+      }
+      if (url.hostname === "np-cnotice-stock.eastmoney.com") {
+        if (url.searchParams.get("page_index") === "2") {
+          return new Response("unavailable", { status: 503 });
+        }
+        return new Response(
+          `callback(${JSON.stringify({
+            data: {
+              notice_title: "分页公告",
+              notice_content: "<p>已获取的第一页正文内容足够长。</p>",
+              page_size: 3,
+            },
+          })})`
+        );
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    },
+  });
+
+  const result = await service.research({
+    instrument,
+    capabilities: ["notices"],
+  });
+  const section = (
+    result.data as {
+      capabilities: Record<
+        string,
+        { status: string; data: any; warnings: string[] }
+      >;
+    }
+  ).capabilities.notices!;
+
+  assert.equal(section.status, "partial");
+  assert.match(section.data.items[0].content, /第一页正文/);
+  assert.equal(section.data.items[0].contentStatus, "content-api");
+  assert.match(section.warnings.join("\n"), /第 2\/3 页获取失败/);
 });

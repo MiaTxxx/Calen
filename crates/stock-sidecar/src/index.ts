@@ -7,6 +7,12 @@ export {
   createTencentProvider,
 } from "./providers/tencent.ts";
 export { createEastmoneyProvider } from "./providers/eastmoney.ts";
+export { createSinafinanceProvider } from "./providers/sinafinance.ts";
+export { createBaostockProvider } from "./providers/baostock.ts";
+export { createTushareProvider } from "./providers/tushare.ts";
+export { createTickflowProvider } from "./providers/tickflow.ts";
+export { createZzshareProvider } from "./providers/zzshare.ts";
+export { createFuyaoProvider } from "./providers/fuyao.ts";
 export {
   analyzeTechnicals,
   evaluateResearch,
