@@ -216,6 +216,11 @@ jobs:
           CARGO_TERM_COLOR: always
         run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml chat_history --lib
 
+      - name: Test stock sidecar restart lifecycle
+        env:
+          CARGO_TERM_COLOR: always
+        run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml stock::tests --lib
+
   tauri-windows-check:
     name: Tauri Windows Check
     runs-on: windows-latest

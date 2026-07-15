@@ -3,6 +3,7 @@ import {
   createTencentBasicProfileProvider,
   createTencentProvider,
 } from "./tencent.ts";
+import { createTencentFxProvider } from "./tencent-fx.ts";
 import { createEastmoneyProvider } from "./eastmoney.ts";
 import { createSinafinanceProvider } from "./sinafinance.ts";
 import { createBaostockProvider } from "./baostock.ts";
@@ -32,7 +33,8 @@ export function createDefaultProviders(
   if (enabled.has("tencent")) {
     providers.push(
       createTencentProvider(),
-      createTencentBasicProfileProvider()
+      createTencentBasicProfileProvider(),
+      createTencentFxProvider()
     );
   }
   if (enabled.has("eastmoney")) providers.push(createEastmoneyProvider());

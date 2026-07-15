@@ -414,20 +414,44 @@ function evidenceValue(value: unknown): string | null {
 
 type EvidenceRow = { title: string; detail: string; url?: string | null };
 
+function financialPeriodDetail(period: Record<string, unknown>): string {
+  const metrics = [
+    ["income", "totalOperatingRevenue", "营业收入"],
+    ["income", "netProfit", "净利润"],
+    ["balance", "totalAssets", "总资产"],
+    ["balance", "totalLiabilities", "总负债"],
+    ["cashFlow", "operatingCashFlow", "经营现金流"],
+  ] as const;
+  const values = metrics.flatMap(([statement, field, label]) => {
+    const rendered = evidenceValue(evidenceRecord(period[statement])[field]);
+    return rendered ? [`${label} ${rendered}`] : [];
+  });
+  return values.length ? values.join("；") : "该报告期未返回可展示的标准化三表字段";
+}
+
 function sectionRows(
   capability: ResearchBundle["evidenceSections"][number]["capability"],
   data: unknown,
 ): EvidenceRow[] {
   const root = evidenceRecord(data);
   if (capability === "financials") {
-    const statements = evidenceRecord(root.statements);
-    return Object.entries(statements).flatMap(([statement, value]) => {
-      const fields = evidenceRecord(value);
-      return Object.entries(fields).flatMap(([key, field]) => {
-        const rendered = evidenceValue(field);
-        return rendered ? [{ title: `${statement}.${key}`, detail: rendered }] : [];
-      });
-    });
+    const coverage = evidenceRecord(root.coverage);
+    const periods = evidenceItems(root.periods).slice(0, 4);
+    const coverageRow: EvidenceRow[] = periods.length
+      ? [
+          {
+            title: "报告期覆盖",
+            detail: `返回 ${evidenceValue(coverage.returnedPeriods) ?? periods.length} / 请求 ${evidenceValue(coverage.requestedPeriods) ?? periods.length} 期；三表完整 ${evidenceValue(coverage.completePeriods) ?? 0} 期`,
+          },
+        ]
+      : [];
+    return [
+      ...coverageRow,
+      ...periods.map((period, index) => ({
+        title: evidenceValue(period.reportDate) ?? `报告期 ${index + 1}`,
+        detail: financialPeriodDetail(period),
+      })),
+    ];
   }
   const collection =
     capability === "shareholders"

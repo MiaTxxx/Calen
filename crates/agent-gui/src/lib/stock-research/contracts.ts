@@ -14,6 +14,8 @@ import type {
   StockBacktestRequest,
   StockCapability,
   StockEvidenceResult,
+  StockFinancialsData,
+  StockFxRatesResult,
   StockMarket,
   StockResearchRequest,
   StockServiceStatus,
@@ -92,6 +94,10 @@ function asString(value: unknown): string | undefined {
 
 function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function isStockCurrency(value: unknown): value is "CNY" | "HKD" | "USD" {
+  return value === "CNY" || value === "HKD" || value === "USD";
 }
 
 function asStringArray(value: unknown): string[] {
@@ -207,6 +213,37 @@ export function mapStockResolveEnvelope(raw: unknown): InstrumentSearchResult {
   };
 }
 
+export function mapStockFxRatesResult(raw: unknown): StockFxRatesResult {
+  const record = evidenceRecord(raw);
+  const rates = Array.isArray(record.rates)
+    ? record.rates.flatMap((value) => {
+        const item = asRecord(value);
+        const fromCurrency = asString(item.fromCurrency);
+        const toCurrency = asString(item.toCurrency);
+        const rate = asNumber(item.rate);
+        const asOf = asString(item.asOf);
+        return isStockCurrency(fromCurrency) &&
+          isStockCurrency(toCurrency) &&
+          fromCurrency !== toCurrency &&
+          rate !== null &&
+          rate > 0 &&
+          asOf
+          ? [{ fromCurrency, toCurrency, rate, asOf }]
+          : [];
+      })
+    : [];
+  const evidence = mapEnvelope(raw, rates.length ? rates : null);
+  return {
+    status: evidence.status,
+    rates,
+    sources: evidence.sources,
+    asOf: evidence.asOf,
+    retrievedAt: evidence.retrievedAt,
+    cached: evidence.cached,
+    warnings: evidence.warnings,
+  };
+}
+
 function mapChart(value: unknown): NonNullable<QuoteSnapshot["chart"]> {
   const record = asRecord(value);
   const values = Array.isArray(record.bars) ? record.bars : Array.isArray(value) ? value : [];
@@ -282,6 +319,78 @@ function summarizeResearchData(value: unknown): string | null {
   if (!parts.length) return null;
   const summary = parts.join(", ");
   return summary.length > 240 ? `${summary.slice(0, 237)}...` : summary;
+}
+
+function mapFinancialStatement(value: unknown): Record<string, number | undefined> | null {
+  const source = strictRecord(value);
+  if (!source) return null;
+  const statement: Record<string, number | undefined> = {};
+  for (const [key, item] of Object.entries(source)) {
+    const number = asNumber(item);
+    if (number !== null) statement[key] = number;
+  }
+  return statement;
+}
+
+function mapFinancialsEvidence(value: unknown): StockFinancialsData | null {
+  const source = strictRecord(value);
+  const statements = strictRecord(source?.statements);
+  const coverage = strictRecord(source?.coverage);
+  const reportDate = asString(source?.reportDate);
+  const currency = asString(source?.currency);
+  const requestedPeriods = asNumber(coverage?.requestedPeriods);
+  const returnedPeriods = asNumber(coverage?.returnedPeriods);
+  const completePeriods = asNumber(coverage?.completePeriods);
+  if (
+    !source ||
+    !statements ||
+    !coverage ||
+    !reportDate ||
+    !currency ||
+    requestedPeriods === null ||
+    returnedPeriods === null ||
+    completePeriods === null
+  ) {
+    return null;
+  }
+  const periods = Array.isArray(source.periods)
+    ? source.periods.slice(0, 4).flatMap((entry) => {
+        const period = strictRecord(entry);
+        const periodDate = asString(period?.reportDate);
+        if (!period || !periodDate) return [];
+        return [
+          {
+            reportDate: periodDate,
+            income: mapFinancialStatement(period.income),
+            balance: mapFinancialStatement(period.balance),
+            cashFlow: mapFinancialStatement(period.cashFlow),
+          },
+        ];
+      })
+    : [];
+  if (!periods.length || periods.length > 4) return null;
+  return {
+    reportDate,
+    currency,
+    statements: {
+      income: mapFinancialStatement(statements.income),
+      balance: mapFinancialStatement(statements.balance),
+      cashFlow: mapFinancialStatement(statements.cashFlow),
+    },
+    periods,
+    coverage: {
+      requestedPeriods,
+      returnedPeriods,
+      completePeriods,
+      ...(asString(coverage.oldestReportDate)
+        ? { oldestReportDate: asString(coverage.oldestReportDate) }
+        : {}),
+      ...(asString(coverage.newestReportDate)
+        ? { newestReportDate: asString(coverage.newestReportDate) }
+        : {}),
+    },
+    missingStatements: asStringArray(source.missingStatements),
+  };
 }
 
 function mapResearchAnalysisMetadata(value: unknown): ResearchAnalysisMetadata | undefined {
@@ -377,7 +486,10 @@ function mapResearchEvidenceSections(capabilities: AnyRecord): ResearchEvidenceS
       {
         capability: capability as ResearchEvidenceSection["capability"],
         status: section.status,
-        data: section.data ?? null,
+        data:
+          capability === "financials"
+            ? (mapFinancialsEvidence(section.data) ?? section.data ?? null)
+            : (section.data ?? null),
         warnings: normalizeWarnings(section.warnings),
       },
     ];

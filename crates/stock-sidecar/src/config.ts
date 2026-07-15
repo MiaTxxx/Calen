@@ -6,7 +6,7 @@ import {
   createDefaultProviders,
   IMPLEMENTED_PROVIDER_IDS,
 } from "./providers/defaults.ts";
-import type { ProviderStatus, StockResearchPort } from "./types.ts";
+import type { ProviderStatus, StockSidecarPort } from "./types.ts";
 
 const KNOWN_PROVIDERS = [
   "tencent",
@@ -136,7 +136,7 @@ export function createStockResearchServiceFromEnvironment(
     CreateStockResearchServiceOptions,
     "providers" | "providerCatalog" | "timeoutMs" | "cacheTtlMs"
   > = {}
-): StockResearchPort {
+): StockSidecarPort {
   const config = loadStockRuntimeConfig(env);
   return createStockResearchService({
     ...overrides,

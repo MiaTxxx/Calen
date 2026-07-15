@@ -149,8 +149,31 @@ impl StockResearchManager {
         params: Value,
         request_id: &str,
         timeout_ms: u64,
-        mut cancel_rx: oneshot::Receiver<()>,
+        cancel_rx: oneshot::Receiver<()>,
     ) -> Result<Value, RequestFailure> {
+        self.call_locked_with_spawn(
+            method,
+            params,
+            request_id,
+            timeout_ms,
+            cancel_rx,
+            self.spawn(app),
+        )
+        .await
+    }
+
+    async fn call_locked_with_spawn<F>(
+        &self,
+        method: &str,
+        params: Value,
+        request_id: &str,
+        timeout_ms: u64,
+        mut cancel_rx: oneshot::Receiver<()>,
+        spawn: F,
+    ) -> Result<Value, RequestFailure>
+    where
+        F: std::future::Future<Output = Result<StockProcess, String>>,
+    {
         let mut state = self.state.lock().await;
         if state.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
             return Err(RequestFailure::Transport(
@@ -159,7 +182,7 @@ impl StockResearchManager {
         }
 
         if state.process.is_none() {
-            match self.spawn(app).await {
+            match spawn.await {
                 Ok(process) => state.process = Some(process),
                 Err(error) => {
                     state.consecutive_failures = state.consecutive_failures.saturating_add(1);
@@ -914,6 +937,15 @@ pub async fn stock_research_snapshot(
 }
 
 #[tauri::command]
+pub async fn stock_research_fx_rates(
+    app: AppHandle,
+    state: tauri::State<'_, Arc<StockResearchManager>>,
+    request: Value,
+) -> Result<Value, String> {
+    invoke_stock_method(app, state, "fxRates", request).await
+}
+
+#[tauri::command]
 pub async fn stock_research_run(
     app: AppHandle,
     state: tauri::State<'_, Arc<StockResearchManager>>,
@@ -987,6 +1019,42 @@ pub async fn stock_settings_save(
 mod tests {
     use super::*;
 
+    #[cfg(not(target_os = "windows"))]
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[cfg(not(target_os = "windows"))]
+    async fn spawn_crashing_test_process() -> Result<StockProcess, String> {
+        let mut command = Command::new("sh");
+        command
+            .args(["-c", "read request; exit 17"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let mut child = command
+            .spawn()
+            .map_err(|error| format!("spawn crashing test sidecar: {error}"))?;
+        let process_id = child
+            .id()
+            .ok_or_else(|| "crashing test sidecar has no process id".to_string())?;
+        let process_tree = Arc::new(StockProcessTree::attach(process_id)?);
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "crashing test sidecar has no stdin".to_string())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "crashing test sidecar has no stdout".to_string())?;
+        Ok(StockProcess {
+            child,
+            stdin,
+            stdout: BufReader::new(stdout).lines(),
+            root: PathBuf::from("."),
+            process_tree,
+        })
+    }
+
     #[test]
     fn request_id_prefers_explicit_non_empty_value() {
         let params = json!({ "requestId": " stock-42 " });
@@ -1010,6 +1078,59 @@ mod tests {
     fn sidecar_errors_do_not_increment_transport_failure_budget() {
         assert!(!RequestFailure::Sidecar("provider unavailable".to_string()).breaks_process());
         assert!(RequestFailure::Timeout.breaks_process());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[tokio::test]
+    async fn crashed_sidecar_restarts_once_then_requires_manual_restart() {
+        let manager = StockResearchManager::default();
+
+        for expected_failures in 1..=MAX_CONSECUTIVE_FAILURES {
+            let (cancel_tx, cancel_rx) = oneshot::channel();
+            let failure = manager
+                .call_locked_with_spawn(
+                    "status",
+                    json!({}),
+                    &format!("crash-{expected_failures}"),
+                    2_000,
+                    cancel_rx,
+                    spawn_crashing_test_process(),
+                )
+                .await
+                .expect_err("crashing sidecar must fail the request");
+            drop(cancel_tx);
+            assert!(failure.breaks_process());
+            let status = manager.local_status().await;
+            assert_eq!(status.consecutive_failures, expected_failures);
+            assert_eq!(status.running, false);
+        }
+
+        let spawn_attempts = Arc::new(AtomicUsize::new(0));
+        let counted_spawn_attempts = Arc::clone(&spawn_attempts);
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        let failure = manager
+            .call_locked_with_spawn(
+                "status",
+                json!({}),
+                "blocked-third-spawn",
+                2_000,
+                cancel_rx,
+                async move {
+                    counted_spawn_attempts.fetch_add(1, Ordering::SeqCst);
+                    Err("spawned after restart budget was exhausted".to_string())
+                },
+            )
+            .await
+            .expect_err("third automatic spawn must be blocked");
+        drop(cancel_tx);
+        assert!(failure.message().contains("暂停自动重启"));
+        assert_eq!(spawn_attempts.load(Ordering::SeqCst), 0);
+        assert!(manager.local_status().await.disabled_after_failures);
+
+        manager.restart().await.expect("manual restart resets budget");
+        let status = manager.local_status().await;
+        assert_eq!(status.consecutive_failures, 0);
+        assert!(status.available);
     }
 
     #[test]

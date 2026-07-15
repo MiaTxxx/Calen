@@ -98,6 +98,7 @@ macro_rules! app_invoke_handler {
             commands::stock::stock_stop,
             commands::stock::stock_research_resolve,
             commands::stock::stock_research_snapshot,
+            commands::stock::stock_research_fx_rates,
             commands::stock::stock_research_run,
             commands::stock::stock_research_market_brief,
             commands::stock::stock_research_backtest,

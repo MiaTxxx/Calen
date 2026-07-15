@@ -44,6 +44,16 @@ test("portfolio workspace wires the complete local ledger surface", async () => 
   assert.match(workspace, /stockResearch\.snapshot\(/);
   assert.match(
     workspace,
+    /stockResearch[\s\S]*?\.fxRates\(\{ pairs: fxPairs \}\)/
+  );
+  assert.match(
+    workspace,
+    /mergePortfolioFxRates\(automaticFxRates, savedManualFxRates\)/
+  );
+  assert.match(workspace, /自动汇率不可用：[\s\S]*?原币分析仍然有效/);
+  assert.match(workspace, /应用手工汇率（覆盖自动值）/);
+  assert.match(
+    workspace,
     /stockResearch\.portfolioAnalyze\(portfolioId, prices, fxRates\)/
   );
   assert.match(workspace, /fxAsOf/);

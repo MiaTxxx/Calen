@@ -69,8 +69,14 @@ async function fetchJson(
 }
 
 function secId(instrument: InstrumentRef): string | null {
-  if (instrument.market !== "CN" || instrument.exchange === "BSE") return null;
-  return `${instrument.exchange === "SSE" ? "1" : "0"}.${instrument.symbol}`;
+  if (instrument.market !== "CN") return null;
+  const marketId =
+    instrument.exchange === "SSE"
+      ? "1"
+      : instrument.exchange === "SZSE" || instrument.exchange === "BSE"
+        ? "0"
+        : null;
+  return marketId ? `${marketId}.${instrument.symbol}` : null;
 }
 
 function mapSearchItem(value: unknown): InstrumentRef | null {
@@ -84,7 +90,7 @@ function mapSearchItem(value: unknown): InstrumentRef | null {
     (marketNumber !== 0 && marketNumber !== 1)
   )
     return null;
-  const exchange = /^[48]/.test(code)
+  const exchange = /^(?:[48]|920)/.test(code)
     ? "BSE"
     : marketNumber === 1
       ? "SSE"
@@ -142,11 +148,7 @@ export function createEastmoneyProvider(): StockProvider {
         return {
           data: null,
           asOf: context.now().toISOString(),
-          warnings: [
-            instrument.exchange === "BSE"
-              ? "东方财富行情适配器暂不支持北交所"
-              : "东方财富首版行情仅支持 A 股",
-          ],
+          warnings: ["东方财富行情仅支持已归一化的沪深北 A 股标的"],
         };
       const url = new URL("https://push2.eastmoney.com/api/qt/stock/get");
       url.searchParams.set("secid", securityId);
@@ -200,11 +202,7 @@ export function createEastmoneyProvider(): StockProvider {
         return {
           data: null,
           asOf: context.now().toISOString(),
-          warnings: [
-            instrument.exchange === "BSE"
-              ? "东方财富历史行情适配器暂不支持北交所"
-              : "东方财富首版历史行情仅支持 A 股",
-          ],
+          warnings: ["东方财富历史行情仅支持已归一化的沪深北 A 股标的"],
         };
       const url = new URL(
         "https://push2his.eastmoney.com/api/qt/stock/kline/get"

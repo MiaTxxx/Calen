@@ -128,6 +128,30 @@ export interface ResearchEvidenceSection {
   warnings: string[];
 }
 
+export interface StockFinancialsData {
+  reportDate: string;
+  currency: string;
+  statements: {
+    income: Record<string, number | undefined> | null;
+    balance: Record<string, number | undefined> | null;
+    cashFlow: Record<string, number | undefined> | null;
+  };
+  periods: Array<{
+    reportDate: string;
+    income: Record<string, number | undefined> | null;
+    balance: Record<string, number | undefined> | null;
+    cashFlow: Record<string, number | undefined> | null;
+  }>;
+  coverage: {
+    requestedPeriods: number;
+    returnedPeriods: number;
+    completePeriods: number;
+    oldestReportDate?: string;
+    newestReportDate?: string;
+  };
+  missingStatements: string[];
+}
+
 export interface ResearchBundle {
   instrument: InstrumentRef;
   title: string;
@@ -311,6 +335,25 @@ export interface StockFxRateInput {
   asOf: string;
 }
 
+export interface StockFxRatePair {
+  fromCurrency: StockCurrency;
+  toCurrency: StockCurrency;
+}
+
+export interface StockFxRatesRequest {
+  pairs: StockFxRatePair[];
+  maxAgeMs?: number;
+}
+
+export interface StockFxRateQuote extends StockFxRatePair {
+  rate: number;
+  asOf: string;
+}
+
+export interface StockFxRatesResult extends StockEvidenceMetadata {
+  rates: StockFxRateQuote[];
+}
+
 export interface StockPositionSnapshot {
   instrument: StockPortfolioInstrument;
   quantity: number;
@@ -408,4 +451,8 @@ export interface StockResearchPort {
   ): Promise<StockPortfolioAnalysis>;
   portfolioImportCsvTo(portfolioId: string, document: string): Promise<{ imported: number }>;
   portfolioExportCsvOf(portfolioId: string): Promise<string>;
+}
+
+export interface StockFxRatePort {
+  fxRates(request: StockFxRatesRequest): Promise<StockFxRatesResult>;
 }

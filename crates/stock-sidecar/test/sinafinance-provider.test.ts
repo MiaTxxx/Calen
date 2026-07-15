@@ -59,6 +59,53 @@ test("Sinafinance resolve decodes A-share and ETF suggestions", async () => {
   assert.equal(result.asOf, "2026-07-15T08:00:00.000Z");
 });
 
+test("Sinafinance resolve scopes free name suggestions to HK and US markets", async () => {
+  const provider = createSinafinanceProvider();
+  const requestedTypes: string[] = [];
+  const context = {
+    fetch: async (url: string | URL | Request) => {
+      requestedTypes.push(new URL(String(url)).searchParams.get("type") ?? "");
+      return new Response(
+        'var suggestvalue="腾讯控股,31,00700,00700,腾讯控股,,腾讯控股,99,1,ESG,,;苹果,41,aapl,aapl,苹果,,苹果,99,1,ESG,,";',
+        { headers: { "Content-Type": "application/javascript; charset=utf-8" } }
+      );
+    },
+    now,
+  };
+
+  const hk = await provider.resolve!(
+    { query: "腾讯控股", market: "HK" },
+    context
+  );
+  const us = await provider.resolve!({ query: "Apple", market: "US" }, context);
+
+  assert.deepEqual(requestedTypes, ["31", "41"]);
+  assert.deepEqual(hk.data, [
+    {
+      id: "HK:00700",
+      market: "HK",
+      exchange: "HKEX",
+      assetType: "stock",
+      currency: "HKD",
+      symbol: "00700",
+      name: "腾讯控股",
+    },
+  ]);
+  assert.deepEqual(us.data, [
+    {
+      id: "US:AAPL",
+      market: "US",
+      exchange: "US",
+      assetType: "unknown",
+      currency: "USD",
+      symbol: "AAPL",
+      name: "苹果",
+    },
+  ]);
+  assert.match(hk.warnings?.join("\n") ?? "", /有限基础研究/);
+  assert.match(us.warnings?.join("\n") ?? "", /交易所.*未验证/);
+});
+
 test("Sinafinance snapshot normalizes quote fields and market time", async () => {
   const provider = createSinafinanceProvider();
   const instrument = makeInstrument("CN", "600519", "SSE", "EQUITY", "CNY");

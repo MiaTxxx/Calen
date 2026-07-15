@@ -532,6 +532,9 @@ test("stock hub keeps the five product views", async () => {
   assert.match(source, /实验性量化分析/);
   assert.match(source, /data\.analysisMetadata/);
   assert.match(source, /data\.experimentalAnalysis\.map/);
+  assert.match(source, /evidenceItems\(root\.periods\)\.slice\(0, 4\)/);
+  assert.match(source, /报告期覆盖/);
+  assert.match(source, /financialPeriodDetail\(period\)/);
   assert.match(source, /算法与版本/);
   assert.match(source, /样本覆盖率/);
   assert.match(source, /基准/);

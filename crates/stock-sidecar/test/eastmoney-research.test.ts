@@ -279,6 +279,148 @@ test("financials preserve successful statements when one Eastmoney statement end
   assert.equal(section.data.statements.cashFlow.operatingCashFlow, 12);
 });
 
+test("Eastmoney financials expose at most four aligned reporting periods", async () => {
+  const reportDates = [
+    "2025-12-31",
+    "2025-09-30",
+    "2025-06-30",
+    "2025-03-31",
+    "2024-12-31",
+  ];
+  const service = createStockResearchService({
+    fetch: async (input) => {
+      const url = new URL(String(input));
+      const reportName = url.searchParams.get("reportName");
+      const rows = reportDates.map((reportDate, index) => ({
+        REPORT_DATE: reportDate,
+        NETPROFIT: 100 - index,
+        TOTAL_ASSETS: 1_000 - index,
+        NETCASH_OPERATE: 80 - index,
+      }));
+      if (reportName === "RPT_DMSK_FN_INCOME")
+        return Response.json({ result: { data: rows } });
+      if (reportName === "RPT_DMSK_FN_BALANCE")
+        return Response.json({ result: { data: rows } });
+      if (reportName === "RPT_DMSK_FN_CASHFLOW")
+        return Response.json({ result: { data: rows } });
+      throw new Error(`unexpected URL: ${url}`);
+    },
+  });
+
+  const result = await service.research({
+    instrument,
+    capabilities: ["financials"],
+  });
+  const section = (
+    result.data as {
+      capabilities: Record<string, { data: any }>;
+    }
+  ).capabilities.financials!;
+
+  assert.equal(section.data.reportDate, "2025-12-31");
+  assert.equal(section.data.statements.income.netProfit, 100);
+  assert.equal(section.data.periods.length, 4);
+  assert.deepEqual(
+    section.data.periods.map((period: any) => period.reportDate),
+    reportDates.slice(0, 4)
+  );
+  assert.equal(section.data.periods[1].income.netProfit, 99);
+  assert.deepEqual(section.data.coverage, {
+    requestedPeriods: 4,
+    returnedPeriods: 4,
+    completePeriods: 4,
+    oldestReportDate: "2025-03-31",
+    newestReportDate: "2025-12-31",
+  });
+});
+
+test("financial summary never mixes statements from different reporting periods", async () => {
+  const service = createStockResearchService({
+    fetch: async (input) => {
+      const reportName = new URL(String(input)).searchParams.get("reportName");
+      if (reportName === "RPT_DMSK_FN_INCOME")
+        return Response.json({
+          result: {
+            data: [
+              { REPORT_DATE: "2025-12-31", NETPROFIT: 120 },
+              { REPORT_DATE: "2025-09-30", NETPROFIT: 90 },
+            ],
+          },
+        });
+      if (reportName === "RPT_DMSK_FN_BALANCE")
+        return Response.json({
+          result: {
+            data: [{ REPORT_DATE: "2025-09-30", TOTAL_ASSETS: 900 }],
+          },
+        });
+      if (reportName === "RPT_DMSK_FN_CASHFLOW")
+        return Response.json({
+          result: {
+            data: [{ REPORT_DATE: "2025-12-31", NETCASH_OPERATE: 80 }],
+          },
+        });
+      throw new Error(`unexpected report: ${reportName}`);
+    },
+  });
+
+  const result = await service.research({
+    instrument,
+    capabilities: ["financials"],
+  });
+  const section = (
+    result.data as {
+      capabilities: Record<
+        string,
+        { status: string; data: any; warnings: string[] }
+      >;
+    }
+  ).capabilities.financials!;
+
+  assert.equal(section.status, "partial");
+  assert.equal(section.data.reportDate, "2025-12-31");
+  assert.equal(section.data.statements.income.netProfit, 120);
+  assert.equal(section.data.statements.balance, null);
+  assert.equal(section.data.statements.cashFlow.operatingCashFlow, 80);
+  assert.equal(section.data.periods[1].balance.totalAssets, 900);
+  assert.match(section.warnings.join("\n"), /资产负债表/);
+});
+
+test("financials mark older incomplete periods as partial", async () => {
+  const service = createStockResearchService({
+    fetch: async (input) => {
+      const reportName = new URL(String(input)).searchParams.get("reportName");
+      const latest = { REPORT_DATE: "2025-12-31" };
+      const older = { REPORT_DATE: "2025-09-30" };
+      if (reportName === "RPT_DMSK_FN_INCOME")
+        return Response.json({
+          result: { data: [{ ...latest, NETPROFIT: 12 }, older] },
+        });
+      if (reportName === "RPT_DMSK_FN_BALANCE")
+        return Response.json({
+          result: { data: [{ ...latest, TOTAL_ASSETS: 100 }] },
+        });
+      if (reportName === "RPT_DMSK_FN_CASHFLOW")
+        return Response.json({
+          result: { data: [{ ...latest, NETCASH_OPERATE: 8 }, older] },
+        });
+      throw new Error(`unexpected report: ${reportName}`);
+    },
+  });
+
+  const result = await service.research({
+    instrument,
+    capabilities: ["financials"],
+  });
+  const section = (
+    result.data as {
+      capabilities: Record<string, { status: string; warnings: string[] }>;
+    }
+  ).capabilities.financials!;
+
+  assert.equal(section.status, "partial");
+  assert.match(section.warnings.join("\n"), /2025-09-30/);
+});
+
 test("notices extract a real PDF attachment when the content API has no inline body", async () => {
   const pdf = createTextPdf("PDF notice body with enough content");
   const service = createStockResearchService({

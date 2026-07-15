@@ -102,6 +102,13 @@ function financialDimension(value: unknown): EvaluatorDimension | undefined {
   };
 }
 
+function financialPeriodCount(value: unknown): number {
+  const financials = record(value);
+  if (!financials) return 0;
+  const periods = Array.isArray(financials?.periods) ? financials.periods : [];
+  return Math.min(4, periods.length || 1);
+}
+
 function recentDrawdown(bars: PriceBar[]): number {
   let peak = 0;
   let drawdown = 0;
@@ -134,7 +141,9 @@ export function buildEvaluatorQuality(input: EvaluatorInput): EvaluatorQuality {
     hasKline,
     hasFinancials,
     klineDays: input.bars.length,
-    financialPeriods: hasFinancials ? 1 : 0,
+    financialPeriods: hasFinancials
+      ? financialPeriodCount(input.financials)
+      : 0,
   };
 }
 

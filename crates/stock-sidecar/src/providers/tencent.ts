@@ -1,11 +1,101 @@
 import { ProviderError } from "./registry.ts";
+import { makeInstrument, normalizeInstrument } from "../instruments.ts";
 import type {
+  AssetClass,
   InstrumentRef,
   PriceBar,
+  ProviderContext,
   ProviderEvidence,
   StockProvider,
+  StockResolveRequest,
   StockSnapshot,
 } from "../types.ts";
+
+type UnknownRecord = Record<string, unknown>;
+
+function record(value: unknown): UnknownRecord | null {
+  return value !== null && typeof value === "object"
+    ? (value as UnknownRecord)
+    : null;
+}
+
+function smartboxAssetClass(type: string): AssetClass | null {
+  const normalized = type.trim().toUpperCase();
+  if (normalized === "ETF" || normalized.includes("-ETF")) return "ETF";
+  if (normalized === "GP" || /^GP-A(?:-|$)/.test(normalized)) return "EQUITY";
+  return null;
+}
+
+function smartboxInstrument(value: unknown): InstrumentRef | null {
+  const row = record(value);
+  const code = typeof row?.code === "string" ? row.code.trim() : "";
+  const name = typeof row?.name === "string" ? row.name.trim() : "";
+  const type = typeof row?.type === "string" ? row.type : "";
+  const assetClass = smartboxAssetClass(type);
+  const normalized = normalizeInstrument(code);
+  if (!assetClass || !normalized || !name) return null;
+  return makeInstrument(
+    normalized.market,
+    normalized.symbol,
+    normalized.exchange,
+    assetClass,
+    normalized.currency,
+    name
+  );
+}
+
+async function resolve(
+  request: StockResolveRequest,
+  context: ProviderContext
+): Promise<ProviderEvidence<InstrumentRef[]>> {
+  const url = new URL(
+    "https://proxy.finance.qq.com/cgi/cgi-bin/smartbox/search"
+  );
+  url.searchParams.set("stockFlag", "1");
+  url.searchParams.set("fundFlag", "1");
+  url.searchParams.set("app", "official_website");
+  url.searchParams.set("c", "1");
+  url.searchParams.set("query", request.query.trim());
+  const init: RequestInit = {
+    headers: { Accept: "application/json", Referer: "https://gu.qq.com/" },
+  };
+  if (context.signal) init.signal = context.signal;
+  const response = await context.fetch(url, init);
+  if (!response.ok)
+    throw new ProviderError(`HTTP ${response.status}`, {
+      status: response.status,
+    });
+  const payload = record(await response.json());
+  const rows = Array.isArray(payload?.stock) ? payload.stock : [];
+  const limit = Math.min(Math.max(request.limit ?? 10, 1), 50);
+  const seen = new Set<string>();
+  const instruments = rows
+    .flatMap((value): InstrumentRef[] => {
+      const instrument = smartboxInstrument(value);
+      if (
+        !instrument ||
+        (request.market && instrument.market !== request.market) ||
+        seen.has(instrument.id)
+      )
+        return [];
+      seen.add(instrument.id);
+      return [instrument];
+    })
+    .slice(0, limit);
+  const includesOverseas =
+    request.market === "HK" ||
+    request.market === "US" ||
+    instruments.some(({ market }) => market === "HK" || market === "US");
+  const result: ProviderEvidence<InstrumentRef[]> = {
+    data: instruments.length ? instruments : null,
+    asOf: context.now().toISOString(),
+  };
+  if (includesOverseas)
+    result.warnings = [
+      "港美股首版仅提供搜索、行情、日 K 和有限基础研究；其余能力可能返回 partial/unavailable。",
+    ];
+  return result;
+}
 
 function providerSymbol(instrument: InstrumentRef): string {
   if (instrument.market === "CN") {
@@ -48,7 +138,8 @@ export function createTencentProvider(): StockProvider {
     id: "tencent",
     priority: 10,
     free: true,
-    capabilities: ["snapshot", "history"],
+    capabilities: ["resolve", "snapshot", "history"],
+    resolve,
     async snapshot(
       instrument,
       context

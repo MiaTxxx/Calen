@@ -24,6 +24,12 @@ test("stdio serves one JSON-RPC response per input line with fixed method names"
         params: { query: "600519" },
       }),
       JSON.stringify({ jsonrpc: "2.0", id: 2, method: "status", params: {} }),
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "fxRates",
+        params: { pairs: [{ fromCurrency: "USD", toCurrency: "CNY" }] },
+      }),
       JSON.stringify({ jsonrpc: "2.0", id: 3, method: "unknown", params: {} }),
     ].join("\n")
   );
@@ -34,12 +40,13 @@ test("stdio serves one JSON-RPC response per input line with fixed method names"
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
-  assert.equal(responses.length, 3);
+  assert.equal(responses.length, 4);
   assert.equal(responses[0].jsonrpc, "2.0");
   assert.equal(responses[0].id, 1);
   assert.equal(responses[0].result.instruments[0].id, "CN:600519");
   assert.equal(responses[1].result.state, "ready");
-  assert.deepEqual(responses[2], {
+  assert.equal(responses[2].result.status, "unavailable");
+  assert.deepEqual(responses[3], {
     jsonrpc: "2.0",
     id: 3,
     error: { code: -32601, message: "Method not found: unknown" },
@@ -75,6 +82,12 @@ test("JSON-RPC rejects invalid method params with -32602", async () => {
           },
           maxAgeMs: -1,
         },
+      }),
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 14,
+        method: "fxRates",
+        params: { pairs: [{ fromCurrency: "USD", toCurrency: "USD" }] },
       }),
       JSON.stringify({
         jsonrpc: "2.0",
@@ -127,7 +140,7 @@ test("JSON-RPC rejects invalid method params with -32602", async () => {
     .map((line) => JSON.parse(line));
   assert.deepEqual(
     responses.map((response) => response.error.code),
-    [-32602, -32602, -32602, -32602, -32602]
+    [-32602, -32602, -32602, -32602, -32602, -32602]
   );
   assert.ok(
     responses.every((response) => /Invalid params/.test(response.error.message))

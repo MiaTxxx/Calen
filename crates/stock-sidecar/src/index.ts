@@ -14,6 +14,10 @@ export {
   createTencentBasicProfileProvider,
   createTencentProvider,
 } from "./providers/tencent.ts";
+export {
+  createTencentFxProvider,
+  TENCENT_FX_SUPPORTED_CURRENCIES,
+} from "./providers/tencent-fx.ts";
 export { createEastmoneyProvider } from "./providers/eastmoney.ts";
 export { createSinafinanceProvider } from "./providers/sinafinance.ts";
 export { createBaostockProvider } from "./providers/baostock.ts";

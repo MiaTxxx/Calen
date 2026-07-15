@@ -9,6 +9,7 @@ export type StockBacktestStrategyId = "sma-cross" | QuantStrategyId | "fused";
 
 export type StockCapability =
   | "resolve"
+  | "fxRates"
   | "snapshot"
   | "history"
   | "profile"
@@ -28,7 +29,7 @@ export type StockCapability =
 
 export type StockResearchCapability = Exclude<
   StockCapability,
-  "resolve" | "backtest" | "marketBrief"
+  "resolve" | "fxRates" | "backtest" | "marketBrief"
 >;
 
 export interface InstrumentRef {
@@ -67,6 +68,25 @@ export interface StockResolveRequest {
   market?: Market;
   limit?: number;
 }
+
+export interface FxRatePairRequest {
+  fromCurrency: Currency;
+  toCurrency: Currency;
+}
+
+export interface StockFxRatesRequest {
+  pairs: FxRatePairRequest[];
+  maxAgeMs?: number;
+}
+
+export interface StockFxRateQuote extends FxRatePairRequest {
+  rate: number;
+  asOf: string;
+}
+
+export interface StockFxRatesResult extends EvidenceEnvelope {
+  rates: StockFxRateQuote[];
+}
 export interface InstrumentSearchResult extends EvidenceEnvelope {
   instruments: InstrumentRef[];
 }
@@ -85,6 +105,58 @@ export interface StockSnapshot {
   chart?: { bars: PriceBar[]; limit: number };
   profile?: unknown;
   metrics?: Record<string, number | string | null>;
+}
+
+export interface FinancialIncomeStatement {
+  totalOperatingRevenue?: number | undefined;
+  totalOperatingCost?: number | undefined;
+  operatingProfit?: number | undefined;
+  totalProfit?: number | undefined;
+  netProfit?: number | undefined;
+  deductedNetProfit?: number | undefined;
+}
+
+export interface FinancialBalanceStatement {
+  totalAssets?: number | undefined;
+  monetaryFunds?: number | undefined;
+  inventory?: number | undefined;
+  totalLiabilities?: number | undefined;
+  totalEquity?: number | undefined;
+  debtAssetRatio?: number | undefined;
+}
+
+export interface FinancialCashFlowStatement {
+  operatingCashFlow?: number | undefined;
+  investingCashFlow?: number | undefined;
+  financingCashFlow?: number | undefined;
+  cashIncrease?: number | undefined;
+  endingCash?: number | undefined;
+}
+
+export interface FinancialStatementPeriod {
+  reportDate: string;
+  income: FinancialIncomeStatement | null;
+  balance: FinancialBalanceStatement | null;
+  cashFlow: FinancialCashFlowStatement | null;
+}
+
+export interface StockFinancials {
+  reportDate: string;
+  currency: string;
+  statements: {
+    income: FinancialIncomeStatement | null;
+    balance: FinancialBalanceStatement | null;
+    cashFlow: FinancialCashFlowStatement | null;
+  };
+  periods: FinancialStatementPeriod[];
+  coverage: {
+    requestedPeriods: number;
+    returnedPeriods: number;
+    completePeriods: number;
+    oldestReportDate?: string;
+    newestReportDate?: string;
+  };
+  missingStatements: string[];
 }
 
 export interface PriceBar {
@@ -193,6 +265,10 @@ export interface StockProvider {
     request: StockResolveRequest,
     context: ProviderContext
   ): Promise<ProviderEvidence<InstrumentRef[]>>;
+  fxRates?(
+    request: StockFxRatesRequest,
+    context: ProviderContext
+  ): Promise<ProviderEvidence<StockFxRateQuote[]>>;
   snapshot?(
     instrument: InstrumentRef,
     context: ProviderContext
@@ -209,7 +285,7 @@ export interface StockProvider {
   financials?(
     instrument: InstrumentRef,
     context: ProviderContext
-  ): Promise<ProviderEvidence<unknown>>;
+  ): Promise<ProviderEvidence<StockFinancials>>;
   shareholders?(
     instrument: InstrumentRef,
     context: ProviderContext
@@ -281,3 +357,12 @@ export interface StockResearchPort {
   ): Promise<StockBacktestResult>;
   status(): Promise<StockServiceStatus>;
 }
+
+export interface StockFxRatePort {
+  fxRates(
+    request: StockFxRatesRequest,
+    signal?: AbortSignal
+  ): Promise<StockFxRatesResult>;
+}
+
+export type StockSidecarPort = StockResearchPort & StockFxRatePort;

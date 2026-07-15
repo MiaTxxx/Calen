@@ -19,6 +19,7 @@ import {
   type StockBackupRestoreMode,
   type StockCurrency,
   type StockFxRateInput,
+  type StockFxRatesResult,
   type StockPortfolioAnalysis,
   type StockPortfolioInstrument,
   type StockPortfolioRecord,
@@ -28,6 +29,7 @@ import {
   type StockWatchlistView,
   stockResearch,
 } from "../../lib/stock-research";
+import { evidenceFxRates, mergePortfolioFxRates, requiredPortfolioFxPairs } from "./portfolioFx";
 
 const transactionKinds: Array<{ value: StockTransactionKind; label: string }> = [
   { value: "BUY", label: "买入" },
@@ -147,9 +149,14 @@ export function PortfolioWorkspace() {
     HKD: "",
     USD: "",
   });
+  const [fxEvidence, setFxEvidence] = useState<Resource<StockFxRatesResult | null>>({
+    state: "ready",
+    data: null,
+  });
   const loadSequence = useRef(0);
   const watchSearchSequence = useRef(0);
   const busyActionRef = useRef<string | null>(null);
+  const manualFxRatesByPortfolio = useRef(new Map<string, StockFxRateInput[]>());
 
   const selectedPortfolio = useMemo(
     () =>
@@ -185,15 +192,17 @@ export function PortfolioWorkspace() {
   }, []);
 
   const loadPortfolio = useCallback(
-    async (portfolioId: string, fxRates: StockFxRateInput[] = []) => {
+    async (portfolioId: string, manualFxRates?: StockFxRateInput[]) => {
       const sequence = ++loadSequence.current;
       if (!portfolioId) {
         setAnalysis({ state: "error", message: "请先创建一个组合。" });
         setTransactions({ state: "ready", data: [] });
+        setFxEvidence({ state: "ready", data: null });
         return;
       }
       setAnalysis({ state: "loading" });
       setTransactions({ state: "loading" });
+      setFxEvidence({ state: "loading" });
       try {
         const [base, nextTransactions] = await Promise.all([
           stockResearch.portfolioAnalyze(portfolioId),
@@ -202,36 +211,52 @@ export function PortfolioWorkspace() {
         const livePositions = base.positions.filter(
           (position) => Math.abs(position.quantity) > 1e-9,
         );
-        const quoteResults = await Promise.all(
-          livePositions.map(async (position) => {
-            try {
-              const result = await stockResearch.snapshot({
-                instrument: {
-                  id: position.instrument.instrumentId,
-                  symbol: position.instrument.symbol,
-                  name: position.instrument.displayName,
-                  market: position.instrument.market as InstrumentRef["market"],
-                  exchange: position.instrument.exchange ?? "",
-                  assetType: position.instrument.assetType as InstrumentRef["assetType"],
-                  currency: position.instrument.currency,
-                },
-              });
-              return result.data?.price === null || result.data?.price === undefined
-                ? null
-                : {
-                    instrumentId: position.instrument.instrumentId,
-                    currency: position.instrument.currency,
-                    price: result.data.price,
-                    asOf: result.asOf ?? result.retrievedAt,
-                  };
-            } catch {
-              return null;
-            }
-          }),
+        const fxPairs = requiredPortfolioFxPairs(
+          base.totalsByCurrency,
+          base.portfolio.baseCurrency,
         );
+        const [quoteResults, fxOutcome] = await Promise.all([
+          Promise.all(
+            livePositions.map(async (position) => {
+              try {
+                const result = await stockResearch.snapshot({
+                  instrument: {
+                    id: position.instrument.instrumentId,
+                    symbol: position.instrument.symbol,
+                    name: position.instrument.displayName,
+                    market: position.instrument.market as InstrumentRef["market"],
+                    exchange: position.instrument.exchange ?? "",
+                    assetType: position.instrument.assetType as InstrumentRef["assetType"],
+                    currency: position.instrument.currency,
+                  },
+                });
+                return result.data?.price === null || result.data?.price === undefined
+                  ? null
+                  : {
+                      instrumentId: position.instrument.instrumentId,
+                      currency: position.instrument.currency,
+                      price: result.data.price,
+                      asOf: result.asOf ?? result.retrievedAt,
+                    };
+              } catch {
+                return null;
+              }
+            }),
+          ),
+          fxPairs.length
+            ? stockResearch
+                .fxRates({ pairs: fxPairs })
+                .then((result) => ({ result, error: null }))
+                .catch((nextError) => ({ result: null, error: formatStockError(nextError) }))
+            : Promise.resolve({ result: null, error: null }),
+        ]);
         const prices = quoteResults.filter(
           (item): item is NonNullable<typeof item> => item !== null,
         );
+        const savedManualFxRates =
+          manualFxRates ?? manualFxRatesByPortfolio.current.get(portfolioId) ?? [];
+        const automaticFxRates = fxOutcome.result ? evidenceFxRates(fxOutcome.result) : [];
+        const fxRates = mergePortfolioFxRates(automaticFxRates, savedManualFxRates);
         const enriched =
           prices.length || fxRates.length
             ? await stockResearch.portfolioAnalyze(portfolioId, prices, fxRates)
@@ -242,14 +267,36 @@ export function PortfolioWorkspace() {
             `仅 ${prices.length}/${livePositions.length} 个持仓取得了当前行情；缺失市值不会被推算。`,
           ];
         }
+        if (fxOutcome.error) {
+          enriched.warnings = [
+            ...enriched.warnings,
+            `自动汇率不可用：${fxOutcome.error}；原币分析仍然有效。`,
+          ];
+        } else if (fxOutcome.result) {
+          enriched.warnings = [
+            ...enriched.warnings,
+            ...fxOutcome.result.warnings.map((warning) => `自动汇率：${warning}`),
+          ];
+          if (fxOutcome.result.status !== "ok") {
+            enriched.warnings.push(
+              `自动汇率状态为 ${fxOutcome.result.status}；缺失币种不会被推算。`,
+            );
+          }
+        }
         if (sequence !== loadSequence.current) return;
         setAnalysis({ state: "ready", data: enriched });
         setTransactions({ state: "ready", data: nextTransactions });
+        setFxEvidence(
+          fxOutcome.error
+            ? { state: "error", message: fxOutcome.error }
+            : { state: "ready", data: fxOutcome.result },
+        );
       } catch (nextError) {
         if (sequence !== loadSequence.current) return;
         const message = formatStockError(nextError);
         setAnalysis({ state: "error", message });
         setTransactions({ state: "error", message });
+        setFxEvidence({ state: "error", message });
       }
     },
     [],
@@ -382,6 +429,7 @@ export function PortfolioWorkspace() {
           : [];
       },
     );
+    manualFxRatesByPortfolio.current.set(selectedPortfolio.id, fxRates);
     await loadPortfolio(selectedPortfolio.id, fxRates);
   }
 
@@ -470,8 +518,19 @@ export function PortfolioWorkspace() {
           <GlassPanel>
             <h2 className="text-sm font-semibold">汇率换算</h2>
             <p className="mt-1 text-[10.5px] text-muted-foreground">
-              填写 1 单位原币兑换组合基准币的汇率；保存时间使用当前时间。
+              自动汇率来自 sidecar；填写 1 单位原币兑换组合基准币的汇率可覆盖自动值。
             </p>
+            {fxEvidence.state === "ready" && fxEvidence.data?.sources[0] ? (
+              <div className="mt-2 rounded-lg border border-border/40 bg-background/40 px-2.5 py-2 text-[10px] text-muted-foreground">
+                自动汇率 · {fxEvidence.data.sources[0].name} · {fxEvidence.data.asOf}
+                {fxEvidence.data.cached ? " · 缓存" : ""}
+              </div>
+            ) : fxEvidence.state === "error" ||
+              (fxEvidence.state === "ready" && fxEvidence.data?.status === "unavailable") ? (
+              <div className="mt-2 text-[10px] text-amber-600">
+                自动汇率不可用，仍可查看原币结果。
+              </div>
+            ) : null}
             <div className="mt-3 grid grid-cols-2 gap-2">
               {(["CNY", "HKD", "USD"] as const)
                 .filter((currency) => currency !== selectedPortfolio?.baseCurrency)
@@ -486,7 +545,7 @@ export function PortfolioWorkspace() {
                       onChange={(event) =>
                         setFxDrafts((current) => ({ ...current, [currency]: event.target.value }))
                       }
-                      placeholder="留空则不换算"
+                      placeholder="留空则使用自动值"
                     />
                   </div>
                 ))}
@@ -497,7 +556,7 @@ export function PortfolioWorkspace() {
               onClick={() => void applyFxRates()}
               disabled={!selectedPortfolioId || analysis.state === "loading"}
             >
-              应用带时间戳汇率
+              应用手工汇率（覆盖自动值）
             </Button>
           </GlassPanel>
         </div>

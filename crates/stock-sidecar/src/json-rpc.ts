@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import type { StockResearchPort } from "./types.ts";
+import type { StockSidecarPort } from "./types.ts";
 
 type JsonRpcId = string | number | null;
 
@@ -96,6 +96,10 @@ function validMarket(value: unknown): boolean {
   );
 }
 
+function validCurrency(value: unknown): boolean {
+  return value === "CNY" || value === "HKD" || value === "USD";
+}
+
 function validInteger(
   value: unknown,
   minimum: number,
@@ -158,6 +162,27 @@ function validateParams(
       return "resolve.market 必须是 CN、HK 或 US";
     if (!validInteger(params.limit, 1, 100))
       return "resolve.limit 必须是 1-100 的整数";
+    return null;
+  }
+  if (method === "fxRates") {
+    if (
+      !Array.isArray(params.pairs) ||
+      params.pairs.length < 1 ||
+      params.pairs.length > 20
+    )
+      return "fxRates.pairs 必须是 1-20 个币对";
+    for (const value of params.pairs) {
+      const pair = record(value);
+      if (
+        !pair ||
+        !validCurrency(pair.fromCurrency) ||
+        !validCurrency(pair.toCurrency) ||
+        pair.fromCurrency === pair.toCurrency
+      )
+        return "fxRates.pairs 仅支持不同的 CNY、HKD、USD 币种";
+    }
+    if (!validInteger(params.maxAgeMs, 0, 86_400_000))
+      return "fxRates.maxAgeMs 必须是有效的非负整数";
     return null;
   }
   if (method === "snapshot") {
@@ -286,7 +311,7 @@ function validateParams(
 }
 
 export async function dispatchJsonRpc(
-  service: StockResearchPort,
+  service: StockSidecarPort,
   value: unknown
 ): Promise<JsonRpcResponse | null> {
   const request = requestFrom(value);
@@ -313,6 +338,9 @@ export async function dispatchJsonRpc(
     switch (request.method) {
       case "resolve":
         result = await service.resolve(params as never);
+        break;
+      case "fxRates":
+        result = await service.fxRates(params as never);
         break;
       case "snapshot":
         result = await service.snapshot(params as never);
@@ -352,7 +380,7 @@ export async function dispatchJsonRpc(
 export interface JsonRpcStdioOptions {
   input: Readable;
   output: Writable;
-  service: StockResearchPort;
+  service: StockSidecarPort;
 }
 
 export async function runJsonRpcStdio(

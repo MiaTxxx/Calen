@@ -2,6 +2,7 @@ import { makeInstrument } from "../instruments.ts";
 import type {
   AssetClass,
   InstrumentRef,
+  Market,
   PriceBar,
   ProviderContext,
   ProviderEvidence,
@@ -88,7 +89,11 @@ function assetClass(type: string, symbol: string): AssetClass {
   return "EQUITY";
 }
 
-function parseSuggestions(text: string, limit: number): InstrumentRef[] {
+function parseSuggestions(
+  text: string,
+  limit: number,
+  marketHint?: Market
+): InstrumentRef[] {
   const payload = /var\s+suggestvalue="([\s\S]*?)";?/.exec(text)?.[1] ?? "";
   const instruments: InstrumentRef[] = [];
   const seen = new Set<string>();
@@ -98,30 +103,53 @@ function parseSuggestions(text: string, limit: number): InstrumentRef[] {
     const code = fields[2];
     const symbol = fields[3]?.toLowerCase();
     const name = fields[4]?.trim();
+    if (!type || !code || !symbol || !name) continue;
+    let instrument: InstrumentRef | null = null;
     if (
-      !type ||
-      !code ||
-      !symbol ||
-      !name ||
-      !/^(?:sh|sz|bj)\d{6}$/.test(symbol) ||
-      !/^\d{6}$/.test(code) ||
-      (type !== "11" && type !== "203")
+      (type === "11" || type === "203") &&
+      /^(?:sh|sz|bj)\d{6}$/.test(symbol) &&
+      /^\d{6}$/.test(code)
+    ) {
+      const exchange = exchangeFromSymbol(symbol);
+      if (exchange)
+        instrument = makeInstrument(
+          "CN",
+          code,
+          exchange,
+          assetClass(type, symbol),
+          "CNY",
+          name
+        );
+    } else if (type === "31" && /^\d{1,5}$/.test(code)) {
+      instrument = makeInstrument(
+        "HK",
+        code.padStart(5, "0"),
+        "HKEX",
+        "EQUITY",
+        "HKD",
+        name
+      );
+    } else if (type === "41" && /^[a-z][a-z0-9.-]{0,14}$/i.test(code)) {
+      const ticker = code.toUpperCase();
+      instrument = {
+        id: `US:${ticker}`,
+        market: "US",
+        exchange: "US",
+        assetType: "unknown",
+        currency: "USD",
+        symbol: ticker,
+        name,
+      };
+    }
+    if (
+      !instrument ||
+      (marketHint && instrument.market !== marketHint) ||
+      seen.has(instrument.id)
     )
       continue;
-    const exchange = exchangeFromSymbol(symbol);
-    const id = `CN:${code}`;
-    if (!exchange || seen.has(id)) continue;
+    const id = instrument.id;
     seen.add(id);
-    instruments.push(
-      makeInstrument(
-        "CN",
-        code,
-        exchange,
-        assetClass(type, symbol),
-        "CNY",
-        name
-      )
-    );
+    instruments.push(instrument);
     if (instruments.length >= limit) break;
   }
   return instruments;
@@ -148,25 +176,42 @@ async function resolve(
   request: StockResolveRequest,
   context: ProviderContext
 ): Promise<ProviderEvidence<InstrumentRef[]>> {
-  if (request.market && request.market !== "CN")
-    return {
-      data: null,
-      asOf: context.now().toISOString(),
-      warnings: ["新浪财经标的搜索适配器仅支持 A 股"],
-    };
-  const url = new URL("https://suggest3.sinajs.cn/suggest/type=11,203");
+  const types =
+    request.market === "HK"
+      ? "31"
+      : request.market === "US"
+        ? "41"
+        : request.market === "CN"
+          ? "11,203"
+          : "11,203,31,41";
+  const url = new URL("https://suggest3.sinajs.cn/suggest");
+  url.searchParams.set("type", types);
   url.searchParams.set("key", request.query.trim());
   const text = await decodeSinaText(
     await context.fetch(url, requestInit(context.signal))
   );
   const instruments = parseSuggestions(
     text,
-    Math.min(Math.max(request.limit ?? 10, 1), 50)
+    Math.min(Math.max(request.limit ?? 10, 1), 50),
+    request.market
   );
-  return {
+  const includesHk = instruments.some(({ market }) => market === "HK");
+  const includesUs = instruments.some(({ market }) => market === "US");
+  const warnings: string[] = [];
+  if (includesHk || includesUs)
+    warnings.push(
+      "港美股首版仅提供搜索、行情、日 K 和有限基础研究；其余能力可能返回 partial/unavailable。"
+    );
+  if (includesUs)
+    warnings.push(
+      "新浪美股 suggestion 不区分股票与 ETF，且交易所信息未验证；结果使用 exchange=US、assetType=unknown。"
+    );
+  const result: ProviderEvidence<InstrumentRef[]> = {
     data: instruments.length ? instruments : null,
     asOf: context.now().toISOString(),
   };
+  if (warnings.length) result.warnings = warnings;
+  return result;
 }
 
 async function snapshot(

@@ -1,9 +1,14 @@
 import { ProviderError } from "./registry.ts";
 import { extractPdfPlainText } from "../pdf-text.ts";
 import type {
+  FinancialBalanceStatement,
+  FinancialCashFlowStatement,
+  FinancialIncomeStatement,
+  FinancialStatementPeriod,
   InstrumentRef,
   ProviderContext,
   ProviderEvidence,
+  StockFinancials,
 } from "../types.ts";
 
 type UnknownRecord = Record<string, unknown>;
@@ -32,19 +37,36 @@ function stripHtml(value: unknown): string | undefined {
     .trim();
 }
 
+const EASTMONEY_CN_EXCHANGES: Readonly<
+  Record<
+    string,
+    { companyPrefix: string; securitySuffix: string; marketId: string }
+  >
+> = {
+  SSE: { companyPrefix: "SH", securitySuffix: "SH", marketId: "1" },
+  SZSE: { companyPrefix: "SZ", securitySuffix: "SZ", marketId: "0" },
+  BSE: { companyPrefix: "BJ", securitySuffix: "BJ", marketId: "0" },
+};
+
+function eastmoneyExchange(instrument: InstrumentRef) {
+  return instrument.market === "CN"
+    ? EASTMONEY_CN_EXCHANGES[instrument.exchange]
+    : undefined;
+}
+
 function companyCode(instrument: InstrumentRef): string | null {
-  if (instrument.market !== "CN" || instrument.exchange === "BSE") return null;
-  return `${instrument.exchange === "SSE" ? "SH" : "SZ"}${instrument.symbol}`;
+  const exchange = eastmoneyExchange(instrument);
+  return exchange ? `${exchange.companyPrefix}${instrument.symbol}` : null;
 }
 
 function securityCode(instrument: InstrumentRef): string | null {
-  if (instrument.market !== "CN" || instrument.exchange === "BSE") return null;
-  return `${instrument.symbol}.${instrument.exchange === "SSE" ? "SH" : "SZ"}`;
+  const exchange = eastmoneyExchange(instrument);
+  return exchange ? `${instrument.symbol}.${exchange.securitySuffix}` : null;
 }
 
 function securityId(instrument: InstrumentRef): string | null {
-  if (instrument.market !== "CN" || instrument.exchange === "BSE") return null;
-  return `${instrument.exchange === "SSE" ? "1" : "0"}.${instrument.symbol}`;
+  const exchange = eastmoneyExchange(instrument);
+  return exchange ? `${exchange.marketId}.${instrument.symbol}` : null;
 }
 
 async function fetchJson(
@@ -113,12 +135,6 @@ async function fetchPdf(
   return data;
 }
 
-function firstRow(payload: UnknownRecord): UnknownRecord | undefined {
-  const result = record(payload.result);
-  const data = Array.isArray(result?.data) ? result.data : [];
-  return record(data[0]);
-}
-
 export async function fetchEastmoneyProfile(
   instrument: InstrumentRef,
   context: ProviderContext
@@ -128,7 +144,7 @@ export async function fetchEastmoneyProfile(
     return {
       data: null,
       asOf: context.now().toISOString(),
-      warnings: ["东方财富公司资料仅支持沪深 A 股"],
+      warnings: ["东方财富公司资料仅支持沪深北 A 股"],
     };
   const url = new URL(
     "https://emweb.securities.eastmoney.com/PC_HSF10/CompanySurvey/PageAjax"
@@ -169,9 +185,9 @@ async function fetchStatement(
   instrument: InstrumentRef,
   reportName: string,
   context: ProviderContext
-): Promise<UnknownRecord | undefined> {
+): Promise<UnknownRecord[]> {
   const code = securityCode(instrument);
-  if (!code) return undefined;
+  if (!code) return [];
   const url = new URL(
     "https://datacenter.eastmoney.com/securities/api/data/v1/get"
   );
@@ -179,14 +195,21 @@ async function fetchStatement(
   url.searchParams.set("columns", "ALL");
   url.searchParams.set("filter", `(SECUCODE=\"${code}\")`);
   url.searchParams.set("pageNumber", "1");
-  url.searchParams.set("pageSize", "5");
+  url.searchParams.set("pageSize", "4");
   url.searchParams.set("sortTypes", "-1");
   url.searchParams.set("sortColumns", "REPORT_DATE");
   url.searchParams.set("source", "HSF10");
   url.searchParams.set("client", "PC");
-  return firstRow(
-    await fetchJson(url, context, "https://emweb.securities.eastmoney.com/")
+  const payload = await fetchJson(
+    url,
+    context,
+    "https://emweb.securities.eastmoney.com/"
   );
+  const result = record(payload.result);
+  const data = Array.isArray(result?.data) ? result.data : [];
+  return data
+    .map(record)
+    .filter((row): row is UnknownRecord => row !== undefined);
 }
 
 async function fetchReportRows(
@@ -199,12 +222,7 @@ async function fetchReportRows(
 ): Promise<UnknownRecord[]> {
   const filterValue =
     filterColumn === "SECUCODE" ? securityCode(instrument) : instrument.symbol;
-  if (
-    !filterValue ||
-    instrument.market !== "CN" ||
-    instrument.exchange === "BSE"
-  )
-    return [];
+  if (!filterValue || instrument.market !== "CN") return [];
   const url = new URL(
     "https://datacenter.eastmoney.com/securities/api/data/v1/get"
   );
@@ -225,26 +243,65 @@ async function fetchReportRows(
   return rows.map(record).filter((row) => row !== undefined);
 }
 
+function normalizeIncomeStatement(
+  row: UnknownRecord
+): FinancialIncomeStatement {
+  return {
+    totalOperatingRevenue:
+      finite(row.TOTAL_OPERATE_INCOME) ?? finite(row.TOTALOPERATEREVE),
+    totalOperatingCost: finite(row.TOTAL_OPERATE_COST),
+    operatingProfit: finite(row.OPERATE_PROFIT),
+    totalProfit: finite(row.TOTAL_PROFIT),
+    netProfit: finite(row.PARENT_NETPROFIT) ?? finite(row.NETPROFIT),
+    deductedNetProfit: finite(row.DEDUCT_PARENT_NETPROFIT),
+  };
+}
+
+function normalizeBalanceStatement(
+  row: UnknownRecord
+): FinancialBalanceStatement {
+  return {
+    totalAssets: finite(row.TOTAL_ASSETS),
+    monetaryFunds: finite(row.MONETARYFUNDS),
+    inventory: finite(row.INVENTORY),
+    totalLiabilities: finite(row.TOTAL_LIABILITIES),
+    totalEquity: finite(row.TOTAL_EQUITY),
+    debtAssetRatio: finite(row.DEBT_ASSET_RATIO),
+  };
+}
+
+function normalizeCashFlowStatement(
+  row: UnknownRecord
+): FinancialCashFlowStatement {
+  return {
+    operatingCashFlow: finite(row.NETCASH_OPERATE),
+    investingCashFlow: finite(row.NETCASH_INVEST),
+    financingCashFlow: finite(row.NETCASH_FINANCE),
+    cashIncrease: finite(row.CCE_ADD),
+    endingCash: finite(row.END_CCE),
+  };
+}
+
 export async function fetchEastmoneyFinancials(
   instrument: InstrumentRef,
   context: ProviderContext
-): Promise<ProviderEvidence<unknown>> {
+): Promise<ProviderEvidence<StockFinancials>> {
   if (!securityCode(instrument))
     return {
       data: null,
       asOf: context.now().toISOString(),
-      warnings: ["东方财富财务三表仅支持沪深 A 股"],
+      warnings: ["东方财富财务三表仅支持沪深北 A 股"],
     };
   const settled = await Promise.allSettled([
     fetchStatement(instrument, "RPT_DMSK_FN_INCOME", context),
     fetchStatement(instrument, "RPT_DMSK_FN_BALANCE", context),
     fetchStatement(instrument, "RPT_DMSK_FN_CASHFLOW", context),
   ]);
-  const income =
+  const incomeRows =
     settled[0].status === "fulfilled" ? settled[0].value : undefined;
-  const balance =
+  const balanceRows =
     settled[1].status === "fulfilled" ? settled[1].value : undefined;
-  const cashFlow =
+  const cashFlowRows =
     settled[2].status === "fulfilled" ? settled[2].value : undefined;
   const requestFailures = [
     settled[0].status === "rejected" &&
@@ -254,65 +311,79 @@ export async function fetchEastmoneyFinancials(
     settled[2].status === "rejected" &&
       `现金流量表请求失败：${settled[2].reason instanceof Error ? settled[2].reason.message : String(settled[2].reason)}`,
   ].filter((warning): warning is string => Boolean(warning));
+  const reportDates = Array.from(
+    new Set(
+      [incomeRows ?? [], balanceRows ?? [], cashFlowRows ?? []]
+        .flatMap((rows) => rows.flatMap((row) => text(row.REPORT_DATE) ?? []))
+        .filter((date): date is string => Boolean(date))
+    )
+  )
+    .sort((left, right) => right.localeCompare(left))
+    .slice(0, 4);
+  const rowForDate = (rows: UnknownRecord[] | undefined, date: string) =>
+    rows?.find((row) => text(row.REPORT_DATE) === date);
+  const periods: FinancialStatementPeriod[] = reportDates.map((date) => ({
+    reportDate: date,
+    income: rowForDate(incomeRows, date)
+      ? normalizeIncomeStatement(rowForDate(incomeRows, date)!)
+      : null,
+    balance: rowForDate(balanceRows, date)
+      ? normalizeBalanceStatement(rowForDate(balanceRows, date)!)
+      : null,
+    cashFlow: rowForDate(cashFlowRows, date)
+      ? normalizeCashFlowStatement(rowForDate(cashFlowRows, date)!)
+      : null,
+  }));
+  const completePeriods = periods.filter(
+    (period) => period.income && period.balance && period.cashFlow
+  ).length;
+  const latestPeriod = periods[0];
+  const reportDate = latestPeriod?.reportDate ?? context.now().toISOString();
+  const latestIncomeRow = rowForDate(incomeRows, reportDate);
+  const latestBalanceRow = rowForDate(balanceRows, reportDate);
+  const latestCashFlowRow = rowForDate(cashFlowRows, reportDate);
   const missing = [
-    !income && "利润表",
-    !balance && "资产负债表",
-    !cashFlow && "现金流量表",
-  ].filter(Boolean);
-  const reportDate =
-    text(income?.REPORT_DATE) ??
-    text(balance?.REPORT_DATE) ??
-    text(cashFlow?.REPORT_DATE) ??
-    context.now().toISOString();
+    !latestPeriod?.income && "利润表",
+    !latestPeriod?.balance && "资产负债表",
+    !latestPeriod?.cashFlow && "现金流量表",
+  ].filter((value): value is string => Boolean(value));
   const data = {
     reportDate,
     currency:
-      text(income?.CURRENCY) ??
-      text(balance?.CURRENCY) ??
-      text(cashFlow?.CURRENCY) ??
+      text(latestIncomeRow?.CURRENCY) ??
+      text(latestBalanceRow?.CURRENCY) ??
+      text(latestCashFlowRow?.CURRENCY) ??
       "CNY",
     statements: {
-      income: income
+      income: latestPeriod?.income ?? null,
+      balance: latestPeriod?.balance ?? null,
+      cashFlow: latestPeriod?.cashFlow ?? null,
+    },
+    periods,
+    coverage: {
+      requestedPeriods: 4,
+      returnedPeriods: periods.length,
+      completePeriods,
+      ...(periods.length
         ? {
-            totalOperatingRevenue:
-              finite(income.TOTAL_OPERATE_INCOME) ??
-              finite(income.TOTALOPERATEREVE),
-            totalOperatingCost: finite(income.TOTAL_OPERATE_COST),
-            operatingProfit: finite(income.OPERATE_PROFIT),
-            totalProfit: finite(income.TOTAL_PROFIT),
-            netProfit:
-              finite(income.PARENT_NETPROFIT) ?? finite(income.NETPROFIT),
-            deductedNetProfit: finite(income.DEDUCT_PARENT_NETPROFIT),
+            oldestReportDate: periods.at(-1)!.reportDate,
+            newestReportDate: periods[0]!.reportDate,
           }
-        : null,
-      balance: balance
-        ? {
-            totalAssets: finite(balance.TOTAL_ASSETS),
-            monetaryFunds: finite(balance.MONETARYFUNDS),
-            inventory: finite(balance.INVENTORY),
-            totalLiabilities: finite(balance.TOTAL_LIABILITIES),
-            totalEquity: finite(balance.TOTAL_EQUITY),
-            debtAssetRatio: finite(balance.DEBT_ASSET_RATIO),
-          }
-        : null,
-      cashFlow: cashFlow
-        ? {
-            operatingCashFlow: finite(cashFlow.NETCASH_OPERATE),
-            investingCashFlow: finite(cashFlow.NETCASH_INVEST),
-            financingCashFlow: finite(cashFlow.NETCASH_FINANCE),
-            cashIncrease: finite(cashFlow.CCE_ADD),
-            endingCash: finite(cashFlow.END_CCE),
-          }
-        : null,
+        : {}),
     },
     missingStatements: missing,
   };
-  const result: ProviderEvidence<unknown> = {
-    data: income || balance || cashFlow ? data : null,
+  const result: ProviderEvidence<StockFinancials> = {
+    data: periods.length ? data : null,
     asOf: reportDate,
   };
   const warnings = [...requestFailures];
   if (missing.length) warnings.push(`财务三表缺失：${missing.join("、")}`);
+  const incompletePeriods = periods
+    .filter((period) => !period.income || !period.balance || !period.cashFlow)
+    .map((period) => period.reportDate);
+  if (incompletePeriods.length)
+    warnings.push(`部分报告期三表不完整：${incompletePeriods.join("、")}`);
   if (warnings.length) result.warnings = warnings;
   return result;
 }
@@ -403,7 +474,7 @@ export async function fetchEastmoneyMoneyFlow(
     return {
       data: null,
       asOf: context.now().toISOString(),
-      warnings: ["东方财富资金流仅支持沪深 A 股"],
+      warnings: ["东方财富资金流仅支持沪深北 A 股"],
     };
   const url = new URL(
     "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"

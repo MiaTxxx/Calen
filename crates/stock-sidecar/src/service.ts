@@ -12,6 +12,7 @@ import {
 } from "./providers/registry.ts";
 import type {
   EvidenceSource,
+  InstrumentRef,
   InstrumentSearchResult,
   MarketBriefRequest,
   PriceBar,
@@ -19,8 +20,11 @@ import type {
   StockBacktestRequest,
   StockBacktestResult,
   StockEvidenceResult,
+  StockFxRateQuote,
+  StockFxRatesRequest,
+  StockFxRatesResult,
   StockProvider,
-  StockResearchPort,
+  StockSidecarPort,
   StockResearchCapability,
   StockResearchRequest,
   StockServiceStatus,
@@ -103,9 +107,44 @@ export interface CreateStockResearchServiceOptions extends ProviderRegistryOptio
   providerCatalog?: ProviderStatus[];
 }
 
+function localInstrumentResult(
+  instrument: InstrumentRef,
+  retrievedAt: string,
+  warnings: string[] = []
+): InstrumentSearchResult {
+  return {
+    status: warnings.length ? "partial" : "ok",
+    instruments: [instrument],
+    sources: [
+      {
+        id: "calen-symbol-resolver",
+        name: "Calen 标的解析器",
+        provider: "calen-symbol-resolver",
+        capability: "resolve",
+        asOf: retrievedAt,
+        retrievedAt,
+        cached: false,
+      },
+    ],
+    asOf: retrievedAt,
+    retrievedAt,
+    cached: false,
+    warnings,
+  };
+}
+
+function prefersNameSearch(
+  query: string,
+  instrument: InstrumentRef | null
+): boolean {
+  if (!instrument || instrument.market !== "US") return false;
+  const value = query.trim();
+  return !/^(?:US:|US[A-Z0-9]|.+\.(?:US|OQ|N|AM|PS|PK|OB))$/i.test(value);
+}
+
 export function createStockResearchService(
   options: CreateStockResearchServiceOptions = {}
-): StockResearchPort {
+): StockSidecarPort {
   const now = options.now ?? (() => new Date());
   const providers = options.providers ?? createDefaultProviders();
   const providerCatalog = options.providerCatalog ?? [];
@@ -116,32 +155,19 @@ export function createStockResearchService(
     ): Promise<InstrumentSearchResult> {
       const retrievedAt = now().toISOString();
       const instrument = normalizeInstrument(request.query, request.market);
-      if (instrument)
-        return {
-          status: "ok",
-          instruments: [instrument],
-          sources: [
-            {
-              id: "calen-symbol-resolver",
-              name: "Calen 标的解析器",
-              provider: "calen-symbol-resolver",
-              capability: "resolve",
-              asOf: retrievedAt,
-              retrievedAt,
-              cached: false,
-            },
-          ],
-          asOf: retrievedAt,
-          retrievedAt,
-          cached: false,
-          warnings: [],
-        };
+      if (instrument && !prefersNameSearch(request.query, instrument))
+        return localInstrumentResult(instrument, retrievedAt);
       const result = await registry.query(
         "resolve",
         `${request.market ?? "GLOBAL"}:${request.query}:${request.limit ?? 10}`,
         (provider, context) => provider.resolve!(request, context)
       );
-      if (!result.data || !result.source)
+      if (!result.data || !result.source) {
+        if (instrument)
+          return localInstrumentResult(instrument, retrievedAt, [
+            ...result.warnings,
+            "名称搜索不可用，当前结果仅按可能的美股 ticker 解析，请核对证券身份。",
+          ]);
         return {
           status: "unavailable",
           instruments: [],
@@ -151,9 +177,59 @@ export function createStockResearchService(
           cached: false,
           warnings: result.warnings,
         };
+      }
       return {
         status: result.warnings.length ? "partial" : "ok",
         instruments: result.data,
+        sources: [result.source],
+        asOf: result.source.asOf,
+        retrievedAt: result.source.retrievedAt,
+        cached: result.cached,
+        warnings: result.warnings,
+      };
+    },
+    async fxRates(
+      request: StockFxRatesRequest,
+      signal?: AbortSignal
+    ): Promise<StockFxRatesResult> {
+      const seen = new Set<string>();
+      const pairs = request.pairs.filter((pair) => {
+        const key = `${pair.fromCurrency}/${pair.toCurrency}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      const requestKey = pairs
+        .map((pair) => `${pair.fromCurrency}/${pair.toCurrency}`)
+        .sort()
+        .join(",");
+      const retrievedAt = now().toISOString();
+      const result = await registry.query(
+        "fxRates",
+        requestKey,
+        (provider, context) =>
+          provider.fxRates!({ ...request, pairs }, context),
+        signal,
+        request.maxAgeMs
+      );
+      const rates = Array.isArray(result.data)
+        ? (result.data as StockFxRateQuote[])
+        : [];
+      if (!rates.length || !result.source) {
+        return {
+          status: "unavailable",
+          rates: [],
+          sources: [],
+          asOf: retrievedAt,
+          retrievedAt,
+          cached: false,
+          warnings: result.warnings,
+        };
+      }
+      const partial = rates.length < pairs.length || result.warnings.length > 0;
+      return {
+        status: partial ? "partial" : "ok",
+        rates,
         sources: [result.source],
         asOf: result.source.asOf,
         retrievedAt: result.source.retrievedAt,

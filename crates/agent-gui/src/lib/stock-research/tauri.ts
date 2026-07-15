@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
   mapStockBacktestResult,
+  mapStockFxRatesResult,
   mapStockMarketBriefResult,
   mapStockResearchResult,
   mapStockResolveEnvelope,
@@ -20,6 +21,8 @@ import type {
   StockBackupRestoreMode,
   StockCurrency,
   StockFxRateInput,
+  StockFxRatePort,
+  StockFxRatesRequest,
   StockPortfolioAnalysis,
   StockPortfolioInstrument,
   StockPortfolioRecord,
@@ -39,6 +42,7 @@ import type {
 
 const commands = {
   resolve: "stock_research_resolve",
+  fxRates: "stock_research_fx_rates",
   snapshot: "stock_research_snapshot",
   research: "stock_research_run",
   marketBrief: "stock_research_market_brief",
@@ -65,11 +69,15 @@ const commands = {
   portfolioExportCsvOf: "ui_stock_portfolio_export_csv",
 } as const;
 
-export class TauriStockResearchAdapter implements StockResearchPort {
+export class TauriStockResearchAdapter implements StockResearchPort, StockFxRatePort {
   resolve(request: StockResolveRequest) {
     return invoke<unknown>(commands.resolve, {
       request: toSidecarResolveRequest(request),
     }).then(mapStockResolveEnvelope);
+  }
+
+  fxRates(request: StockFxRatesRequest) {
+    return invoke<unknown>(commands.fxRates, { request }).then(mapStockFxRatesResult);
   }
 
   snapshot(request: StockSnapshotRequest) {
