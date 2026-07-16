@@ -174,7 +174,8 @@ test("desktop release blocks on real Windows installer lifecycle validation", ()
 test("pull request CI builds temporary-signed Windows installers and runs lifecycle smoke", () => {
   assert.match(ciWorkflow, /Generate ephemeral updater signing key/);
   assert.match(ciWorkflow, /tauri signer generate --ci/);
-  assert.match(ciWorkflow, /TAURI_SIGNING_PRIVATE_KEY_PATH=/);
+  assert.match(ciWorkflow, /TAURI_SIGNING_PRIVATE_KEY=/);
+  assert.doesNotMatch(ciWorkflow, /TAURI_SIGNING_PRIVATE_KEY_PATH=/);
   assert.match(
     ciWorkflow,
     /Build previous Windows installers for upgrade smoke/

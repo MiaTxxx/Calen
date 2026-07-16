@@ -308,7 +308,7 @@ jobs:
         run: |
           $keyPath = Join-Path $env:RUNNER_TEMP "calen-ci-updater.key"
           pnpm --dir crates/agent-gui exec tauri signer generate --ci --write-keys "$keyPath" --password "calen-ci-only"
-          "TAURI_SIGNING_PRIVATE_KEY_PATH=$keyPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TAURI_SIGNING_PRIVATE_KEY=$keyPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=calen-ci-only" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           $delimiter = "CALEN_UPDATER_KEY_$([Guid]::NewGuid().ToString('N'))"
           "CALEN_UPDATER_PUBLIC_KEY<<$delimiter" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
