@@ -1,3 +1,9 @@
+import {
+  isPrivateStockPortfolioToolName,
+  redactPortfolioDerivedGatewayEvent,
+  redactPrivateStockPortfolioGatewayEvent,
+  STOCK_PORTFOLIO_PRIVACY_NOTICE,
+} from "../../../tools/stockPortfolioGatewayPrivacy";
 import type { ConversationViewState, HistoryMessageRef } from "../conversationState";
 
 type QueueEventOptions = {
@@ -65,11 +71,19 @@ export function createGatewayBridgeEventController(
   let forwardedText = false;
   let streamClosed = false;
   let lastToolStatusKey = "";
+  let privateStockPortfolioObserved = false;
+  let privateStockPortfolioNoticeForwarded = false;
 
   const queueEvent = (event: Record<string, unknown>, options?: QueueEventOptions) => {
     if (!params.enabled) return;
     if (streamClosed && !options?.allowAfterClose) return;
-    return params.sendEvent(params.requestId, event, { workerId: params.workerId });
+    if (isPrivateStockPortfolioToolName(event.name)) {
+      privateStockPortfolioObserved = true;
+    }
+    const visibleEvent = privateStockPortfolioObserved
+      ? redactPortfolioDerivedGatewayEvent(event)
+      : redactPrivateStockPortfolioGatewayEvent(event);
+    return params.sendEvent(params.requestId, visibleEvent, { workerId: params.workerId });
   };
 
   const queueToolStatus = (status: string | null, isCompaction = false) => {
@@ -106,6 +120,18 @@ export function createGatewayBridgeEventController(
     },
     queueToken(delta: string, extra?: Record<string, unknown>) {
       if (delta.length === 0 && !extra) return;
+      if (privateStockPortfolioObserved && delta.length > 0) {
+        if (privateStockPortfolioNoticeForwarded) return;
+        forwardedText = true;
+        privateStockPortfolioNoticeForwarded = true;
+        queueEvent({
+          type: "token",
+          text: STOCK_PORTFOLIO_PRIVACY_NOTICE,
+          conversation_id: params.conversationId,
+          ...extra,
+        });
+        return;
+      }
       if (delta.length > 0) {
         forwardedText = true;
       }
@@ -117,7 +143,7 @@ export function createGatewayBridgeEventController(
       });
     },
     queueTitle(nextTitle: string, allowAfterClose = false) {
-      const title = nextTitle.trim();
+      const title = privateStockPortfolioObserved ? "本地组合分析" : nextTitle.trim();
       if (!title) return;
       queueEvent(
         {
@@ -138,7 +164,7 @@ export function createGatewayBridgeEventController(
 
       queueEvent({
         type: "token",
-        text: summary.content,
+        text: privateStockPortfolioObserved ? STOCK_PORTFOLIO_PRIVACY_NOTICE : summary.content,
         provider: "liveagent",
         model: "summary",
         api: "liveagent-compaction",

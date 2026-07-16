@@ -137,6 +137,7 @@ async function executeCronPromptRun(
     skillsRootDir: skillsContext.rootDir,
     skillAccessPolicy: skillsContext.accessPolicy,
     runtimeScope: "cron_auto_prompt",
+    requestOrigin: "local",
     currentChatModel: {
       customProviderId: request.providerId,
       model: request.model,

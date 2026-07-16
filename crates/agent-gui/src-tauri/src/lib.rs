@@ -86,6 +86,49 @@ macro_rules! app_invoke_handler {
             commands::mcp::mcp_stop_server,
             commands::mcp::mcp_test_server,
             commands::mcp::mcp_restart_server,
+            // Built-in stock research sidecar
+            commands::stock::stock_search,
+            commands::stock::stock_snapshot,
+            commands::stock::stock_research,
+            commands::stock::stock_market_brief,
+            commands::stock::stock_backtest,
+            commands::stock::stock_status,
+            commands::stock::stock_cancel,
+            commands::stock::stock_restart,
+            commands::stock::stock_stop,
+            commands::stock::stock_research_resolve,
+            commands::stock::stock_research_snapshot,
+            commands::stock::stock_research_fx_rates,
+            commands::stock::stock_research_run,
+            commands::stock::stock_research_market_brief,
+            commands::stock::stock_research_backtest,
+            commands::stock::stock_research_status,
+            commands::stock::stock_settings_get,
+            commands::stock::stock_settings_save,
+            // Local stock watchlists, portfolios, ledger and read-only AI views
+            commands::stock_portfolio::ui_stock_watchlist_create,
+            commands::stock_portfolio::ui_stock_watchlist_list,
+            commands::stock_portfolio::ui_stock_watchlist_add_item,
+            commands::stock_portfolio::ui_stock_watchlist_remove_item,
+            commands::stock_portfolio::ui_stock_portfolio_create,
+            commands::stock_portfolio::ui_stock_portfolio_list,
+            commands::stock_portfolio::ui_stock_portfolio_record_transaction,
+            commands::stock_portfolio::ui_stock_portfolio_delete_transaction,
+            commands::stock_portfolio::ui_stock_portfolio_list_transactions,
+            commands::stock_portfolio::ui_stock_portfolio_snapshot,
+            commands::stock_portfolio::ui_stock_portfolio_export_csv,
+            commands::stock_portfolio::ui_stock_portfolio_import_csv,
+            commands::stock_portfolio::ui_stock_portfolio_export_backup_contract,
+            commands::stock_portfolio::ui_stock_portfolio_restore_backup_contract,
+            commands::stock_portfolio::ui_stock_portfolio_export_encrypted_backup,
+            commands::stock_portfolio::ui_stock_portfolio_restore_encrypted_backup,
+            commands::stock_portfolio::ai_stock_watchlist_list,
+            commands::stock_portfolio::ai_stock_portfolio_list,
+            commands::stock_portfolio::ai_stock_portfolio_transactions,
+            commands::stock_portfolio::ai_stock_portfolio_snapshot,
+            commands::stock_portfolio::stock_portfolio_read,
+            commands::stock_portfolio::stock_portfolio_import_csv,
+            commands::stock_portfolio::stock_portfolio_export_csv,
             // Memory
             commands::memory::memory_list,
             commands::memory::memory_read,
@@ -409,6 +452,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_mcp_bridge::init())
         .manage(Arc::new(commands::mcp::McpRuntimeManager::default()))
+        .manage(Arc::new(commands::stock::StockResearchManager::default()))
         .manage(Arc::clone(&memory_store))
         .manage(Arc::clone(&power_activity))
         .manage(Arc::new(runtime::shell_runner::ShellRunRegistry::default()))
@@ -528,6 +572,11 @@ pub fn run() {
             } else {
                 // Real exit: reclaim every non-isolated managed process
                 // before the OS tears us down (Drop is not guaranteed).
+                if let Some(stock_manager) =
+                    _app.try_state::<Arc<commands::stock::StockResearchManager>>()
+                {
+                    stock_manager.shutdown_cleanup();
+                }
                 managed_process_registry.shutdown_cleanup();
                 power_activity.clear_all();
             }

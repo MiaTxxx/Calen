@@ -13,6 +13,13 @@ import {
   getUserMessageDisplayText,
   type PendingUploadedFile,
 } from "../../../lib/chat/messages/uploadedFiles";
+import {
+  isPrivateStockPortfolioToolName,
+  STOCK_PORTFOLIO_PRIVACY_NOTICE,
+  stockPortfolioGatewayPlaceholderArguments,
+  stockPortfolioGatewayPlaceholderContent,
+  stockPortfolioGatewayPlaceholderDetails,
+} from "../../../lib/tools/stockPortfolioGatewayPrivacy";
 import { buildGatewayToolCallPreviewArguments } from "../turns/gatewayToolPreview";
 
 export type GatewayRuntimeSnapshotState = "running" | "completed" | "failed" | "cancelled";
@@ -127,6 +134,7 @@ function buildToolCallEntry(
   round: number | undefined,
   index: number,
   toolCall: ToolCall | undefined,
+  forceRedact = false,
 ): GatewayRuntimeSnapshotEntry {
   const normalized = normalizeToolCall(toolCall, `${prefix}-tool-${round ?? 0}-${index}`);
   // Snapshot entries must carry the same preview shape (truncated text +
@@ -134,7 +142,10 @@ function buildToolCallEntry(
   // order the two writers and never regress a streaming preview.
   const streamed = {
     ...normalized,
-    arguments: buildGatewayToolCallPreviewArguments(normalized),
+    arguments:
+      forceRedact || isPrivateStockPortfolioToolName(normalized.name)
+        ? stockPortfolioGatewayPlaceholderArguments()
+        : buildGatewayToolCallPreviewArguments(normalized),
   } as ToolCall;
   return {
     id: `${prefix}-tool-call-${round ?? 0}-${streamed.id}-${index}`,
@@ -152,15 +163,24 @@ function buildToolResultEntry(
   index: number,
   toolCall: ToolCall,
   toolResult: ToolResultMessage,
+  forceRedact = false,
 ): GatewayRuntimeSnapshotEntry {
   const normalized = normalizeToolResult(toolResult, toolCall);
+  const visible =
+    forceRedact || isPrivateStockPortfolioToolName(toolCall.name)
+      ? ({
+          ...normalized,
+          content: stockPortfolioGatewayPlaceholderContent(),
+          details: stockPortfolioGatewayPlaceholderDetails(),
+        } as ToolResultMessage)
+      : normalized;
   return {
-    id: `${prefix}-tool-result-${round ?? 0}-${normalized.toolCallId}-${index}`,
+    id: `${prefix}-tool-result-${round ?? 0}-${visible.toolCallId}-${index}`,
     kind: "tool_result",
     round,
-    toolResult: normalized,
-    summary: normalized.toolName ? `${normalized.toolName} 执行结果` : "工具执行结果",
-    text: toolResultMessageToText(normalized),
+    toolResult: visible,
+    summary: visible.toolName ? `${visible.toolName} 执行结果` : "工具执行结果",
+    text: toolResultMessageToText(visible),
   };
 }
 
@@ -168,7 +188,12 @@ function appendRoundEntries(
   entries: GatewayRuntimeSnapshotEntry[],
   round: UiRound,
   prefix: string,
-) {
+  portfolioPrivacyActive: boolean,
+): boolean {
+  const roundUsesPrivatePortfolio = round.blocks.some(
+    (block) => block.kind === "tool" && isPrivateStockPortfolioToolName(block.item.toolCall?.name),
+  );
+  const redactRoundText = portfolioPrivacyActive || roundUsesPrivatePortfolio;
   let textBuffer = "";
   let assistantIndex = 0;
   let thinkingIndex = 0;
@@ -184,7 +209,7 @@ function appendRoundEntries(
       id: `${prefix}-assistant-${round.round}-${assistantIndex}`,
       kind: "assistant",
       round: round.round,
-      text: textBuffer,
+      text: redactRoundText ? STOCK_PORTFOLIO_PRIVACY_NOTICE : textBuffer,
       meta: metaEmitted ? undefined : round.meta,
     });
     assistantIndex += 1;
@@ -203,7 +228,7 @@ function appendRoundEntries(
     flushText();
 
     if (block.kind === "thinking") {
-      if (block.text.trim()) {
+      if (block.text.trim() && !redactRoundText) {
         entries.push({
           id: `${prefix}-thinking-${round.round}-${thinkingIndex}`,
           kind: "thinking",
@@ -220,10 +245,19 @@ function appendRoundEntries(
         block.item.toolCall,
         `${prefix}-tool-${round.round}-${toolIndex}`,
       );
-      entries.push(buildToolCallEntry(prefix, round.round, toolIndex, block.item.toolCall));
+      entries.push(
+        buildToolCallEntry(prefix, round.round, toolIndex, block.item.toolCall, redactRoundText),
+      );
       if (block.item.toolResult) {
         entries.push(
-          buildToolResultEntry(prefix, round.round, toolIndex, toolCall, block.item.toolResult),
+          buildToolResultEntry(
+            prefix,
+            round.round,
+            toolIndex,
+            toolCall,
+            block.item.toolResult,
+            redactRoundText,
+          ),
         );
       }
       toolIndex += 1;
@@ -231,6 +265,7 @@ function appendRoundEntries(
     }
 
     if (block.kind === "hostedSearch") {
+      if (redactRoundText) continue;
       entries.push({
         id: `${prefix}-hosted-search-${round.round}-${hostedSearchIndex}`,
         kind: "hosted_search",
@@ -242,6 +277,7 @@ function appendRoundEntries(
   }
 
   flushText();
+  return redactRoundText;
 }
 
 function buildUserEntry(message: Message): GatewayRuntimeSnapshotEntry | null {
@@ -272,8 +308,14 @@ export function buildGatewayRuntimeSnapshotEntries(
 
   const liveRounds = input.liveTranscript.liveRounds;
   if (liveRounds.length > 0) {
+    let portfolioPrivacyActive = false;
     liveRounds.forEach((round, index) => {
-      appendRoundEntries(entries, round, `runtime-live-${index}`);
+      portfolioPrivacyActive = appendRoundEntries(
+        entries,
+        round,
+        `runtime-live-${index}`,
+        portfolioPrivacyActive,
+      );
     });
     return entries;
   }

@@ -30,6 +30,7 @@ import { createShellTools } from "./shellTools";
 import type { SkillAccessPolicy } from "./skillAccessPolicy";
 import { createSkillTools } from "./skillTools";
 import { createSSHManagerTools, type SshManagerSessionChange } from "./sshManagerTools";
+import { createStockResearchTools } from "./stockResearchTools";
 import type { SystemToolId, SystemToolRuntimeScope } from "./systemToolOptions";
 import { createTerminalTools } from "./terminalTools";
 import { createTodoTools, type TodoToolState } from "./todoTools";
@@ -45,6 +46,8 @@ export type BuiltinToolRegistry = {
   metadataByName: Map<string, BuiltinToolMetadata>;
   hasTool: (toolName: string) => boolean;
 };
+
+export type BuiltinToolRequestOrigin = "local" | "gateway";
 
 function createBuiltinToolRegistry(bundles: BuiltinToolBundle[]): BuiltinToolRegistry {
   const tools: BuiltinToolBundle["tools"] = [];
@@ -154,11 +157,22 @@ type BuildBuiltinBaseToolRegistryParams = {
   sshManagerRemoteAllowed?: boolean;
   onSshSessionsChanged?: (change: SshManagerSessionChange) => void | Promise<void>;
   onTunnelsChanged?: (change: TunnelManagerChange) => void | Promise<void>;
+  /** Gateway turns must not receive tools that can inspect or mutate the desktop host. */
+  requestOrigin: BuiltinToolRequestOrigin;
+  portfolioReadAuthorized?: boolean;
 };
 
 const resolveHomeDir = () => homeDir();
 
 async function buildBaseBuiltinToolBundles(params: BuildBuiltinBaseToolRegistryParams) {
+  // This is intentionally an allowlist boundary rather than per-tool
+  // redaction. A Gateway-originated model turn must never receive a handle to
+  // the desktop filesystem, shell, terminal, memory, MCP processes, cron,
+  // tunnels, or other host-capability adapters in the first place.
+  if (params.requestOrigin === "gateway") {
+    return [];
+  }
+
   const baseBundles: BuiltinToolBundle[] = [
     createFsTools({
       workdir: params.workdir,
@@ -260,10 +274,19 @@ export async function buildBuiltinToolRegistry(
     params.runtimeScope === "chat" && params.todoState
       ? [createTodoTools({ state: params.todoState })]
       : [];
+  const stockBundles = [
+    createStockResearchTools({
+      runtimeScope: params.runtimeScope,
+      portfolioReadAuthorized:
+        params.requestOrigin !== "gateway" && params.portfolioReadAuthorized === true,
+    }),
+  ];
 
-  const subagentRuntime = params.subagentRuntime;
+  // Subagents would otherwise become a second path back into the local host
+  // tool registry, so they are not registered for remotely initiated turns.
+  const subagentRuntime = params.requestOrigin === "gateway" ? undefined : params.subagentRuntime;
   if (!subagentRuntime) {
-    return createBuiltinToolRegistry([...baseBundles, ...todoBundles]);
+    return createBuiltinToolRegistry([...baseBundles, ...stockBundles, ...todoBundles]);
   }
 
   const baseRegistry = createBuiltinToolRegistry(baseBundles);
@@ -282,7 +305,9 @@ export async function buildBuiltinToolRegistry(
         senderName: "Parent Agent",
       })
     : null;
-  const parentBundles = parentMessageBundle ? [...baseBundles, parentMessageBundle] : baseBundles;
+  const parentBundles = parentMessageBundle
+    ? [...baseBundles, ...stockBundles, parentMessageBundle]
+    : [...baseBundles, ...stockBundles];
   return createBuiltinToolRegistry([
     ...parentBundles,
     ...todoBundles,

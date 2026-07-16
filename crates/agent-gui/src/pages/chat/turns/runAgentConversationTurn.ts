@@ -37,6 +37,7 @@ import {
   upsertHostedSearchToRound,
   upsertToolCallToRound,
 } from "../../../lib/chat/messages/uiMessages";
+import { getUserMessageDisplayText } from "../../../lib/chat/messages/uploadedFiles";
 import { runAssistantWithTools } from "../../../lib/chat/runner/agentRunner";
 import type { StreamDebugLogger } from "../../../lib/debug/agentDebug";
 import { assistantMessageToText } from "../../../lib/providers/llm";
@@ -65,6 +66,10 @@ import type { BuiltinToolExecutionContext } from "../../../lib/tools/builtinType
 import { createFileToolState } from "../../../lib/tools/fileToolState";
 import type { SkillAccessPolicy } from "../../../lib/tools/skillAccessPolicy";
 import type { SshManagerSessionChange } from "../../../lib/tools/sshManagerTools";
+import {
+  isStockPortfolioReadAuthorized,
+  type StockPortfolioRequestOrigin,
+} from "../../../lib/tools/stockPortfolioAuthorization";
 import { getOrCreateTodoToolState } from "../../../lib/tools/todoTools";
 import type { TunnelManagerChange } from "../../../lib/tools/tunnelManagerTools";
 import {
@@ -227,6 +232,7 @@ export type RunAgentConversationTurnParams = {
   sshHosts?: SshHostConfig[];
   associatedSshHostIds?: string[];
   sshManagerRemoteAllowed?: boolean;
+  stockPortfolioRequestOrigin: StockPortfolioRequestOrigin;
   onSshSessionsChanged?: (change: SshManagerSessionChange) => void;
   sessionId: string;
   conversationId: string;
@@ -244,7 +250,10 @@ export type RunAgentConversationTurnParams = {
   buildPreparedContext: (
     state: ConversationViewState,
     tools?: Context["tools"],
-    options?: { includeAbortedMessages?: boolean; includeUploadedFilesMetadata?: boolean },
+    options?: {
+      includeAbortedMessages?: boolean;
+      includeUploadedFilesMetadata?: boolean;
+    },
   ) => Context;
   compaction: CompactionController;
   cancellation: TurnCancellation;
@@ -292,6 +301,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     sshHosts,
     associatedSshHostIds,
     sshManagerRemoteAllowed,
+    stockPortfolioRequestOrigin,
     onSshSessionsChanged,
     sessionId,
     conversationId,
@@ -389,6 +399,26 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
   const todoState = getOrCreateTodoToolState(conversationId);
   const subagentScheduler = createSubagentScheduler();
   const runtimePlatform = await resolveRuntimePlatform();
+  const currentConversationState = getNextConversationState();
+  const activeSegment =
+    currentConversationState.segments[currentConversationState.activeSegmentIndex] ??
+    currentConversationState.segments[currentConversationState.segments.length - 1];
+  let latestUserMessage: Message | undefined;
+  for (let index = (activeSegment?.messages.length ?? 0) - 1; index >= 0; index -= 1) {
+    const message = activeSegment?.messages[index];
+    if (message?.role === "user") {
+      latestUserMessage = message;
+      break;
+    }
+  }
+  const portfolioReadAuthorized = latestUserMessage
+    ? isStockPortfolioReadAuthorized({
+        latestUserText: getUserMessageDisplayText(
+          latestUserMessage as Message & Record<string, unknown>,
+        ),
+        origin: stockPortfolioRequestOrigin,
+      })
+    : false;
   const buildRegistryStartedAt = perfNowMs();
   const builtinRegistry = await buildBuiltinToolRegistry({
     workdir: effectiveWorkdir,
@@ -413,6 +443,8 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     sshManagerRemoteAllowed,
     onSshSessionsChanged,
     onTunnelsChanged,
+    requestOrigin: stockPortfolioRequestOrigin,
+    portfolioReadAuthorized,
     onMcpLoadError: (message) => {
       const warning = `MCP 工具加载失败，已跳过并继续对话：${message || "未知错误"}`;
       console.warn(warning);
@@ -578,7 +610,10 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
 
   function queueToolCallDelta(toolCall: ToolCall, round: number) {
     if (!shouldShowToolEvent(toolCall)) return;
-    pendingToolCallDeltas.set(toolCallDeltaKey(round, toolCall.id), { round, toolCall });
+    pendingToolCallDeltas.set(toolCallDeltaKey(round, toolCall.id), {
+      round,
+      toolCall,
+    });
     schedulePendingToolCallDeltaFlush();
   }
 
