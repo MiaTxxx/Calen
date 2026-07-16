@@ -14,11 +14,11 @@ const validationScript = path.join(
 const releaseWorkflow = readFileSync(
   path.join(repoRoot, ".github/workflows/desktop-release.yml"),
   "utf8"
-);
+).replaceAll("\r\n", "\n");
 const ciWorkflow = readFileSync(
   path.join(repoRoot, ".github/workflows/ci.yml"),
   "utf8"
-);
+).replaceAll("\r\n", "\n");
 const updateCommandSource = readFileSync(
   path.join(guiRoot, "src-tauri/src/commands/app/update.rs"),
   "utf8"
@@ -268,6 +268,23 @@ test("Windows updater verification avoids stack overflow and fails workflows fas
   );
   assert.match(releaseWorkflow, /test-msiexec-argument-quoting\.ps1/);
   assert.match(releaseWorkflow, /if \(\$LASTEXITCODE -ne 0\)/);
+});
+
+test("Windows lifecycle creates its localized download directory before fetching installers", () => {
+  const testRootDefinition = windowsInstallerValidation.indexOf(
+    "$testRoot = Join-Path"
+  );
+  const testRootCreation = windowsInstallerValidation.indexOf(
+    "New-Item -ItemType Directory -Force -Path $testRoot"
+  );
+  const previousInstallerDownload = windowsInstallerValidation.indexOf(
+    "Invoke-WebRequest -Uri $msiAsset.browser_download_url"
+  );
+
+  assert.notEqual(testRootDefinition, -1);
+  assert.notEqual(previousInstallerDownload, -1);
+  assert.ok(testRootCreation > testRootDefinition);
+  assert.ok(testRootCreation < previousInstallerDownload);
 });
 
 test("Windows Installer raw quoting has an executable regression probe", () => {
