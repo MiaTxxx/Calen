@@ -176,6 +176,8 @@ test("pull request CI builds temporary-signed Windows installers and runs lifecy
   assert.match(ciWorkflow, /tauri signer generate --ci/);
   assert.match(ciWorkflow, /TAURI_SIGNING_PRIVATE_KEY=/);
   assert.doesNotMatch(ciWorkflow, /TAURI_SIGNING_PRIVATE_KEY_PATH=/);
+  assert.doesNotMatch(ciWorkflow, /--bundles nsis,msi/);
+  assert.match(ciWorkflow, /--bundles nsis msi/);
   assert.match(
     ciWorkflow,
     /Build previous Windows installers for upgrade smoke/

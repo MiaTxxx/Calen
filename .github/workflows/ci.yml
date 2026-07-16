@@ -325,7 +325,7 @@ jobs:
             --config src-tauri/tauri.windows.release.conf.json `
             --config src-tauri/tauri.ci.generated.conf.json `
             --target x86_64-pc-windows-msvc `
-            --bundles nsis,msi `
+            --bundles nsis msi `
             --ci
 
           $previousSetup = Get-ChildItem `
@@ -358,7 +358,7 @@ jobs:
             --config src-tauri/tauri.windows.release.conf.json `
             --config src-tauri/tauri.ci.generated.conf.json `
             --target x86_64-pc-windows-msvc `
-            --bundles nsis,msi `
+            --bundles nsis msi `
             --ci
 
       - name: Validate temporary Windows installers in Chinese paths
