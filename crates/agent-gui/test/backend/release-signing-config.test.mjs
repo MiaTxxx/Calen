@@ -339,3 +339,98 @@ test("NSIS upgrade accepts legacy releases without a stock sidecar", () => {
     /Invoke-SidecarSmoke -InstallRoot \$nsisUpgradeRoot/
   );
 });
+
+test("Windows MSI cleanup is typed, idempotent, and diagnosable", () => {
+  assert.match(
+    windowsInstallerValidation,
+    /\$attemptedMsiProductCodes\s*=\s*\[System\.Collections\.Generic\.HashSet\[string\]\]::new\(\[System\.StringComparer\]::OrdinalIgnoreCase\)/
+  );
+
+  const uninstallFunction = windowsInstallerValidation.slice(
+    windowsInstallerValidation.indexOf("function Invoke-MsiUninstall"),
+    windowsInstallerValidation.indexOf("function ConvertTo-CoreVersion")
+  );
+  assert.doesNotMatch(uninstallFunction, /FallbackPackage/);
+  assert.match(uninstallFunction, /Test-MsiProductCode/);
+  assert.match(
+    uninstallFunction,
+    /\$attemptedMsiProductCodes\.Add\(\$productCode\)/
+  );
+  assert.ok(
+    uninstallFunction.indexOf("$attemptedMsiProductCodes.Add($productCode)") <
+      uninstallFunction.indexOf("Invoke-CheckedProcess")
+  );
+  assert.match(uninstallFunction, /-RawArguments \$rawArguments/);
+  assert.match(uninstallFunction, /\/L\*v/);
+  assert.match(uninstallFunction, /MSIRESTARTMANAGERCONTROL=Disable/);
+  assert.match(uninstallFunction, /REBOOT=ReallySuppress/);
+  assert.match(uninstallFunction, /-TimeoutSeconds 180/);
+  assert.match(
+    windowsInstallerValidation,
+    /Get-Content -LiteralPath \$LogPath -Tail 80/
+  );
+  const diagnosticsFunction = windowsInstallerValidation.slice(
+    windowsInstallerValidation.indexOf("function Get-MsiUninstallDiagnostics"),
+    windowsInstallerValidation.indexOf("function Get-InstallRootFromEntry")
+  );
+  assert.doesNotMatch(
+    diagnosticsFunction,
+    /CommandLine|ExecutablePath|UninstallString|InstallLocation/
+  );
+  assert.match(uninstallFunction, /Get-MsiUninstallDiagnostics/);
+  assert.match(uninstallFunction, /Wait-MsiUninstallEntryRemoved/);
+  assert.match(uninstallFunction, /\$script:msiUninstallAttemptNumber \+= 1/);
+
+  const installFunction = windowsInstallerValidation.slice(
+    windowsInstallerValidation.indexOf("function Invoke-MsiInstall"),
+    windowsInstallerValidation.indexOf("function Invoke-MsiUninstall")
+  );
+  assert.match(installFunction, /Reset-MsiUninstallAttempt -Entry \$entry/);
+  assert.match(
+    installFunction,
+    /\(Test-MsiProductCode[\s\S]*?\) -and[\s\S]*?DisplayVersion/
+  );
+
+  const arpWaitFunction = windowsInstallerValidation.slice(
+    windowsInstallerValidation.indexOf(
+      "function Wait-MsiUninstallEntryRemoved"
+    ),
+    windowsInstallerValidation.indexOf("function Get-MsiUninstallDiagnostics")
+  );
+  assert.match(arpWaitFunction, /Get-MsiUninstallEntriesByProductCode/);
+  assert.doesNotMatch(arpWaitFunction, /Get-CalenUninstallEntries/);
+  assert.match(
+    windowsInstallerValidation,
+    /function Get-MsiUninstallEntriesByProductCode[\s\S]*?Join-Path \$root \$ProductCode/
+  );
+
+  assert.doesNotMatch(windowsInstallerValidation, /FallbackPackage/);
+  const nsisUninstallFunction = windowsInstallerValidation.slice(
+    windowsInstallerValidation.indexOf("function Invoke-NsisUninstall"),
+    windowsInstallerValidation.indexOf("function Invoke-MsiInstall")
+  );
+  assert.match(nsisUninstallFunction, /\$uninstaller\.FullName/);
+  assert.doesNotMatch(nsisUninstallFunction, /msiexec/);
+
+  const upgradeCleanup = windowsInstallerValidation.slice(
+    windowsInstallerValidation.indexOf(
+      "if ($null -ne $previous -and $previous.Path)"
+    ),
+    windowsInstallerValidation.indexOf(
+      'Write-Host "`nWindows installer lifecycle validation passed."'
+    )
+  );
+  assert.match(
+    upgradeCleanup,
+    /Where-Object\s*\{[\s\S]*?Test-MsiProductCode[\s\S]*?\}[\s\S]*?Invoke-MsiUninstall/
+  );
+  const upgradeTry = upgradeCleanup.slice(
+    upgradeCleanup.indexOf("try {"),
+    upgradeCleanup.indexOf("} finally {")
+  );
+  assert.match(
+    upgradeTry,
+    /Invoke-MsiUninstall -Entry \$currentEntry[\s\S]*?Wait-InstallRootReleased -InstallRoot \$upgradeRoot/
+  );
+  assert.equal(windowsInstallerValidation.includes("[0-9A-Fa-f-]+"), false);
+});
