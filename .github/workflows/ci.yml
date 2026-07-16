@@ -328,11 +328,12 @@ jobs:
             --bundles nsis msi `
             --ci
 
+          $bundleRoot = "target/x86_64-pc-windows-msvc/release/bundle"
           $previousSetup = Get-ChildItem `
-            -LiteralPath "crates/agent-gui/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis" `
+            -LiteralPath "$bundleRoot/nsis" `
             -Filter "*.exe" -File | Select-Object -First 1
           $previousMsi = Get-ChildItem `
-            -LiteralPath "crates/agent-gui/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi" `
+            -LiteralPath "$bundleRoot/msi" `
             -Filter "*.msi" -File | Select-Object -First 1
           if ($null -eq $previousSetup -or $null -eq $previousMsi) {
             throw "Previous Windows installer smoke build did not produce both NSIS and MSI artifacts."
@@ -349,7 +350,7 @@ jobs:
         env:
           CALEN_UPDATE_REPOSITORY: ${{ github.repository }}
         run: |
-          $bundleRoot = "crates/agent-gui/src-tauri/target/x86_64-pc-windows-msvc/release/bundle"
+          $bundleRoot = "target/x86_64-pc-windows-msvc/release/bundle"
           if (Test-Path -LiteralPath $bundleRoot) {
             Remove-Item -LiteralPath $bundleRoot -Recurse -Force
           }
@@ -364,7 +365,7 @@ jobs:
       - name: Validate temporary Windows installers in Chinese paths
         shell: pwsh
         run: |
-          $bundleRoot = "crates/agent-gui/src-tauri/target/x86_64-pc-windows-msvc/release/bundle"
+          $bundleRoot = "target/x86_64-pc-windows-msvc/release/bundle"
           $setup = Get-ChildItem -LiteralPath "$bundleRoot/nsis" -Filter "*.exe" -File | Select-Object -First 1
           $msi = Get-ChildItem -LiteralPath "$bundleRoot/msi" -Filter "*.msi" -File | Select-Object -First 1
           if ($null -eq $setup -or $null -eq $msi) {

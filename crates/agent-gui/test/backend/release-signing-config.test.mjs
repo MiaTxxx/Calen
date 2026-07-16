@@ -180,6 +180,10 @@ test("pull request CI builds temporary-signed Windows installers and runs lifecy
   assert.match(ciWorkflow, /--bundles nsis msi/);
   assert.match(
     ciWorkflow,
+    /\$bundleRoot = "target\/x86_64-pc-windows-msvc\/release\/bundle"/
+  );
+  assert.match(
+    ciWorkflow,
     /Build previous Windows installers for upgrade smoke/
   );
   assert.match(ciWorkflow, /Build current Windows installer smoke artifacts/);
