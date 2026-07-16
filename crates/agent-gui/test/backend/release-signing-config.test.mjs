@@ -198,6 +198,10 @@ test("desktop release blocks on real Windows installer lifecycle validation", ()
   );
   assert.match(
     windowsInstallerValidation,
+    /try \{[\s\S]*?Installing MSI into the required Chinese and space-containing directory[\s\S]*?Installing NSIS silently into a Chinese and space-containing path/
+  );
+  assert.match(
+    windowsInstallerValidation,
     /\$startInfo\.Environment\["PATH"\] = ""/
   );
   assert.match(windowsInstallerValidation, /dist\\stdio\.mjs/);

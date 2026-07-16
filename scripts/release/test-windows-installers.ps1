@@ -451,6 +451,22 @@ if ($preexistingEntries.Count -gt 0) {
 $previous = Find-PreviousStableInstallers
 
 try {
+    # Tauri's MSI imports the last NSIS install directory from the product
+    # registry key, so validate an explicit MSI directory while the runner is clean.
+    Write-Step "Installing MSI into the required Chinese and space-containing directory"
+    if (Test-Path -LiteralPath $msiRequestedRoot) {
+        Remove-Item -LiteralPath $msiRequestedRoot -Recurse -Force
+    }
+    $msiEntry = Invoke-MsiInstall -PackagePath $MsiPath -RequestedRoot $msiRequestedRoot -ExpectedVersion $CurrentVersion -LogName "current-msi-install.log"
+    $msiInstallRoot = Get-InstallRootFromEntry -Entry $msiEntry -PreferredRoot $msiRequestedRoot
+    if ([System.IO.Path]::GetFullPath($msiInstallRoot).TrimEnd('\') -ne [System.IO.Path]::GetFullPath($msiRequestedRoot).TrimEnd('\')) {
+        throw "MSI did not honor the required Chinese and space-containing INSTALLDIR: requested=$msiRequestedRoot actual=$msiInstallRoot"
+    }
+    Write-Host "MSI honored the Chinese and space-containing INSTALLDIR: $msiInstallRoot"
+    Invoke-SidecarSmoke -InstallRoot $msiInstallRoot | Out-Null
+    Invoke-MsiUninstall -Entry $msiEntry -FallbackPackage $MsiPath
+    Wait-InstallRootReleased -InstallRoot $msiInstallRoot
+
     Write-Step "Installing NSIS silently into a Chinese and space-containing path"
     Invoke-NsisInstall -PackagePath $SetupPath -InstallRoot $nsisInstallRoot -ExpectedVersion $CurrentVersion | Out-Null
     Invoke-SidecarSmoke -InstallRoot $nsisInstallRoot | Out-Null
@@ -498,20 +514,6 @@ try {
             }
         }
     }
-
-    Write-Step "Installing MSI into the required Chinese and space-containing directory"
-    if (Test-Path -LiteralPath $msiRequestedRoot) {
-        Remove-Item -LiteralPath $msiRequestedRoot -Recurse -Force
-    }
-    $msiEntry = Invoke-MsiInstall -PackagePath $MsiPath -RequestedRoot $msiRequestedRoot -ExpectedVersion $CurrentVersion -LogName "current-msi-install.log"
-    $msiInstallRoot = Get-InstallRootFromEntry -Entry $msiEntry -PreferredRoot $msiRequestedRoot
-    if ([System.IO.Path]::GetFullPath($msiInstallRoot).TrimEnd('\') -ne [System.IO.Path]::GetFullPath($msiRequestedRoot).TrimEnd('\')) {
-        throw "MSI did not honor the required Chinese and space-containing INSTALLDIR: requested=$msiRequestedRoot actual=$msiInstallRoot"
-    }
-    Write-Host "MSI honored the Chinese and space-containing INSTALLDIR: $msiInstallRoot"
-    Invoke-SidecarSmoke -InstallRoot $msiInstallRoot | Out-Null
-    Invoke-MsiUninstall -Entry $msiEntry -FallbackPackage $MsiPath
-    Wait-InstallRootReleased -InstallRoot $msiInstallRoot
 
     if ($null -ne $previous -and $previous.Path) {
         Write-Step "Installing $($previous.Tag), upgrading with current MSI, smoking sidecar, and uninstalling"
