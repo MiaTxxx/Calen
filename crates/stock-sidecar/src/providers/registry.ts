@@ -33,6 +33,7 @@ interface ProviderHealth {
   cooldownUntilMs: number;
   cooldownLevel: number;
   averageLatencyMs?: number;
+  lastSuccessAtMs?: number;
   lastError: string | undefined;
 }
 
@@ -288,7 +289,11 @@ export class ProviderRegistry {
         );
         if (evidence.data === null) throw new ProviderError("返回空数据");
         const finishedAt = this.now().getTime();
-        this.recordSuccess(provider.id, Math.max(0, finishedAt - startedAt));
+        this.recordSuccess(
+          provider.id,
+          Math.max(0, finishedAt - startedAt),
+          finishedAt
+        );
         const retrievedAt = this.now().toISOString();
         const result: ProviderQueryResult<T> = {
           data: evidence.data,
@@ -353,6 +358,8 @@ export class ProviderRegistry {
         status.cooldownUntil = new Date(state.cooldownUntilMs).toISOString();
       if (state.averageLatencyMs !== undefined)
         status.averageLatencyMs = state.averageLatencyMs;
+      if (state.lastSuccessAtMs !== undefined)
+        status.lastSuccessAt = new Date(state.lastSuccessAtMs).toISOString();
       if (state.lastError !== undefined) status.lastError = state.lastError;
       if (!state.hasObservation) status.warnings = ["尚未完成首个真实上游探测"];
       return status;
@@ -381,12 +388,17 @@ export class ProviderRegistry {
     );
   }
 
-  private recordSuccess(id: string, latencyMs: number): void {
+  private recordSuccess(
+    id: string,
+    latencyMs: number,
+    finishedAtMs: number
+  ): void {
     const state = this.health.get(id) ?? this.newHealth();
     state.hasObservation = true;
     state.consecutiveFailures = 0;
     state.circuitOpenUntilMs = 0;
     state.cooldownLevel = 0;
+    state.lastSuccessAtMs = finishedAtMs;
     state.lastError = undefined;
     state.averageLatencyMs =
       state.averageLatencyMs === undefined

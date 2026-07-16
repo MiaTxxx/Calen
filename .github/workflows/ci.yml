@@ -376,7 +376,7 @@ jobs:
               throw "Updater signature was not generated: $signature"
             }
           }
-          cargo run `
+          cargo run --release --locked `
             --manifest-path crates/agent-gui/src-tauri/Cargo.toml `
             --example verify-updater-signature `
             -- "$($setup.FullName)" "$($msi.FullName)"

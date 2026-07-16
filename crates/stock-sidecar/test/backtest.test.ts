@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createStockResearchService } from "../src/index.ts";
+import { createStockResearchService, makeInstrument } from "../src/index.ts";
 import type { PriceBar } from "../src/index.ts";
 
 function weekdayBars(
@@ -45,6 +45,14 @@ test("backtest executes a close-derived signal only at the next bar open", async
   });
 
   const result = await service.backtest({
+    instrument: makeInstrument(
+      "CN",
+      "600519",
+      "SSE",
+      "EQUITY",
+      "CNY",
+      "贵州茅台"
+    ),
     bars,
     initialCash: 1_000,
     feeRate: 0,
@@ -53,6 +61,7 @@ test("backtest executes a close-derived signal only at the next bar open", async
   });
 
   assert.equal(result.status, "ok");
+  assert.equal(result.instrument?.id, "CN:600519");
   assert.equal(result.trades[0]?.side, "buy");
   assert.equal(result.trades[0]?.signalTime, "2026-07-04");
   assert.equal(result.trades[0]?.executionTime, "2026-07-05");

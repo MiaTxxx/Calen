@@ -181,6 +181,7 @@ function unavailableResult(
 ): StockBacktestResult {
   return {
     status: "unavailable",
+    ...(request.instrument ? { instrument: request.instrument } : {}),
     sources: [],
     asOf: sample.evaluation.end || now,
     retrievedAt: now,
@@ -302,6 +303,7 @@ function resultEnvelope(
   const initialCash = request.initialCash ?? 100_000;
   return {
     status,
+    ...(request.instrument ? { instrument: request.instrument } : {}),
     sources: [
       {
         id: "calen-backtest",

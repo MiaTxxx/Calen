@@ -237,6 +237,14 @@ function asBoolean(value: unknown) {
   return typeof value === "boolean" ? value : undefined;
 }
 
+function asFiniteNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function asStockCurrency(value: unknown): "CNY" | "HKD" | "USD" | undefined {
+  return value === "CNY" || value === "HKD" || value === "USD" ? value : undefined;
+}
+
 function asWarnings(value: unknown) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
@@ -271,7 +279,7 @@ function resultDetails(
 ): StockToolResultDetails {
   const record = asRecord(result);
   const evidence = asRecord(record.evidence ?? record);
-  const instrument = asRecord(evidence.instrument);
+  const instrument = asRecord(evidence.instrument ?? asRecord(evidence.data).instrument);
   const quantCapabilities =
     definition.operation === "research" ? experimentalCapabilities(evidence) : [];
   return {
@@ -330,6 +338,146 @@ function resultText(details: StockToolResultDetails) {
         : "This result is research assistance, not investment advice or a trading instruction.",
     JSON.stringify(details.result, null, 2),
   ].join("\n\n");
+}
+
+async function enrichPortfolioSnapshot(
+  portfolioId: string,
+  requestId: string,
+  activeRequestIds: Set<string>,
+): Promise<{ result: unknown; warnings: string[]; sources: Record<string, unknown>[] }> {
+  const base = await invoke<unknown>("ai_stock_portfolio_snapshot", {
+    request: { portfolioId, prices: [], fxRates: [] },
+  });
+  const baseRecord = asRecord(base);
+  const positions = Array.isArray(baseRecord.positions) ? baseRecord.positions.map(asRecord) : [];
+  const livePositions = positions.filter(
+    (position) => Math.abs(asFiniteNumber(position.quantity) ?? 0) > 1e-9,
+  );
+  const warnings: string[] = [];
+  const sources: Record<string, unknown>[] = [];
+  const prices: Record<string, unknown>[] = [];
+
+  const quoteResults = await Promise.all(
+    livePositions.map(async (position, index) => {
+      const instrument = asRecord(position.instrument);
+      const symbol = asString(instrument.symbol);
+      const market = asString(instrument.market);
+      const currency = asStockCurrency(instrument.currency);
+      const instrumentId = asString(instrument.instrumentId ?? instrument.id);
+      if (!symbol || !market || !currency || !instrumentId) return null;
+      const childRequestId = `${requestId}:quote:${index}`;
+      activeRequestIds.add(childRequestId);
+      try {
+        const raw = await invoke<unknown>("stock_snapshot", {
+          payload: toStockSidecarToolPayload("snapshot", {
+            requestId: childRequestId,
+            historyDays: 0,
+            instrument: {
+              id: instrumentId,
+              symbol,
+              name: asString(instrument.displayName ?? instrument.name) ?? symbol,
+              market,
+              exchange: asString(instrument.exchange),
+              assetType: asString(instrument.assetType),
+              currency,
+            },
+          }),
+        });
+        const evidence = asRecord(raw);
+        const data = asRecord(evidence.data);
+        const price = asFiniteNumber(data.price);
+        const asOf =
+          asString(data.marketTime) ??
+          asEvidenceTime(evidence.asOf) ??
+          asString(evidence.retrievedAt);
+        const rawSources = Array.isArray(evidence.sources) ? evidence.sources : [];
+        for (const source of rawSources) {
+          const sourceRecord = asRecord(source);
+          if (Object.keys(sourceRecord).length) sources.push(sourceRecord);
+        }
+        if (price === undefined || price <= 0 || !asOf) return null;
+        return { instrumentId, currency, price, asOf };
+      } catch {
+        return null;
+      } finally {
+        activeRequestIds.delete(childRequestId);
+      }
+    }),
+  );
+  for (const quote of quoteResults) if (quote) prices.push(quote);
+  if (prices.length < livePositions.length) {
+    warnings.push(
+      `仅 ${prices.length}/${livePositions.length} 个持仓取得当前行情；缺失市值不会被推算。`,
+    );
+  }
+
+  const portfolio = asRecord(baseRecord.portfolio);
+  const baseCurrency = asStockCurrency(portfolio.baseCurrency);
+  const currencies = new Set<string>();
+  for (const position of livePositions) {
+    const currency = asStockCurrency(asRecord(position.instrument).currency);
+    if (currency && currency !== baseCurrency) currencies.add(currency);
+  }
+  const fxRates: Record<string, unknown>[] = [];
+  if (baseCurrency && currencies.size) {
+    const childRequestId = `${requestId}:fx`;
+    activeRequestIds.add(childRequestId);
+    try {
+      const raw = await invoke<unknown>("stock_research_fx_rates", {
+        request: {
+          requestId: childRequestId,
+          pairs: [...currencies].map((fromCurrency) => ({
+            fromCurrency,
+            toCurrency: baseCurrency,
+          })),
+        },
+      });
+      const evidence = asRecord(raw);
+      const rates = Array.isArray(evidence.rates) ? evidence.rates : [];
+      for (const rate of rates) {
+        const item = asRecord(rate);
+        const fromCurrency = asStockCurrency(item.fromCurrency);
+        const toCurrency = asStockCurrency(item.toCurrency);
+        const value = asFiniteNumber(item.rate);
+        const asOf = asString(item.asOf);
+        if (fromCurrency && toCurrency && value !== undefined && value > 0 && asOf)
+          fxRates.push({ fromCurrency, toCurrency, rate: value, asOf });
+      }
+      for (const source of Array.isArray(evidence.sources) ? evidence.sources : []) {
+        const sourceRecord = asRecord(source);
+        if (Object.keys(sourceRecord).length) sources.push(sourceRecord);
+      }
+      for (const warning of asWarnings(evidence.warnings)) warnings.push(`自动汇率：${warning}`);
+      if (asString(evidence.status) !== "ok")
+        warnings.push("自动汇率部分不可用；缺失币种不会被推算。");
+    } catch (error) {
+      warnings.push(
+        `自动汇率不可用：${error instanceof Error ? error.message : String(error)}；原币分析仍然有效。`,
+      );
+    } finally {
+      activeRequestIds.delete(childRequestId);
+    }
+  }
+
+  const enriched =
+    prices.length || fxRates.length
+      ? await invoke<unknown>("ai_stock_portfolio_snapshot", {
+          request: { portfolioId, prices, fxRates },
+        })
+      : base;
+  const enrichedRecord = asRecord(enriched);
+  return {
+    result: {
+      ...enrichedRecord,
+      sources: [
+        ...(Array.isArray(enrichedRecord.sources) ? enrichedRecord.sources : []),
+        ...sources,
+      ],
+      warnings: [...asWarnings(enrichedRecord.warnings), ...warnings],
+    },
+    warnings,
+    sources,
+  };
 }
 
 export function createStockResearchTools(params: {
@@ -397,8 +545,10 @@ export function createStockResearchTools(params: {
         ...asRecord(toolCall.arguments),
         requestId,
       };
+      const activeRequestIds = new Set([requestId]);
       const abort = () => {
-        void invoke("stock_cancel", { requestId });
+        for (const activeRequestId of activeRequestIds)
+          void invoke("stock_cancel", { requestId: activeRequestId });
       };
       signal?.addEventListener("abort", abort, { once: true });
       try {
@@ -416,13 +566,7 @@ export function createStockResearchTools(params: {
                 ? await invoke("ai_stock_portfolio_transactions", {
                     portfolioId,
                   })
-                : await invoke("ai_stock_portfolio_snapshot", {
-                    request: {
-                      portfolioId,
-                      prices: [],
-                      fxRates: [],
-                    },
-                  });
+                : (await enrichPortfolioSnapshot(portfolioId, requestId, activeRequestIds)).result;
           }
         } else {
           result = await invoke<unknown>(definition.command, {
@@ -432,15 +576,15 @@ export function createStockResearchTools(params: {
         const details = resultDetails(definition, requestId, result);
         if (definition.operation === "portfolio") {
           const action = asString(payload.action) ?? "list";
-          details.status = action === "snapshot" ? "partial" : "ok";
-          details.sources = [{ provider: "calen-local", label: "Calen 本地资产账本" }];
+          const portfolioWarnings = asWarnings(asRecord(result).warnings);
+          details.status =
+            action === "snapshot" ? (portfolioWarnings.length ? "partial" : "ok") : "ok";
+          details.sources = [
+            { provider: "calen-local", label: "Calen 本地资产账本" },
+            ...(details.sources ?? []),
+          ];
           details.retrievedAt = new Date().toISOString();
-          if (action === "snapshot") {
-            details.warnings = [
-              ...(details.warnings ?? []),
-              "未加载受控行情或汇率；持仓数量与成本来自本地账本，市值和组合汇总可能为空。",
-            ];
-          }
+          details.warnings = [...new Set([...(details.warnings ?? []), ...portfolioWarnings])];
         }
         return {
           role: "toolResult",

@@ -22,6 +22,7 @@ test("backtest v2 preserves time split, execution evidence and timed equity poin
   const result = mapStockBacktestResult({
     status: "partial",
     data: {
+      instrument,
       algorithm: {
         id: "calen.sma-cross",
         version: "2.0.0",
@@ -67,6 +68,7 @@ test("backtest v2 preserves time split, execution evidence and timed equity poin
   });
 
   assert.equal(result.status, "partial");
+  assert.equal(result.data?.instrument?.id, "CN:600519");
   assert.equal(result.data?.sample.calibration.points, 140);
   assert.equal(result.data?.sample.evaluation.points, 60);
   assert.deepEqual(result.data?.trades[0], {

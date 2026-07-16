@@ -819,6 +819,7 @@ export function mapStockBacktestResult(raw: unknown): StockEvidenceResult<Backte
   const sample = asRecord(data.sample);
   const benchmark = asRecord(data.benchmark);
   const metrics = asRecord(data.metrics);
+  const instrument = mapInstrument(data.instrument ?? envelope.instrument);
   const mapWindow = (value: unknown) => {
     const window = asRecord(value);
     return {
@@ -831,6 +832,7 @@ export function mapStockBacktestResult(raw: unknown): StockEvidenceResult<Backte
   const calibration = mapWindow(sample.calibration);
   const evaluation = mapWindow(sample.evaluation);
   const result: BacktestResult = {
+    ...(instrument ? { instrument } : {}),
     algorithmId: asString(algorithm.id) ?? "",
     algorithmVersion: asString(algorithm.version) ?? "",
     parameters: asRecord(algorithm.parameters),
@@ -934,16 +936,24 @@ export function mapStockServiceStatus(raw: unknown): StockServiceStatus {
               );
             })
           : [];
-        const providerState: "unknown" | "ready" | "cooldown" | "failed" | "unconfigured" =
-          item.state === "unknown"
-            ? "unknown"
-            : item.available === true
-              ? "ready"
-              : item.cooldownUntil || item.circuitOpenUntil
-                ? "cooldown"
-                : item.lastError
-                  ? "failed"
-                  : "unconfigured";
+        const providerState:
+          | "unknown"
+          | "ready"
+          | "cooldown"
+          | "disabled"
+          | "failed"
+          | "unconfigured" =
+          item.state === "disabled"
+            ? "disabled"
+            : item.state === "unknown"
+              ? "unknown"
+              : item.available === true
+                ? "ready"
+                : item.cooldownUntil || item.circuitOpenUntil
+                  ? "cooldown"
+                  : item.lastError
+                    ? "failed"
+                    : "unconfigured";
         const providerWarnings = normalizeWarnings(item.warnings);
         return [
           {

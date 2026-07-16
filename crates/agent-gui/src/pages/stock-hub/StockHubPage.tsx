@@ -1530,9 +1530,11 @@ function SourcesView({
                           ? "待探测"
                           : provider.state === "cooldown"
                             ? "冷却中"
-                            : provider.state === "unconfigured"
-                              ? "未配置"
-                              : "失败"
+                            : provider.state === "disabled"
+                              ? "已禁用"
+                              : provider.state === "unconfigured"
+                                ? "未配置"
+                                : "失败"
                     }
                   />
                 </div>

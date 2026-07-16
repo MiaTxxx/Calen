@@ -159,7 +159,7 @@ jobs:
         env:
           CALEN_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
-          cargo run `
+          cargo run --release --locked `
             --manifest-path crates/agent-gui/src-tauri/Cargo.toml `
             --example verify-updater-signature `
             -- "dist/Calen-$env:LIVEAGENT_RELEASE_TAG-Windows-x64-Setup.exe" `

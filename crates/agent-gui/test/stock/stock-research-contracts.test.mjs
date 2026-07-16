@@ -553,11 +553,20 @@ test("research, market brief, backtest and status tolerate sidecar raw shapes", 
         available: false,
         capabilities: ["snapshot", "moneyFlow"],
         cooldownUntil: "2026-07-15T08:00:00Z",
+        lastSuccessAt: "2026-07-15T07:00:00Z",
+      },
+      {
+        id: "baostock",
+        state: "disabled",
+        available: false,
+        capabilities: [],
       },
     ],
   });
   assert.equal(status.state, "failed");
   assert.equal(status.providers[0]?.state, "cooldown");
+  assert.equal(status.providers[0]?.lastSuccessAt, "2026-07-15T07:00:00Z");
+  assert.equal(status.providers[1]?.state, "disabled");
   const backtestRequest = toSidecarBacktestRequest({
     instrument,
     strategy: "sma-cross",
@@ -736,4 +745,8 @@ test("stock hub keeps the five product views", async () => {
   assert.ok(researchDefinition);
   assert.doesNotMatch(researchDefinition, /experimental:\s*true/);
   assert.match(stockToolSource, /experimentalCapabilities/);
+  assert.match(stockToolSource, /enrichPortfolioSnapshot/);
+  assert.match(stockToolSource, /stock_snapshot/);
+  assert.match(stockToolSource, /stock_research_fx_rates/);
+  assert.doesNotMatch(stockToolSource, /未加载受控行情或汇率/);
 });

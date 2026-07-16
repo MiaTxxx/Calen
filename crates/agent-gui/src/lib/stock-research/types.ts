@@ -203,6 +203,7 @@ export type MarketBriefSection =
   | "sentiment";
 
 export interface BacktestResult {
+  instrument?: InstrumentRef;
   algorithmId: string;
   algorithmVersion: string;
   parameters: Record<string, unknown>;
@@ -238,7 +239,7 @@ export interface StockServiceStatus {
   providers: Array<{
     id: string;
     name: string;
-    state: "unknown" | "ready" | "cooldown" | "unconfigured" | "failed";
+    state: "unknown" | "ready" | "cooldown" | "disabled" | "unconfigured" | "failed";
     capabilities: StockCapability[];
     lastSuccessAt?: string;
     message?: string;

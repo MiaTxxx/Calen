@@ -63,6 +63,10 @@ test("snapshot falls back, caches the successful evidence, and exposes provider 
   assert.match(first.warnings.join("\n"), /primary/);
   assert.equal(second.cached, true);
   assert.equal(fallbackReads, 1);
+  assert.equal(
+    registry.status().find((item) => item.id === "fallback")?.lastSuccessAt,
+    "2026-07-15T01:00:00.000Z"
+  );
   const primaryStatus = registry.status().find((item) => item.id === "primary");
   assert.equal(primaryStatus?.available, false);
   assert.equal(primaryStatus?.consecutiveFailures, 1);

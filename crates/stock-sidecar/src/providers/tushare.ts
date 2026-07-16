@@ -336,7 +336,7 @@ export function createTushareProvider(token: string): StockProvider {
           businessScope: company?.business_scope,
           employees: number(company?.employees),
         },
-        asOf: context.now().toISOString(),
+        asOf: "unknown",
       };
       if (!company)
         evidence.warnings = ["Tushare 公司详情不可用，仅返回基础资料"];

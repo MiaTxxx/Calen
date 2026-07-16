@@ -251,6 +251,7 @@ export interface BacktestEquityPoint {
 }
 
 export interface StockBacktestResult extends EvidenceEnvelope {
+  instrument?: InstrumentRef;
   algorithm: {
     id: string;
     version: string;
@@ -290,6 +291,7 @@ export interface ProviderStatus {
   cooldownUntil?: string;
   consecutiveFailures: number;
   averageLatencyMs?: number;
+  lastSuccessAt?: string;
   lastError?: string;
 }
 

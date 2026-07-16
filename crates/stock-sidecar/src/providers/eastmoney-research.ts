@@ -177,7 +177,7 @@ export async function fetchEastmoneyProfile(
       legalRepresentative: text(row.LEGAL_PERSON),
       sourceUrl: url.toString(),
     },
-    asOf: context.now().toISOString(),
+    asOf: "unknown",
   };
 }
 

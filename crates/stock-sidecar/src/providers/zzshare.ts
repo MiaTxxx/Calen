@@ -342,7 +342,7 @@ export function createZzshareProvider(token?: string): StockProvider {
           industry: details?.industry,
           mainBusiness: details?.main_business,
         },
-        asOf: context.now().toISOString(),
+        asOf: "unknown",
         warnings: details
           ? []
           : ["ZZShare 公司扩展资料不可用，仅返回上市标的资料"],
