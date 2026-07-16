@@ -480,7 +480,7 @@ try {
                 -PackagePath $previous.SetupPath `
                 -InstallRoot $nsisUpgradeRoot `
                 -ExpectedVersion $previous.Version
-            $oldNsisRoot = Get-InstallRootFromEntry -Entry $oldNsisEntry -PreferredRoot $nsisUpgradeRoot
+            $oldNsisRoot = (Resolve-Path -LiteralPath $nsisUpgradeRoot).Path
             # Legacy releases can predate the stock sidecar; smoke it only after the current installer replaces them.
             $currentNsisEntry = Invoke-NsisInstall `
                 -PackagePath $SetupPath `

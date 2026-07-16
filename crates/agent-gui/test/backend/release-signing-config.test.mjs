@@ -300,6 +300,10 @@ test("Windows Installer raw quoting has an executable regression probe", () => {
 });
 
 test("NSIS upgrade accepts legacy releases without a stock sidecar", () => {
+  const nsisInstallFunction = windowsInstallerValidation.slice(
+    windowsInstallerValidation.indexOf("function Invoke-NsisInstall"),
+    windowsInstallerValidation.indexOf("function Invoke-NsisUninstall")
+  );
   const legacyInstall = windowsInstallerValidation.indexOf(
     "$oldNsisEntry = Invoke-NsisInstall"
   );
@@ -308,11 +312,27 @@ test("NSIS upgrade accepts legacy releases without a stock sidecar", () => {
     legacyInstall
   );
 
+  assert.doesNotMatch(
+    nsisInstallFunction,
+    /Find-SidecarRoot|Invoke-SidecarSmoke|Get-InstallRootFromEntry/
+  );
   assert.notEqual(legacyInstall, -1);
   assert.notEqual(currentInstall, -1);
+  const legacyInstallSlice = windowsInstallerValidation.slice(
+    legacyInstall,
+    currentInstall
+  );
   assert.doesNotMatch(
-    windowsInstallerValidation.slice(legacyInstall, currentInstall),
-    /Invoke-SidecarSmoke/
+    legacyInstallSlice,
+    /Invoke-SidecarSmoke|Get-InstallRootFromEntry/
+  );
+  assert.match(
+    legacyInstallSlice,
+    /\$oldNsisRoot = \(Resolve-Path -LiteralPath \$nsisUpgradeRoot\)\.Path/
+  );
+  assert.match(
+    windowsInstallerValidation.slice(currentInstall),
+    /\$currentNsisRoot = Get-InstallRootFromEntry -Entry \$currentNsisEntry -PreferredRoot \$nsisUpgradeRoot/
   );
   assert.match(
     windowsInstallerValidation.slice(currentInstall),
