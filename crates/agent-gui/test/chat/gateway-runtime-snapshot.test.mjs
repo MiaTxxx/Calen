@@ -5,9 +5,10 @@ import { createTsModuleLoader } from "../helpers/load-ts-module.mjs";
 
 const loader = createTsModuleLoader();
 
-const { buildGatewayRuntimeSnapshotEntries } = loader.loadModule(
-  "src/pages/chat/gateway/chatRuntimeSnapshot.ts"
-);
+const {
+  buildGatewayRuntimeSnapshotEntries,
+  buildGatewayRuntimeSnapshotToolStatus,
+} = loader.loadModule("src/pages/chat/gateway/chatRuntimeSnapshot.ts");
 const { buildGatewayToolCallPreviewArguments } = loader.loadModule(
   "src/pages/chat/turns/gatewayToolPreview.ts"
 );
@@ -66,6 +67,61 @@ test("gateway runtime snapshot projects live rounds into chat entries", () => {
   assert.equal(entries[3].toolCall.name, "Shell");
   assert.equal(entries[4].toolResult.toolCallId, "tool-1");
   assert.equal(entries[5].text, " Next step is ready.");
+});
+
+test("gateway runtime snapshot redacts a marked portfolio turn before tool execution", () => {
+  const entries = buildGatewayRuntimeSnapshotEntries({
+    userMessage: {
+      role: "user",
+      id: "user-private-1",
+      content:
+        "分析我的持仓：600519 100 股\n\nSelected files: uploads/portfolio-secret.csv",
+      liveAgentDisplayContent: "分析我的持仓：600519 100 股",
+      liveAgentAttachments: [
+        {
+          relativePath: "uploads/portfolio-secret.csv",
+          absolutePath: "C:/private/portfolio-secret.csv",
+          fileName: "portfolio-secret.csv",
+          kind: "spreadsheet",
+          sizeBytes: 1024,
+        },
+      ],
+      calenGatewayPrivacy: "stock_portfolio",
+    },
+    liveTranscript: {
+      draftAssistantText: "家庭资产总值 150000",
+      toolStatus: null,
+      liveRounds: [],
+    },
+  });
+
+  const serialized = JSON.stringify(entries);
+  assert.doesNotMatch(
+    serialized,
+    /600519|100 股|portfolio-secret|C:\/private|家庭资产总值|150000/
+  );
+  assert.deepEqual(entries[0], {
+    id: "user-private-1",
+    kind: "user",
+    text: "Calen kept this local portfolio result on the desktop and did not send asset data to Gateway.",
+    attachments: [],
+  });
+  assert.match(entries[1].text, /did not send asset data to Gateway/);
+  assert.equal(
+    buildGatewayRuntimeSnapshotToolStatus({
+      userMessage: {
+        role: "user",
+        content: "分析我的持仓：600519 100 股",
+        calenGatewayPrivacy: "stock_portfolio",
+      },
+      liveTranscript: {
+        draftAssistantText: "",
+        toolStatus: "Read uploads/portfolio-secret.csv",
+        liveRounds: [],
+      },
+    }),
+    "本地组合分析"
+  );
 });
 
 test("gateway runtime snapshot carries the same tool preview shape as bridge deltas", () => {

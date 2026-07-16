@@ -486,6 +486,61 @@ test("gateway bridge user message omits the truncation base for plain sends", ()
   assert.equal("reason" in sent[0].event, false);
 });
 
+test("gateway bridge redacts a local portfolio request before tool execution", () => {
+  const { controller, sent } = createController();
+
+  controller.activateStockPortfolioPrivacy();
+  controller.queueUserMessage(
+    "分析我的持仓：600519 100 股，组合 portfolio-secret-1",
+    [
+      {
+        relativePath: "uploads/portfolio-secret.csv",
+        absolutePath: "C:/private/portfolio-secret.csv",
+        fileName: "portfolio-secret.csv",
+        kind: "spreadsheet",
+        sizeBytes: 1024,
+      },
+    ],
+    {
+      baseMessageRef: {
+        segmentIndex: 0,
+        messageIndex: 0,
+        segmentId: "segment-private-1",
+        messageId: "message-private-1",
+        role: "user",
+        contentHash: "fnv1a32:deadbeef",
+      },
+    }
+  );
+  controller.queueToken("家庭资产总值 150000");
+
+  const serialized = JSON.stringify(sent);
+  assert.doesNotMatch(
+    serialized,
+    /600519|100 股|portfolio-secret|C:\/private|家庭资产总值|150000|deadbeef/
+  );
+  assert.deepEqual(sent[0].event, {
+    type: "user_message",
+    message:
+      "Calen kept this local portfolio result on the desktop and did not send asset data to Gateway.",
+    uploaded_files: [],
+    conversation_id: "conversation-1",
+    base_message_ref: {
+      segment_index: 0,
+      message_index: 0,
+      segment_id: "segment-private-1",
+      message_id: "message-private-1",
+      role: "user",
+      content_hash: "local-only-redacted",
+    },
+    reason: "edit_resend",
+    localOnly: true,
+    redacted: true,
+  });
+  assert.equal(sent[1].event.localOnly, true);
+  assert.equal(sent[1].event.redacted, true);
+});
+
 test("gateway bridge error can resolve the latest conversation id", () => {
   const { controller, sent } = createController({
     conversationId: "conversation-initial",

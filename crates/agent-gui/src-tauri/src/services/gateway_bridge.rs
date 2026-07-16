@@ -1137,12 +1137,26 @@ fn redact_builtin_tool_content_json(raw: &str) -> Result<String, String> {
         .map_err(|e| format!("serialize redacted share history failed: {e}"))
 }
 
+const STOCK_PORTFOLIO_REDACTED_CONTENT_HASH: &str = "local-only-redacted";
+
+fn is_stock_portfolio_private_user_message(message: &Value) -> bool {
+    let Some(object) = message.as_object() else {
+        return false;
+    };
+    object.get("role").and_then(Value::as_str).map(str::trim) == Some("user")
+        && object
+            .get("calenGatewayPrivacy")
+            .and_then(Value::as_str)
+            .is_some_and(|value| value.trim() == "stock_portfolio")
+}
+
 fn is_stock_portfolio_gateway_history_message(message: &Value) -> bool {
     const TOOL_NAME: &str = "StockPortfolioRead";
     let Some(object) = message.as_object() else {
         return false;
     };
     match object.get("role").and_then(Value::as_str).map(str::trim) {
+        Some("user") => is_stock_portfolio_private_user_message(message),
         Some("assistant") => object
             .get("content")
             .and_then(Value::as_array)
@@ -1174,6 +1188,19 @@ fn redact_stock_portfolio_gateway_history_message(message: &mut Value, redact_te
         return;
     };
     match object.get("role").and_then(Value::as_str).map(str::trim) {
+        Some("user") if redact_text => {
+            object.insert("content".to_string(), Value::String(PRIVACY_NOTICE.to_string()));
+            object.insert(
+                "liveAgentDisplayContent".to_string(),
+                Value::String(PRIVACY_NOTICE.to_string()),
+            );
+            object.insert("liveAgentAttachments".to_string(), json!([]));
+            for key in ["attachments", "uploadedFiles", "uploaded_files"] {
+                object.remove(key);
+            }
+            object.insert("localOnly".to_string(), Value::Bool(true));
+            object.insert("redacted".to_string(), Value::Bool(true));
+        }
         Some("assistant") => {
             let Some(content) = object.get_mut("content") else {
                 return;
@@ -1452,6 +1479,7 @@ fn build_history_message_ref_json(
     segment: &chat_history::ChatHistorySegmentRecord,
     message_index: usize,
     message: &Value,
+    redact_content_hash: bool,
 ) -> Option<Value> {
     let object = message.as_object()?;
     let segment_id = segment.segment_id.trim();
@@ -1460,13 +1488,18 @@ fn build_history_message_ref_json(
     if segment_id.is_empty() || message_id.is_empty() || role.is_empty() {
         return None;
     }
+    let content_hash = if redact_content_hash {
+        STOCK_PORTFOLIO_REDACTED_CONTENT_HASH.to_string()
+    } else {
+        history_message_content_hash(message)
+    };
     Some(json!({
         "segmentIndex": segment.segment_index,
         "messageIndex": message_index,
         "segmentId": segment_id,
         "messageId": message_id,
         "role": role,
-        "contentHash": history_message_content_hash(message),
+        "contentHash": content_hash,
     }))
 }
 
@@ -1481,9 +1514,15 @@ fn message_matches_stable_ref(message: &Value, ref_value: &proto::ChatMessageRef
         .get("role")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    let expected_content_hash = ref_value.content_hash.trim();
+    let content_hash_matches = if expected_content_hash == STOCK_PORTFOLIO_REDACTED_CONTENT_HASH {
+        is_stock_portfolio_private_user_message(message)
+    } else {
+        history_message_content_hash(message) == expected_content_hash
+    };
     message_id == ref_value.message_id.trim()
         && role == ref_value.role.trim()
-        && history_message_content_hash(message) == ref_value.content_hash.trim()
+        && content_hash_matches
 }
 
 fn build_history_prefix_segments(
@@ -1640,7 +1679,12 @@ fn flatten_history_messages_json_window(
             );
             if let Some(object) = cloned.as_object_mut() {
                 if let Some(history_ref) =
-                    build_history_message_ref_json(parsed.segment, message_index, item)
+                    build_history_message_ref_json(
+                        parsed.segment,
+                        message_index,
+                        item,
+                        stock_portfolio_privacy_active,
+                    )
                 {
                     object.insert("liveAgentHistoryRef".to_string(), history_ref);
                 }
@@ -1923,6 +1967,64 @@ mod tests {
     }
 
     #[test]
+    fn gateway_history_projection_redacts_private_portfolio_user_turn_before_tool() {
+        let flattened = flatten_history_messages_json(&[make_segment(
+            0,
+            "segment-private-user",
+            None,
+            r#"[
+                {
+                    "role":"user",
+                    "content":"分析我的持仓：600519 100 股 uploads/portfolio-secret.csv",
+                    "liveAgentDisplayContent":"分析我的持仓：600519 100 股",
+                    "liveAgentAttachments":[{
+                        "relativePath":"uploads/portfolio-secret.csv",
+                        "absolutePath":"C:/private/portfolio-secret.csv",
+                        "fileName":"portfolio-secret.csv",
+                        "kind":"spreadsheet",
+                        "sizeBytes":1024
+                    }],
+                    "calenGatewayPrivacy":"stock_portfolio"
+                },
+                {
+                    "role":"assistant",
+                    "id":"assistant-private-1",
+                    "content":"家庭资产总值 150000"
+                }
+            ]"#,
+        )])
+        .expect("flatten private portfolio user history");
+
+        for private_value in [
+            "600519",
+            "100 股",
+            "portfolio-secret",
+            "C:/private",
+            "家庭资产总值",
+            "150000",
+        ] {
+            assert!(!flattened.contains(private_value));
+        }
+        let parsed = serde_json::from_str::<Value>(&flattened).expect("parse redacted history");
+        assert_eq!(parsed[0]["redacted"], true);
+        assert_eq!(parsed[0]["liveAgentAttachments"], json!([]));
+        assert_eq!(
+            parsed[0]["liveAgentHistoryRef"]["contentHash"],
+            "local-only-redacted"
+        );
+        assert_eq!(
+            parsed[0]["content"],
+            "Calen kept this local portfolio result on the desktop and did not send asset data to Gateway."
+        );
+        assert_eq!(parsed[1]["redacted"], true);
+        assert_eq!(parsed[1]["content"], parsed[0]["content"]);
+        assert_eq!(
+            parsed[1]["liveAgentHistoryRef"]["contentHash"],
+            "local-only-redacted"
+        );
+    }
+
+    #[test]
     fn gateway_history_projection_redacts_portfolio_derived_assistant_text_and_summary() {
         let flattened = flatten_history_messages_json(&[
             make_segment(
@@ -2129,6 +2231,43 @@ mod tests {
             target_segment_messages,
             json!([{"role":"assistant","content":"before"}])
         );
+    }
+
+    #[test]
+    fn build_history_prefix_accepts_redacted_private_portfolio_ref() {
+        let segments = vec![make_segment(
+            0,
+            "segment-private",
+            None,
+            r#"[
+                {"role":"assistant","content":"before"},
+                {
+                    "role":"user",
+                    "id":"user-private",
+                    "content":"600519 100 股",
+                    "calenGatewayPrivacy":"stock_portfolio"
+                },
+                {"role":"assistant","content":"after"}
+            ]"#,
+        )];
+
+        let (prefix, count) = build_history_prefix_segments(
+            &segments,
+            &crate::services::gateway::proto::ChatMessageRef {
+                segment_index: 0,
+                message_index: 1,
+                segment_id: "segment-private".to_string(),
+                message_id: "user-private".to_string(),
+                role: "user".to_string(),
+                content_hash: "local-only-redacted".to_string(),
+            },
+        )
+        .expect("private prefix");
+
+        assert_eq!(count, 1);
+        let messages =
+            serde_json::from_str::<Value>(&prefix[0].messages_json).expect("private prefix JSON");
+        assert_eq!(messages, json!([{"role":"assistant","content":"before"}]));
     }
 
     #[test]

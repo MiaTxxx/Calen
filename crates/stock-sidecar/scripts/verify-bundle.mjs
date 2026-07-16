@@ -29,9 +29,14 @@ try {
     await readFile("dist/licenses/pdfjs-Apache-2.0.txt", "utf8"),
     /Apache License/
   );
-  assert.match(
+  const opptrixLicense = await readFile(
+    "licenses/opptrix-Apache-2.0.txt",
+    "utf8"
+  );
+  assert.match(opptrixLicense, /Apache License/);
+  assert.equal(
     await readFile("dist/licenses/opptrix-Apache-2.0.txt", "utf8"),
-    /Apache License/
+    opptrixLicense
   );
   await mkdir(isolatedRoot, { recursive: true });
   await copyFile("dist/stdio.mjs", isolatedEntry);

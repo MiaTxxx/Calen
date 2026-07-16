@@ -59,6 +59,7 @@ export type GatewayBridgeEventController = {
   queueTitle: (nextTitle: string, allowAfterClose?: boolean) => void;
   queueToolStatus: (status: string | null, isCompaction?: boolean) => void;
   queueCheckpoint: (state: ConversationViewState) => void;
+  activateStockPortfolioPrivacy: () => void;
   emitError: (message: string, conversationIdOverride?: string) => void;
   close: () => void;
   hasForwardedText: () => boolean;
@@ -182,6 +183,9 @@ export function createGatewayBridgeEventController(
           },
         },
       });
+    },
+    activateStockPortfolioPrivacy() {
+      privateStockPortfolioObserved = true;
     },
     emitError(message: string, conversationIdOverride?: string) {
       queueEvent({
