@@ -183,7 +183,8 @@ test("Gateway bridge origin is wired into the builtin registry policy", async ()
 
   assert.match(
     chatPageSource,
-    /stockPortfolioRequestOrigin:\s*gatewayBridgeRequest\s*\?\s*"gateway"\s*:\s*"local"/
+    /const stockPortfolioRequestOrigin = gatewayBridgeRequest \? "gateway" : "local"/
   );
+  assert.match(chatPageSource, /stockPortfolioRequestOrigin,/);
   assert.match(turnSource, /requestOrigin:\s*stockPortfolioRequestOrigin/);
 });

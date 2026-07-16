@@ -95,6 +95,37 @@ test("gateway-originated turns can never authorize local portfolio reads", () =>
   );
 });
 
+test("local portfolio turns activate Gateway privacy before persistence", async () => {
+  const source = await readFile(
+    new URL("../../src/pages/ChatPage.tsx", import.meta.url),
+    "utf8"
+  );
+  const privacyActivation = source.indexOf(
+    "gatewayBridgeEvents.activateStockPortfolioPrivacy();"
+  );
+  const titleJob = source.indexOf("startConversationTitleJob({");
+  const initialPersist = source.indexOf(
+    "const initialPersist = persistConversationWithHistorySync({"
+  );
+
+  assert.match(
+    source,
+    /const privateStockPortfolioRequest = isStockPortfolioReadAuthorized\([\s\S]*?const pendingUserMessage = privateStockPortfolioRequest[\s\S]*?markStockPortfolioPrivateUserMessage\(userMessage\)/
+  );
+  assert.ok(privacyActivation >= 0);
+  assert.ok(titleJob > privacyActivation);
+  assert.ok(initialPersist > privacyActivation);
+  assert.match(source, /if \(isFirstTurn && !privateStockPortfolioRequest\)/);
+  assert.match(
+    source,
+    /privateStockPortfolioRequest && isFirstTurn[\s\S]*?STOCK_PORTFOLIO_PRIVATE_TITLE/
+  );
+  assert.match(
+    source,
+    /buildGatewayRuntimeSnapshotToolStatus\(\{[\s\S]*?userMessage: run\.userMessage,[\s\S]*?liveTranscript/
+  );
+});
+
 test("stock result status only accepts the public evidence states", () => {
   assert.equal(isStockResultStatus("ok"), true);
   assert.equal(isStockResultStatus("partial"), true);

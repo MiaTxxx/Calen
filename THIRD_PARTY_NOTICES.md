@@ -39,7 +39,7 @@ Calen 股票 sidecar 的公告 PDF 文本抽取包含以下开源组件：
 - unpdf 1.6.2，Copyright (c) 2023-PRESENT Johann Schopplich，MIT License，<https://github.com/unjs/unpdf>
 - PDF.js 5.6.205，Mozilla contributors，Apache License 2.0，<https://github.com/mozilla/pdf.js>
 
-unpdf 1.6.2 的发布产物已内联 PDF.js 5.6.205，Calen 将其继续打入 `crates/stock-sidecar/dist/stdio.mjs`。Windows 分发物必须同时携带 `crates/stock-sidecar/NOTICE.md`、`crates/stock-sidecar/licenses/unpdf-MIT.txt` 和 `crates/stock-sidecar/licenses/pdfjs-Apache-2.0.txt`；构建脚本会把这些文件复制到 sidecar 的 `dist/` 目录。
+unpdf 1.6.2 的发布产物已内联 PDF.js 5.6.205，Calen 将其继续打入 `crates/stock-sidecar/dist/stdio.mjs`。Windows 分发物必须同时携带 `crates/stock-sidecar/NOTICE.md`、`crates/stock-sidecar/licenses/opptrix-Apache-2.0.txt`、`crates/stock-sidecar/licenses/unpdf-MIT.txt` 和 `crates/stock-sidecar/licenses/pdfjs-Apache-2.0.txt`；构建脚本会把这些文件复制到 sidecar 的 `dist/` 目录。
 
 东方财富公告正文通过 `np-cnotice-stock.eastmoney.com/api/content/ann` 获取，附件只采用接口返回的真实 `attach_url_web`。PDF 解析边界为 25 MiB、200 页、100000 字符；旧式 CMap 等无法完整解析的情况会以 `partial` 和警告呈现。上述软件许可证仅覆盖代码，不授予东方财富或其他数据站点内容的抓取、再分发或商业使用权。
 

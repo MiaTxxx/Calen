@@ -1,7 +1,36 @@
 export const STOCK_PORTFOLIO_TOOL_NAME = "StockPortfolioRead";
 
+export const STOCK_PORTFOLIO_GATEWAY_PRIVACY_FIELD = "calenGatewayPrivacy";
+
+export const STOCK_PORTFOLIO_GATEWAY_PRIVACY_VALUE = "stock_portfolio";
+
+export const STOCK_PORTFOLIO_REDACTED_CONTENT_HASH = "local-only-redacted";
+
+export const STOCK_PORTFOLIO_PRIVATE_TITLE = "本地组合分析";
+
 export const STOCK_PORTFOLIO_PRIVACY_NOTICE =
   "Calen kept this local portfolio result on the desktop and did not send asset data to Gateway.";
+
+type StockPortfolioPrivateMessage = {
+  calenGatewayPrivacy: typeof STOCK_PORTFOLIO_GATEWAY_PRIVACY_VALUE;
+};
+
+export function markStockPortfolioPrivateUserMessage<T extends object>(
+  message: T,
+): T & StockPortfolioPrivateMessage {
+  return {
+    ...message,
+    calenGatewayPrivacy: STOCK_PORTFOLIO_GATEWAY_PRIVACY_VALUE,
+  };
+}
+
+export function isStockPortfolioPrivateUserMessage(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return (
+    (value as Record<string, unknown>)[STOCK_PORTFOLIO_GATEWAY_PRIVACY_FIELD] ===
+    STOCK_PORTFOLIO_GATEWAY_PRIVACY_VALUE
+  );
+}
 
 export function isPrivateStockPortfolioToolName(value: unknown): boolean {
   return value === STOCK_PORTFOLIO_TOOL_NAME;
@@ -54,6 +83,24 @@ export function redactPortfolioDerivedGatewayEvent(
   event: Record<string, unknown>,
 ): Record<string, unknown> {
   const type = event.type;
+  if (type === "user_message") {
+    const { base_message_ref: baseMessageRef, ...visibleEvent } = event;
+    const redactedBaseMessageRef =
+      baseMessageRef && typeof baseMessageRef === "object" && !Array.isArray(baseMessageRef)
+        ? {
+            ...(baseMessageRef as Record<string, unknown>),
+            content_hash: STOCK_PORTFOLIO_REDACTED_CONTENT_HASH,
+          }
+        : undefined;
+    return {
+      ...visibleEvent,
+      message: STOCK_PORTFOLIO_PRIVACY_NOTICE,
+      uploaded_files: [],
+      ...(redactedBaseMessageRef ? { base_message_ref: redactedBaseMessageRef } : {}),
+      localOnly: true,
+      redacted: true,
+    };
+  }
   if (type === "tool_call" || type === "tool_call_delta") {
     return {
       ...event,
@@ -76,7 +123,7 @@ export function redactPortfolioDerivedGatewayEvent(
     return {
       ...event,
       text: event.title ? "" : STOCK_PORTFOLIO_PRIVACY_NOTICE,
-      ...(event.title ? { title: "本地组合分析" } : {}),
+      ...(event.title ? { title: STOCK_PORTFOLIO_PRIVATE_TITLE } : {}),
       localOnly: true,
       redacted: true,
     };
@@ -92,7 +139,7 @@ export function redactPortfolioDerivedGatewayEvent(
   if (type === "tool_status") {
     return {
       ...event,
-      status: "本地组合分析",
+      status: STOCK_PORTFOLIO_PRIVATE_TITLE,
       localOnly: true,
       redacted: true,
     };

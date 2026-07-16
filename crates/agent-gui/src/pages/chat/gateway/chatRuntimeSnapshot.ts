@@ -15,7 +15,9 @@ import {
 } from "../../../lib/chat/messages/uploadedFiles";
 import {
   isPrivateStockPortfolioToolName,
+  isStockPortfolioPrivateUserMessage,
   STOCK_PORTFOLIO_PRIVACY_NOTICE,
+  STOCK_PORTFOLIO_PRIVATE_TITLE,
   stockPortfolioGatewayPlaceholderArguments,
   stockPortfolioGatewayPlaceholderContent,
   stockPortfolioGatewayPlaceholderDetails,
@@ -70,6 +72,24 @@ export type GatewayRuntimeSnapshotInput = {
   userMessage?: Message | null;
   liveTranscript: LiveTranscriptState;
 };
+
+function snapshotUsesPrivateStockPortfolio(input: GatewayRuntimeSnapshotInput): boolean {
+  if (isStockPortfolioPrivateUserMessage(input.userMessage)) {
+    return true;
+  }
+  return input.liveTranscript.liveRounds.some((round) =>
+    round.blocks.some(
+      (block) =>
+        block.kind === "tool" && isPrivateStockPortfolioToolName(block.item.toolCall?.name),
+    ),
+  );
+}
+
+export function buildGatewayRuntimeSnapshotToolStatus(input: GatewayRuntimeSnapshotInput): string {
+  const toolStatus = input.liveTranscript.toolStatus?.trim() ?? "";
+  if (!toolStatus) return "";
+  return snapshotUsesPrivateStockPortfolio(input) ? STOCK_PORTFOLIO_PRIVATE_TITLE : toolStatus;
+}
 
 function readMessageId(message: Message | undefined, fallback: string) {
   if (!message) return fallback;
@@ -280,7 +300,10 @@ function appendRoundEntries(
   return redactRoundText;
 }
 
-function buildUserEntry(message: Message): GatewayRuntimeSnapshotEntry | null {
+function buildUserEntry(
+  message: Message,
+  portfolioPrivacyActive: boolean,
+): GatewayRuntimeSnapshotEntry | null {
   if (message.role !== "user") {
     return null;
   }
@@ -292,8 +315,8 @@ function buildUserEntry(message: Message): GatewayRuntimeSnapshotEntry | null {
   return {
     id: readMessageId(message, "runtime-user"),
     kind: "user",
-    text,
-    attachments,
+    text: portfolioPrivacyActive ? STOCK_PORTFOLIO_PRIVACY_NOTICE : text,
+    attachments: portfolioPrivacyActive ? [] : attachments,
   };
 }
 
@@ -301,14 +324,16 @@ export function buildGatewayRuntimeSnapshotEntries(
   input: GatewayRuntimeSnapshotInput,
 ): GatewayRuntimeSnapshotEntry[] {
   const entries: GatewayRuntimeSnapshotEntry[] = [];
-  const userEntry = input.userMessage ? buildUserEntry(input.userMessage) : null;
+  let portfolioPrivacyActive = isStockPortfolioPrivateUserMessage(input.userMessage);
+  const userEntry = input.userMessage
+    ? buildUserEntry(input.userMessage, portfolioPrivacyActive)
+    : null;
   if (userEntry) {
     entries.push(userEntry);
   }
 
   const liveRounds = input.liveTranscript.liveRounds;
   if (liveRounds.length > 0) {
-    let portfolioPrivacyActive = false;
     liveRounds.forEach((round, index) => {
       portfolioPrivacyActive = appendRoundEntries(
         entries,
@@ -325,7 +350,9 @@ export function buildGatewayRuntimeSnapshotEntries(
       id: "runtime-draft-assistant",
       kind: "assistant",
       round: 1,
-      text: input.liveTranscript.draftAssistantText,
+      text: portfolioPrivacyActive
+        ? STOCK_PORTFOLIO_PRIVACY_NOTICE
+        : input.liveTranscript.draftAssistantText,
     });
   }
 

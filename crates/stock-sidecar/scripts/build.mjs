@@ -35,7 +35,3 @@ if (unexpectedImports.length) {
 
 await copyFile("NOTICE.md", "dist/NOTICE.md");
 await cp("licenses", "dist/licenses", { recursive: true });
-await copyFile(
-  "licenses/pdfjs-Apache-2.0.txt",
-  "dist/licenses/opptrix-Apache-2.0.txt"
-);

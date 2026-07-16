@@ -172,6 +172,11 @@ import { tauriTerminalClient } from "../lib/terminal/tauriTerminalClient";
 import type { TerminalSession } from "../lib/terminal/types";
 import { invokeFs } from "../lib/tools/fsBackend";
 import type { SkillAccessPolicy } from "../lib/tools/skillAccessPolicy";
+import { isStockPortfolioReadAuthorized } from "../lib/tools/stockPortfolioAuthorization";
+import {
+  markStockPortfolioPrivateUserMessage,
+  STOCK_PORTFOLIO_PRIVATE_TITLE,
+} from "../lib/tools/stockPortfolioGatewayPrivacy";
 import { disposeTodoToolState } from "../lib/tools/todoTools";
 import type {
   LocalTunnelClient,
@@ -217,6 +222,7 @@ import {
 } from "./chat";
 import {
   buildGatewayRuntimeSnapshotEntries,
+  buildGatewayRuntimeSnapshotToolStatus,
   type GatewayRuntimeSnapshotState,
 } from "./chat/gateway/chatRuntimeSnapshot";
 import {
@@ -2990,7 +2996,10 @@ export function ChatPage(props: ChatPageProps) {
     });
     run.state = state;
     run.revision += 1;
-    const toolStatus = liveTranscript.toolStatus?.trim() || "";
+    const toolStatus = buildGatewayRuntimeSnapshotToolStatus({
+      userMessage: run.userMessage,
+      liveTranscript,
+    });
 
     try {
       await invoke("gateway_publish_chat_runtime_snapshot", {
@@ -3689,7 +3698,17 @@ export function ChatPage(props: ChatPageProps) {
       }
       return false;
     }
-    const pendingUserMessage = userMessage;
+    const stockPortfolioRequestOrigin = gatewayBridgeRequest ? "gateway" : "local";
+    const privateStockPortfolioRequest = isStockPortfolioReadAuthorized({
+      latestUserText: text,
+      origin: stockPortfolioRequestOrigin,
+    });
+    const pendingUserMessage = privateStockPortfolioRequest
+      ? markStockPortfolioPrivateUserMessage(userMessage)
+      : userMessage;
+    if (privateStockPortfolioRequest) {
+      gatewayBridgeEvents.activateStockPortfolioPrivacy();
+    }
     const content =
       typeof pendingUserMessage.content === "string" ? pendingUserMessage.content : "";
 
@@ -3740,15 +3759,19 @@ export function ChatPage(props: ChatPageProps) {
     const shouldCreatePendingHistoryItem = isFirstTurn && !existingHistoryItem;
     const pendingConversationTitle = t("chat.pendingTitle");
     const fallbackTitle =
-      existingHistoryItem &&
-      (!existingHistoryItem.isPending || existingHistoryItem.title !== pendingConversationTitle)
-        ? existingHistoryItem.title
-        : buildFallbackConversationTitle(
-            getFirstUserMessageText(buildRequestContext(baseConversationState)) || titleSourceText,
-          );
+      privateStockPortfolioRequest && isFirstTurn
+        ? STOCK_PORTFOLIO_PRIVATE_TITLE
+        : existingHistoryItem &&
+            (!existingHistoryItem.isPending ||
+              existingHistoryItem.title !== pendingConversationTitle)
+          ? existingHistoryItem.title
+          : buildFallbackConversationTitle(
+              getFirstUserMessageText(buildRequestContext(baseConversationState)) ||
+                titleSourceText,
+            );
 
     let titlePromise: Promise<string | null> | null = null;
-    if (isFirstTurn) {
+    if (isFirstTurn && !privateStockPortfolioRequest) {
       const titleModelSelection = resolveConversationTitleModelSelection(
         settings,
         effectiveSelectedModel,
@@ -4325,7 +4348,7 @@ export function ChatPage(props: ChatPageProps) {
             associatedSshHostIds: effectiveAssociatedSshHostIds,
             sshManagerRemoteAllowed:
               !gatewayBridgeRequest || settings.remote.enableWebSshTerminal === true,
-            stockPortfolioRequestOrigin: gatewayBridgeRequest ? "gateway" : "local",
+            stockPortfolioRequestOrigin,
             onSshSessionsChanged: (change) => {
               if (change.action === "create") {
                 ensureSshTunnelToolTab(change.projectPathKey);
