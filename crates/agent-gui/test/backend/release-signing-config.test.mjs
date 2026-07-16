@@ -281,3 +281,24 @@ test("Windows Installer raw quoting has an executable regression probe", () => {
     /Test-Path -LiteralPath \$logPath/
   );
 });
+
+test("NSIS upgrade accepts legacy releases without a stock sidecar", () => {
+  const legacyInstall = windowsInstallerValidation.indexOf(
+    "$oldNsisEntry = Invoke-NsisInstall"
+  );
+  const currentInstall = windowsInstallerValidation.indexOf(
+    "$currentNsisEntry = Invoke-NsisInstall",
+    legacyInstall
+  );
+
+  assert.notEqual(legacyInstall, -1);
+  assert.notEqual(currentInstall, -1);
+  assert.doesNotMatch(
+    windowsInstallerValidation.slice(legacyInstall, currentInstall),
+    /Invoke-SidecarSmoke/
+  );
+  assert.match(
+    windowsInstallerValidation.slice(currentInstall),
+    /Invoke-SidecarSmoke -InstallRoot \$nsisUpgradeRoot/
+  );
+});

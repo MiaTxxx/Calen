@@ -46,15 +46,15 @@
 - Tauri updater 私钥和匹配公钥是强制门禁；仅当私钥本身加密时才需要密码，未加密私钥允许密码为空。Provider 条款批准变量也是发布门禁。
 - Windows sidecar 使用 Job Object 进程树清理；更新、重启、退出均先停止 sidecar。
 
-## 仍有限制或需外部验收
+## 已知限制与发布边界
 
 - 北交所当前 `920xxx` 代码已接入与沪深相同的东方财富个股深研路径；历史 `4/8` 开头旧代码仍按 BSE 识别，但代码切换关系不做静态猜测，旧代码失效时会返回 `partial/unavailable`，应按公司名称重新解析当前代码。市场专题仍是 A 股聚合视图，现有涨幅榜筛选器不宣称包含完整北交所分项。
 - 港美股名称搜索依赖腾讯 smartbox；新浪可选回退的美股 suggestion 不提供可靠交易所和股票/ETF 分类，因此返回 `exchange=US`、`assetType=unknown` 与 `partial` 警告。离线时仍只能解析明确代码/ticker。
 - 东方财富财务三表当前最多展示最近 4 个标准化报告期，不等同于完整财务数据库或长期数据湖。
 - Sina、BaoStock 和所有 Key Provider 因独立条款尚未审批而默认关闭；这与原计划“默认使用全部免费源”存在合规驱动的有意偏差。
 - 券商导入和端到端加密资产同步目前仅有领域端口与类型，尚无真实券商、密钥管理或 Gateway transport adapter，也未开放 Tauri 命令。
-- 公开 Release、真实 updater 升级和最终安装验收仍需有效签名秘密与 `CALEN_STOCK_PROVIDER_TERMS_APPROVED=true`。
-- 未取得书面 Provider 条款批准前，不得创建公开 Tag/Release 或上传安装包。
+- GitHub Actions 已配置 updater 私钥、公钥和密码；项目维护者于 2026-07-16 确认首版默认 Provider 的正式合规批准，并授权设置 `CALEN_STOCK_PROVIDER_TERMS_APPROVED=true`。可选 Provider 仍受各自条款和用户授权约束。
+- CI Run `29489190079` 已使用临时 updater 密钥完成真实 MSI/NSIS 构建、签名验证、中文/空格路径新装、旧版升级、sidecar 启动和卸载验收；正式 Release workflow 会使用生产密钥和上一公开版本再次执行同一生命周期验收。
 
 ## 当前自动化验证
 

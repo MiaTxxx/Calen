@@ -101,10 +101,10 @@ Provider 条款依据、上线边界和停止条件见 `docs/provider-compliance
 Windows 构建在上传产物前必须运行 `scripts/release/test-windows-installers.ps1`：
 
 - NSIS 静默安装到包含中文和空格的临时目录；
-- MSI 尝试相同的自定义目录，不支持时从 Windows Installer 注册信息验证实际默认目录；
+- MSI 必须安装到同样包含中文和空格的自定义目录，并从 Windows Installer 注册信息核对实际目录；
 - 清空 `PATH`，直接使用安装目录内的 `stock-sidecar/node.exe` 调用 JSON-RPC `status`；
 - 静默卸载后确认 sidecar 进程退出、安装目录不再被锁定并可删除；
-- 若 GitHub Releases 中存在低于当前版本的上一正式 MSI，则执行旧版安装、当前版升级、sidecar smoke 和卸载；首个版本没有上一 MSI 时会输出明确的 skip notice。
+- 若 GitHub Releases 中存在低于当前版本的上一正式 NSIS/MSI，则执行旧版安装、当前版升级、升级后的 sidecar smoke 和卸载；旧版无需包含股票 sidecar，首个版本没有上一版本时会输出明确的 skip notice。
 
 该脚本发现安装、升级、资源路径、内置 Node 或卸载生命周期错误时会直接阻断 Release。正式发布使用仓库配置的 updater 密钥并受 Provider 条款门禁约束；PR CI 另外生成一次性 updater 密钥和合成的旧/新版本安装器执行同等生命周期 smoke，但临时安装器不会上传。
 

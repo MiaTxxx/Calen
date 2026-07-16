@@ -480,7 +480,7 @@ try {
                 -InstallRoot $nsisUpgradeRoot `
                 -ExpectedVersion $previous.Version
             $oldNsisRoot = Get-InstallRootFromEntry -Entry $oldNsisEntry -PreferredRoot $nsisUpgradeRoot
-            Invoke-SidecarSmoke -InstallRoot $nsisUpgradeRoot | Out-Null
+            # Legacy releases can predate the stock sidecar; smoke it only after the current installer replaces them.
             $currentNsisEntry = Invoke-NsisInstall `
                 -PackagePath $SetupPath `
                 -InstallRoot $nsisUpgradeRoot `
