@@ -31,6 +31,18 @@ const windowsInstallerValidation = readFileSync(
   path.join(repoRoot, "scripts/release/test-windows-installers.ps1"),
   "utf8"
 );
+const windowsInstallerArguments = readFileSync(
+  path.join(repoRoot, "scripts/release/msiexec-arguments.ps1"),
+  "utf8"
+);
+const windowsInstallerArgumentProbe = readFileSync(
+  path.join(repoRoot, "scripts/release/test-msiexec-argument-quoting.ps1"),
+  "utf8"
+);
+const updaterSignatureVerifier = readFileSync(
+  path.join(guiRoot, "src-tauri/examples/verify-updater-signature.rs"),
+  "utf8"
+);
 
 function runValidation(env = {}) {
   return spawnSync(process.execPath, [validationScript], {
@@ -167,8 +179,23 @@ test("desktop release blocks on real Windows installer lifecycle validation", ()
     /-Arguments @\("\/S", "\/D=\$InstallRoot"\)/
   );
   assert.match(windowsInstallerValidation, /msiexec\.exe/);
-  assert.match(windowsInstallerValidation, /-TimeoutSeconds 600/);
+  assert.match(windowsInstallerValidation, /-TimeoutSeconds 300/);
+  assert.match(windowsInstallerValidation, /New-MsiInstallRawArguments/);
+  assert.match(windowsInstallerValidation, /-RawArguments \$rawArguments/);
+  assert.doesNotMatch(
+    windowsInstallerValidation,
+    /-Arguments \$arguments[\s\S]*?AllowedExitCodes @\(0, 3010\)/
+  );
+  assert.match(windowsInstallerArguments, /INSTALLDIR=\$quotedRequestedRoot/);
   assert.match(windowsInstallerValidation, /MSI log: \$logPath/);
+  assert.match(
+    windowsInstallerValidation,
+    /throw "MSI did not honor the required Chinese and space-containing INSTALLDIR/
+  );
+  assert.doesNotMatch(
+    windowsInstallerValidation,
+    /verified registered default directory instead/
+  );
   assert.match(
     windowsInstallerValidation,
     /\$startInfo\.Environment\["PATH"\] = ""/
@@ -204,6 +231,8 @@ test("pull request CI builds temporary-signed Windows installers and runs lifecy
   assert.match(ciWorkflow, /CALEN_CI_PREVIOUS_SETUP/);
   assert.match(ciWorkflow, /test-windows-installers\.ps1/);
   assert.match(ciWorkflow, /--example verify-updater-signature/);
+  assert.match(ciWorkflow, /test-msiexec-argument-quoting\.ps1/);
+  assert.match(ciWorkflow, /if \(\$LASTEXITCODE -ne 0\)/);
   assert.match(ciWorkflow, /-PreviousMsiPath/);
   assert.match(ciWorkflow, /-PreviousSetupPath/);
   assert.match(
@@ -215,5 +244,24 @@ test("pull request CI builds temporary-signed Windows installers and runs lifecy
   assert.match(
     ciWorkflow,
     /cargo test --manifest-path crates\/agent-gui\/src-tauri\/Cargo\.toml stock_portfolio::tests --lib/
+  );
+});
+
+test("Windows updater verification avoids stack overflow and fails workflows fast", () => {
+  assert.match(updaterSignatureVerifier, /vec!\[0_u8; 64 \* 1024\]/);
+  assert.doesNotMatch(updaterSignatureVerifier, /\[0_u8; 1024 \* 1024\]/);
+  assert.match(releaseWorkflow, /test-msiexec-argument-quoting\.ps1/);
+  assert.match(releaseWorkflow, /if \(\$LASTEXITCODE -ne 0\)/);
+});
+
+test("Windows Installer raw quoting has an executable regression probe", () => {
+  assert.match(windowsInstallerArgumentProbe, /missing package\.msi/);
+  assert.match(windowsInstallerArgumentProbe, /\$expectedArguments/);
+  assert.match(windowsInstallerArgumentProbe, /INSTALLDIR=`"\$requestedRoot`"/);
+  assert.match(windowsInstallerArgumentProbe, /WaitForExit\(15000\)/);
+  assert.match(windowsInstallerArgumentProbe, /ExitCode -ne 1619/);
+  assert.match(
+    windowsInstallerArgumentProbe,
+    /Test-Path -LiteralPath \$logPath/
   );
 });

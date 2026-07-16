@@ -233,6 +233,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Verify Windows Installer argument quoting
+        shell: pwsh
+        run: ./scripts/release/test-msiexec-argument-quoting.ps1
+
       - uses: actions/setup-node@v6
         with:
           node-version: 24
@@ -380,6 +384,9 @@ jobs:
             --manifest-path crates/agent-gui/src-tauri/Cargo.toml `
             --example verify-updater-signature `
             -- "$($setup.FullName)" "$($msi.FullName)"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Updater signature verification failed with exit code $LASTEXITCODE."
+          }
           Write-Host "Calen installer smoke artifacts must not be uploaded; validating in place."
           & scripts/release/test-windows-installers.ps1 `
             -SetupPath $setup.FullName `

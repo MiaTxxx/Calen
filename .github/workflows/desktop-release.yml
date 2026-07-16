@@ -154,6 +154,10 @@ jobs:
           cp "$exe_path.sig" "dist/Calen-${LIVEAGENT_RELEASE_TAG}-Windows-x64-Setup.exe.sig"
           test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 4
 
+      - name: Verify Windows Installer argument quoting
+        shell: pwsh
+        run: ./scripts/release/test-msiexec-argument-quoting.ps1
+
       - name: Verify Windows updater signatures against configured public key
         shell: pwsh
         env:
@@ -164,6 +168,9 @@ jobs:
             --example verify-updater-signature `
             -- "dist/Calen-$env:LIVEAGENT_RELEASE_TAG-Windows-x64-Setup.exe" `
                "dist/Calen-$env:LIVEAGENT_RELEASE_TAG-Windows-x64.msi"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Updater signature verification failed with exit code $LASTEXITCODE."
+          }
 
       - name: Validate Windows install, upgrade, sidecar, and uninstall lifecycle
         shell: pwsh

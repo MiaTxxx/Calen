@@ -26,7 +26,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let signature = Signature::from_file(&signature_path)?;
         let mut verifier = public_key.verify_stream(&signature)?;
         let mut input = File::open(&artifact)?;
-        let mut buffer = [0_u8; 1024 * 1024];
+        // Keep the streaming buffer off the 1 MiB Windows main-thread stack.
+        let mut buffer = vec![0_u8; 64 * 1024];
         loop {
             let read = input.read(&mut buffer)?;
             if read == 0 {

@@ -18,6 +18,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "msiexec-arguments.ps1")
+
 if (-not $IsWindows) {
     throw "Windows installer validation must run on Windows."
 }
@@ -34,7 +36,7 @@ $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) "Calen 安装验收 空�
 $nsisInstallRoot = Join-Path $testRoot "NSIS 中文 安装目录"
 $nsisUpgradeRoot = Join-Path $testRoot "NSIS 中文 升级目录"
 $msiRequestedRoot = Join-Path $testRoot "MSI 中文 安装目录"
-$logsRoot = Join-Path $testRoot "logs"
+$logsRoot = Join-Path ([System.IO.Path]::GetTempPath()) "calen-msi-logs-$PID"
 New-Item -ItemType Directory -Force -Path $logsRoot | Out-Null
 
 function Write-Step([string]$Message) {
@@ -308,16 +310,17 @@ function Invoke-MsiInstall {
         [string]$LogName
     )
 
-    $arguments = @("/i", $PackagePath, "/qn", "/norestart")
-    if ($RequestedRoot) { $arguments += "INSTALLDIR=$RequestedRoot" }
     $logPath = Join-Path $logsRoot $LogName
-    $arguments += @("/L*v", $logPath)
+    $rawArguments = New-MsiInstallRawArguments `
+        -PackagePath $PackagePath `
+        -LogPath $logPath `
+        -RequestedRoot $RequestedRoot
     try {
         Invoke-CheckedProcess `
             -FilePath "$env:SystemRoot\System32\msiexec.exe" `
-            -Arguments $arguments `
+            -RawArguments $rawArguments `
             -AllowedExitCodes @(0, 3010) `
-            -TimeoutSeconds 600 | Out-Null
+            -TimeoutSeconds 300 | Out-Null
     } catch {
         $logTail = if (Test-Path -LiteralPath $logPath -PathType Leaf) {
             (Get-Content -LiteralPath $logPath -Tail 80 -ErrorAction SilentlyContinue) -join "`n"
@@ -496,17 +499,16 @@ try {
         }
     }
 
-    Write-Step "Installing MSI and verifying its honored custom or registered default directory"
+    Write-Step "Installing MSI into the required Chinese and space-containing directory"
     if (Test-Path -LiteralPath $msiRequestedRoot) {
         Remove-Item -LiteralPath $msiRequestedRoot -Recurse -Force
     }
     $msiEntry = Invoke-MsiInstall -PackagePath $MsiPath -RequestedRoot $msiRequestedRoot -ExpectedVersion $CurrentVersion -LogName "current-msi-install.log"
     $msiInstallRoot = Get-InstallRootFromEntry -Entry $msiEntry -PreferredRoot $msiRequestedRoot
-    if ([System.IO.Path]::GetFullPath($msiInstallRoot).TrimEnd('\') -eq [System.IO.Path]::GetFullPath($msiRequestedRoot).TrimEnd('\')) {
-        Write-Host "MSI honored the Chinese and space-containing INSTALLDIR: $msiInstallRoot"
-    } else {
-        Write-Host "MSI did not honor INSTALLDIR; verified registered default directory instead: $msiInstallRoot"
+    if ([System.IO.Path]::GetFullPath($msiInstallRoot).TrimEnd('\') -ne [System.IO.Path]::GetFullPath($msiRequestedRoot).TrimEnd('\')) {
+        throw "MSI did not honor the required Chinese and space-containing INSTALLDIR: requested=$msiRequestedRoot actual=$msiInstallRoot"
     }
+    Write-Host "MSI honored the Chinese and space-containing INSTALLDIR: $msiInstallRoot"
     Invoke-SidecarSmoke -InstallRoot $msiInstallRoot | Out-Null
     Invoke-MsiUninstall -Entry $msiEntry -FallbackPackage $MsiPath
     Wait-InstallRootReleased -InstallRoot $msiInstallRoot
@@ -578,4 +580,5 @@ try {
             try { Wait-InstallRootReleased -InstallRoot $root } catch { Write-Warning $_ }
         }
     }
+    Remove-Item -LiteralPath $logsRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
