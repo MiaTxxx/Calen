@@ -55,16 +55,25 @@ function Invoke-CheckedProcess {
     param(
         [Parameter(Mandatory = $true)][string]$FilePath,
         [string[]]$Arguments = @(),
+        [string]$RawArguments,
         [int[]]$AllowedExitCodes = @(0),
         [int]$TimeoutSeconds = 180
     )
+
+    if ($RawArguments -and $Arguments.Count -gt 0) {
+        throw "Use either Arguments or RawArguments, not both: $FilePath"
+    }
 
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $FilePath
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
-    foreach ($argument in $Arguments) {
-        $startInfo.ArgumentList.Add($argument)
+    if ($RawArguments) {
+        $startInfo.Arguments = $RawArguments
+    } else {
+        foreach ($argument in $Arguments) {
+            $startInfo.ArgumentList.Add($argument)
+        }
     }
 
     $process = [System.Diagnostics.Process]::new()
@@ -77,7 +86,8 @@ function Invoke-CheckedProcess {
         throw "Process timed out after ${TimeoutSeconds}s: $FilePath"
     }
     if ($AllowedExitCodes -notcontains $process.ExitCode) {
-        throw "Process exited with code $($process.ExitCode): $FilePath $($Arguments -join ' ')"
+        $displayArguments = if ($RawArguments) { $RawArguments } else { $Arguments -join ' ' }
+        throw "Process exited with code $($process.ExitCode): $FilePath $displayArguments"
     }
     return $process.ExitCode
 }
@@ -257,7 +267,11 @@ function Invoke-NsisInstall {
     if (-not $PreserveExisting -and (Test-Path -LiteralPath $InstallRoot)) {
         Remove-Item -LiteralPath $InstallRoot -Recurse -Force
     }
-    Invoke-CheckedProcess -FilePath $PackagePath -Arguments @("/S", "/D=$InstallRoot") | Out-Null
+    # NSIS requires /D= to be the final raw command-line parameter and explicitly
+    # forbids quoting it, even when the absolute path contains spaces. ArgumentList
+    # quotes the complete /D= value, causing Tauri's NSIS installer to ignore it.
+    $absoluteInstallRoot = [System.IO.Path]::GetFullPath($InstallRoot)
+    Invoke-CheckedProcess -FilePath $PackagePath -RawArguments "/S /D=$absoluteInstallRoot" | Out-Null
     if (-not (Test-Path -LiteralPath $InstallRoot -PathType Container)) {
         throw "NSIS did not honor the requested install directory: $InstallRoot"
     }

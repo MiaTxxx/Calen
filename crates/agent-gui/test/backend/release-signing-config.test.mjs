@@ -157,7 +157,14 @@ test("desktop release blocks on real Windows installer lifecycle validation", ()
     /Upgrade validation skipped: GitHub release lookup failed/
   );
   assert.match(windowsInstallerValidation, /function Invoke-NsisInstall/);
-  assert.match(windowsInstallerValidation, /"\/S", "\/D=\$InstallRoot"/);
+  assert.match(
+    windowsInstallerValidation,
+    /-RawArguments "\/S \/D=\$absoluteInstallRoot"/
+  );
+  assert.doesNotMatch(
+    windowsInstallerValidation,
+    /-Arguments @\("\/S", "\/D=\$InstallRoot"\)/
+  );
   assert.match(windowsInstallerValidation, /msiexec\.exe/);
   assert.match(
     windowsInstallerValidation,
