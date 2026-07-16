@@ -37,6 +37,7 @@ $nsisInstallRoot = Join-Path $testRoot "NSIS 中文 安装目录"
 $nsisUpgradeRoot = Join-Path $testRoot "NSIS 中文 升级目录"
 $msiRequestedRoot = Join-Path $testRoot "MSI 中文 安装目录"
 $logsRoot = Join-Path ([System.IO.Path]::GetTempPath()) "calen-msi-logs-$PID"
+New-Item -ItemType Directory -Force -Path $testRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $logsRoot | Out-Null
 
 function Write-Step([string]$Message) {
