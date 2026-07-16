@@ -5,6 +5,7 @@ import type {
   InstrumentSearchResult,
   MarketBrief,
   MarketBriefRequest,
+  MarketBriefSection,
   QuoteSnapshot,
   ResearchAnalysisMetadata,
   ResearchBundle,
@@ -155,13 +156,14 @@ function mapSource(value: unknown): EvidenceSource | null {
   const id = asString(item.id) ?? provider;
   const name = asString(item.name ?? item.label) ?? provider;
   if (!id || !name) return null;
+  const asOf = asString(item.asOf);
   return {
     id,
     name,
     ...(provider ? { provider } : {}),
     ...(asString(item.url) ? { url: asString(item.url) } : {}),
     ...(asString(item.capability) ? { capability: asString(item.capability) } : {}),
-    ...(asString(item.asOf) ? { asOf: asString(item.asOf) } : {}),
+    ...(asOf ? { asOf } : {}),
     ...(asString(item.retrievedAt) ? { retrievedAt: asString(item.retrievedAt) } : {}),
     ...(typeof item.cached === "boolean" ? { cached: item.cached } : {}),
   };
@@ -173,6 +175,32 @@ function mapSources(value: unknown): EvidenceSource[] {
     : [];
 }
 
+/**
+ * A research envelope can combine quote, filing and notice providers.  The
+ * sidecar's aggregate `asOf` is not guaranteed to be the oldest item in that
+ * set, so the UI-facing envelope deliberately reports the earliest known
+ * evidence timestamp.  Keep the original value as a fallback when providers
+ * omit per-source timestamps or return a non-ISO label.
+ */
+function earliestEvidenceAsOf(sources: EvidenceSource[], fallback: string | null): string | null {
+  const values = [
+    ...sources.map((source) => source.asOf).filter((value): value is string => Boolean(value)),
+    ...(fallback ? [fallback] : []),
+  ];
+  if (values.includes("unknown")) return "unknown";
+  if (!values.length) return null;
+  const parseable = values.flatMap((value) => {
+    const timestamp = Date.parse(value);
+    return Number.isNaN(timestamp) ? [] : [{ value, timestamp }];
+  });
+  if (parseable.length) {
+    return parseable.reduce((oldest, current) =>
+      current.timestamp < oldest.timestamp ? current : oldest,
+    ).value;
+  }
+  return values[0] ?? null;
+}
+
 function mapEnvelope<T>(
   raw: unknown,
   data: T | null,
@@ -180,11 +208,13 @@ function mapEnvelope<T>(
 ): StockEvidenceResult<T> {
   const record = evidenceRecord(raw);
   const warnings = [...normalizeWarnings(record.warnings), ...extraWarnings];
+  const sources = mapSources(record.sources);
+  const aggregateAsOf = asString(record.asOf) ?? null;
   return {
     status: normalizeEvidenceStatus(record.status, data !== null),
     data,
-    sources: mapSources(record.sources),
-    asOf: asString(record.asOf) ?? null,
+    sources,
+    asOf: earliestEvidenceAsOf(sources, aggregateAsOf),
     retrievedAt: asString(record.retrievedAt) ?? "",
     cached: record.cached === true,
     warnings,
@@ -597,6 +627,21 @@ export function mapStockMarketBriefResult(
   const envelope = evidenceRecord(raw);
   const data = asRecord(envelope.data);
   const market = asString(data.market);
+  const session = asString(data.session);
+  const tradeDate = asString(data.tradeDate);
+  const requestedSections = Array.isArray(data.requestedSections)
+    ? data.requestedSections.filter(
+        (value): value is MarketBriefSection =>
+          value === "movers" ||
+          value === "limitUp" ||
+          value === "limitDown" ||
+          value === "hotSectors" ||
+          value === "moneyFlow" ||
+          value === "dragonTiger" ||
+          value === "unusualMoves" ||
+          value === "sentiment",
+      )
+    : [];
   const sections = asRecord(data.sections);
   const movers = Array.isArray(data.movers) ? data.movers : [];
   const highlights = movers.flatMap((entry) => {
@@ -658,7 +703,10 @@ export function mapStockMarketBriefResult(
     title: asString(data.title) ?? (market ? `${market} market brief` : "Market brief"),
     summary: asString(data.summary) ?? "",
     highlights,
-    generatedFor: fallbackSession,
+    generatedFor:
+      session === "pre_market" ? "pre_open" : session === "close" ? "close" : fallbackSession,
+    ...(tradeDate ? { tradeDate } : {}),
+    ...(requestedSections.length ? { requestedSections } : {}),
   });
 }
 
@@ -669,6 +717,17 @@ export function mapStockBacktestResult(raw: unknown): StockEvidenceResult<Backte
   const sample = asRecord(data.sample);
   const benchmark = asRecord(data.benchmark);
   const metrics = asRecord(data.metrics);
+  const mapWindow = (value: unknown) => {
+    const window = asRecord(value);
+    return {
+      from: asString(window.start) ?? "",
+      to: asString(window.end) ?? "",
+      points: asNumber(window.bars) ?? 0,
+      coverage: asNumber(window.coverage) ?? 0,
+    };
+  };
+  const calibration = mapWindow(sample.calibration);
+  const evaluation = mapWindow(sample.evaluation);
   const result: BacktestResult = {
     algorithmId: asString(algorithm.id) ?? "",
     algorithmVersion: asString(algorithm.version) ?? "",
@@ -677,6 +736,9 @@ export function mapStockBacktestResult(raw: unknown): StockEvidenceResult<Backte
       from: asString(sample.start) ?? "",
       to: asString(sample.end) ?? "",
       points: asNumber(sample.bars) ?? 0,
+      coverage: asNumber(sample.coverage) ?? 0,
+      calibration,
+      evaluation,
     },
     benchmark: asString(benchmark.name) ?? "",
     returnPercent: asNumber(metrics.returnPercent),
@@ -686,18 +748,34 @@ export function mapStockBacktestResult(raw: unknown): StockEvidenceResult<Backte
       ? data.trades.flatMap((entry) => {
           const item = asRecord(entry);
           const side = item.side === "buy" || item.side === "sell" ? item.side : null;
-          const time = asString(item.executionTime ?? item.signalTime);
+          const signalTime = asString(item.signalTime);
+          const executionTime = asString(item.executionTime);
           const price = asNumber(item.price);
           const quantity = asNumber(item.quantity);
-          return side && time && price !== null && quantity !== null
-            ? [{ time, side, price, quantity }]
+          const fee = asNumber(item.fee);
+          return side &&
+            signalTime &&
+            executionTime &&
+            price !== null &&
+            quantity !== null &&
+            fee !== null
+            ? [{ signalTime, executionTime, side, price, quantity, fee }]
             : [];
         })
       : [],
     coverage: asNumber(sample.coverage) ?? 0,
     limitations: asStringArray(data.limitations),
+    equityCurve: Array.isArray(data.equityCurve)
+      ? data.equityCurve.flatMap((entry) => {
+          const item = asRecord(entry);
+          const time = asString(item.time);
+          const equity = asNumber(item.equity);
+          return time && equity !== null ? [{ time, equity }] : [];
+        })
+      : [],
   };
-  return mapEnvelope(raw, result);
+  const mapped = mapEnvelope(raw, result);
+  return mapped.status === "unavailable" ? { ...mapped, data: null } : mapped;
 }
 
 export function mapStockServiceStatus(raw: unknown): StockServiceStatus {
@@ -754,14 +832,16 @@ export function mapStockServiceStatus(raw: unknown): StockServiceStatus {
               );
             })
           : [];
-        const providerState: "ready" | "cooldown" | "failed" | "unconfigured" =
-          item.available === true
-            ? "ready"
-            : item.cooldownUntil || item.circuitOpenUntil
-              ? "cooldown"
-              : item.lastError
-                ? "failed"
-                : "unconfigured";
+        const providerState: "unknown" | "ready" | "cooldown" | "failed" | "unconfigured" =
+          item.state === "unknown"
+            ? "unknown"
+            : item.available === true
+              ? "ready"
+              : item.cooldownUntil || item.circuitOpenUntil
+                ? "cooldown"
+                : item.lastError
+                  ? "failed"
+                  : "unconfigured";
         const providerWarnings = normalizeWarnings(item.warnings);
         return [
           {
@@ -829,9 +909,20 @@ export function toSidecarResearchRequest(request: StockResearchRequest): Record<
 }
 
 export function toSidecarMarketBriefRequest(request: MarketBriefRequest): Record<string, unknown> {
+  const session =
+    request.session === "pre_open" || request.session === "pre_market"
+      ? "pre_market"
+      : request.session === "intraday"
+        ? "intraday"
+        : request.session === "close"
+          ? "close"
+          : "general";
   return {
     market: request.market,
-    ...(request.session ? { session: request.session } : {}),
+    session,
+    ...(request.tradeDate ? { tradeDate: request.tradeDate } : {}),
+    ...(request.sections?.length ? { sections: request.sections } : {}),
+    ...(request.limit === undefined ? {} : { limit: request.limit }),
   };
 }
 
@@ -859,6 +950,13 @@ export function toSidecarBacktestRequest(request: StockBacktestRequest): Record<
     typeof parameters.feeRate === "number" && Number.isFinite(parameters.feeRate)
       ? parameters.feeRate
       : undefined;
+  const evaluationRatio =
+    typeof request.evaluationRatio === "number" && Number.isFinite(request.evaluationRatio)
+      ? request.evaluationRatio
+      : typeof parameters.evaluationRatio === "number" &&
+          Number.isFinite(parameters.evaluationRatio)
+        ? parameters.evaluationRatio
+        : undefined;
   const strategyId = request.strategy === "moving_average" ? "sma-cross" : request.strategy;
   const strategy = {
     id: strategyId,
@@ -872,6 +970,6 @@ export function toSidecarBacktestRequest(request: StockBacktestRequest): Record<
     strategy,
     ...(initialCash === undefined ? {} : { initialCash }),
     ...(feeRate === undefined ? {} : { feeRate }),
-    ...(request.benchmark ? { benchmark: request.benchmark } : {}),
+    ...(evaluationRatio === undefined ? {} : { evaluationRatio }),
   };
 }

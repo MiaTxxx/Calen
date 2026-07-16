@@ -15,6 +15,10 @@ const releaseWorkflow = readFileSync(
   path.join(repoRoot, ".github/workflows/desktop-release.yml"),
   "utf8"
 );
+const ciWorkflow = readFileSync(
+  path.join(repoRoot, ".github/workflows/ci.yml"),
+  "utf8"
+);
 const updateCommandSource = readFileSync(
   path.join(guiRoot, "src-tauri/src/commands/app/update.rs"),
   "utf8"
@@ -146,13 +150,14 @@ test("desktop release blocks on real Windows installer lifecycle validation", ()
   assert.match(releaseWorkflow, /test-windows-installers\.ps1/);
   assert.match(
     windowsInstallerValidation,
-    /throw "Upgrade validation could not determine whether a previous stable MSI exists/
+    /throw "Upgrade validation could not determine whether previous stable Windows installers exist/
   );
   assert.doesNotMatch(
     windowsInstallerValidation,
     /Upgrade validation skipped: GitHub release lookup failed/
   );
-  assert.match(windowsInstallerValidation, /"\/S", "\/D=\$nsisInstallRoot"/);
+  assert.match(windowsInstallerValidation, /function Invoke-NsisInstall/);
+  assert.match(windowsInstallerValidation, /"\/S", "\/D=\$InstallRoot"/);
   assert.match(windowsInstallerValidation, /msiexec\.exe/);
   assert.match(
     windowsInstallerValidation,
@@ -162,6 +167,35 @@ test("desktop release blocks on real Windows installer lifecycle validation", ()
   assert.match(windowsInstallerValidation, /Wait-InstallRootReleased/);
   assert.match(
     windowsInstallerValidation,
-    /no previous stable Calen Windows x64 MSI was found/
+    /no previous stable Calen Windows x64 installer was found/
+  );
+});
+
+test("pull request CI builds temporary-signed Windows installers and runs lifecycle smoke", () => {
+  assert.match(ciWorkflow, /Generate ephemeral updater signing key/);
+  assert.match(ciWorkflow, /tauri signer generate --ci/);
+  assert.match(ciWorkflow, /TAURI_SIGNING_PRIVATE_KEY_PATH=/);
+  assert.match(
+    ciWorkflow,
+    /Build previous Windows installers for upgrade smoke/
+  );
+  assert.match(ciWorkflow, /Build current Windows installer smoke artifacts/);
+  assert.match(ciWorkflow, /tauri\.windows\.release\.conf\.json/);
+  assert.match(ciWorkflow, /v0\.0\.1/);
+  assert.match(ciWorkflow, /v0\.0\.2/);
+  assert.match(ciWorkflow, /CALEN_CI_PREVIOUS_MSI/);
+  assert.match(ciWorkflow, /CALEN_CI_PREVIOUS_SETUP/);
+  assert.match(ciWorkflow, /test-windows-installers\.ps1/);
+  assert.match(ciWorkflow, /-PreviousMsiPath/);
+  assert.match(ciWorkflow, /-PreviousSetupPath/);
+  assert.match(
+    ciWorkflow,
+    /Calen installer smoke artifacts must not be uploaded/
+  );
+  assert.match(windowsInstallerValidation, /\[string\]\$PreviousMsiPath/);
+  assert.match(windowsInstallerValidation, /\[string\]\$PreviousSetupPath/);
+  assert.match(
+    ciWorkflow,
+    /cargo test --manifest-path crates\/agent-gui\/src-tauri\/Cargo\.toml stock_portfolio::tests --lib/
   );
 });

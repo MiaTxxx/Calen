@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::sync::{oneshot, Mutex};
 use uuid::Uuid;
 
@@ -99,12 +99,31 @@ impl RequestFailure {
         }
     }
 
-    fn breaks_process(&self) -> bool {
+    fn invalidates_process(&self) -> bool {
         matches!(self, Self::Timeout | Self::Transport(_))
+    }
+
+    fn triggers_auto_restart(&self) -> bool {
+        matches!(self, Self::Transport(_))
     }
 }
 
 impl StockResearchManager {
+    fn capture_stderr_tail(&self, stderr: ChildStderr) {
+        let tail = Arc::clone(&self.stderr_tail);
+        tauri::async_runtime::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if let Ok(mut values) = tail.lock() {
+                    values.push_back(line);
+                    while values.len() > MAX_STDERR_LINES {
+                        values.pop_front();
+                    }
+                }
+            }
+        });
+    }
+
     pub async fn call(
         &self,
         app: &AppHandle,
@@ -151,18 +170,19 @@ impl StockResearchManager {
         timeout_ms: u64,
         cancel_rx: oneshot::Receiver<()>,
     ) -> Result<Value, RequestFailure> {
-        self.call_locked_with_spawn(
+        self.call_locked_with_spawns(
             method,
             params,
             request_id,
             timeout_ms,
             cancel_rx,
             self.spawn(app),
+            self.spawn(app),
         )
         .await
     }
 
-    async fn call_locked_with_spawn<F>(
+    async fn call_locked_with_spawns<F, R>(
         &self,
         method: &str,
         params: Value,
@@ -170,9 +190,11 @@ impl StockResearchManager {
         timeout_ms: u64,
         mut cancel_rx: oneshot::Receiver<()>,
         spawn: F,
+        replacement_spawn: R,
     ) -> Result<Value, RequestFailure>
     where
         F: std::future::Future<Output = Result<StockProcess, String>>,
+        R: std::future::Future<Output = Result<StockProcess, String>>,
     {
         let mut state = self.state.lock().await;
         if state.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
@@ -186,6 +208,15 @@ impl StockResearchManager {
                 Ok(process) => state.process = Some(process),
                 Err(error) => {
                     state.consecutive_failures = state.consecutive_failures.saturating_add(1);
+                    if state.consecutive_failures < MAX_CONSECUTIVE_FAILURES {
+                        match replacement_spawn.await {
+                            Ok(process) => state.process = Some(process),
+                            Err(_) => {
+                                state.consecutive_failures =
+                                    state.consecutive_failures.saturating_add(1);
+                            }
+                        }
+                    }
                     return Err(RequestFailure::Transport(error));
                 }
             }
@@ -238,21 +269,30 @@ impl StockResearchManager {
             }
             Err(failure) => {
                 self.fail_running_process(&mut state, &failure).await;
+                if failure.triggers_auto_restart() {
+                    state.consecutive_failures = state.consecutive_failures.saturating_add(1);
+                    if state.consecutive_failures < MAX_CONSECUTIVE_FAILURES {
+                        match replacement_spawn.await {
+                            Ok(process) => state.process = Some(process),
+                            Err(_) => {
+                                state.consecutive_failures =
+                                    state.consecutive_failures.saturating_add(1);
+                            }
+                        }
+                    }
+                }
                 Err(failure)
             }
         }
     }
 
     async fn fail_running_process(&self, state: &mut StockManagerState, failure: &RequestFailure) {
-        if failure.breaks_process() || matches!(failure, RequestFailure::Cancelled) {
+        if failure.invalidates_process() || matches!(failure, RequestFailure::Cancelled) {
             if let Some(mut process) = state.process.take() {
                 let process_tree = Arc::clone(&process.process_tree);
                 let _ = terminate_stock_process(&mut process).await;
                 self.clear_active_process_tree(&process_tree);
             }
-        }
-        if failure.breaks_process() {
-            state.consecutive_failures = state.consecutive_failures.saturating_add(1);
         }
     }
 
@@ -316,18 +356,7 @@ impl StockResearchManager {
             .take()
             .ok_or_else(|| "股票 sidecar 未提供 stdout".to_string())?;
         if let Some(stderr) = child.stderr.take() {
-            let tail = Arc::clone(&self.stderr_tail);
-            tauri::async_runtime::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    if let Ok(mut values) = tail.lock() {
-                        values.push_back(line);
-                        while values.len() > MAX_STDERR_LINES {
-                            values.pop_front();
-                        }
-                    }
-                }
-            });
+            self.capture_stderr_tail(stderr);
         }
 
         self.set_active_process_tree(Arc::clone(&process_tree))?;
@@ -1018,39 +1047,142 @@ pub async fn stock_settings_save(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(not(target_os = "windows"))]
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Instant;
+
+    fn scripted_sidecar_dir() -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix("Calen 股票 生命周期 ")
+            .tempdir()
+            .expect("create Unicode/space sidecar test directory")
+    }
+
+    #[cfg(target_os = "windows")]
+    fn write_scripted_sidecar(root: &Path) -> Result<PathBuf, String> {
+        let script = root.join("fake stock sidecar.cmd");
+        std::fs::write(
+            &script,
+            r#"@echo off
+set "mode=%~1"
+set "response_id=%~2"
+set /p request=
+if "%mode%"=="reorder" (
+  echo {"jsonrpc":"2.0","id":"stale-id","result":{"sequence":"stale"}}
+  echo {"jsonrpc":"2.0","id":"%response_id%","result":{"sequence":"matched"}}
+  exit /b 0
+)
+if "%mode%"=="stderr" (
+  >&2 echo stderr-first
+  >&2 echo stderr-last
+  echo {"jsonrpc":"2.0","id":"%response_id%","result":{"ok":true}}
+  exit /b 0
+)
+if "%mode%"=="hang" (
+  ping 127.0.0.1 -n 31 >nul
+  exit /b 0
+)
+if "%mode%"=="crash" (
+  >&2 echo crash-tail
+  exit /b 17
+)
+exit /b 19
+"#,
+        )
+        .map_err(|error| format!("write Windows fake sidecar: {error}"))?;
+        Ok(script)
+    }
 
     #[cfg(not(target_os = "windows"))]
-    async fn spawn_crashing_test_process() -> Result<StockProcess, String> {
-        let mut command = Command::new("sh");
+    fn write_scripted_sidecar(root: &Path) -> Result<PathBuf, String> {
+        let script = root.join("fake stock sidecar.sh");
+        std::fs::write(
+            &script,
+            r#"mode="$1"
+response_id="$2"
+IFS= read -r request || exit 17
+case "$mode" in
+  reorder)
+    printf '%s\n' '{"jsonrpc":"2.0","id":"stale-id","result":{"sequence":"stale"}}'
+    printf '{"jsonrpc":"2.0","id":"%s","result":{"sequence":"matched"}}\n' "$response_id"
+    ;;
+  stderr)
+    printf '%s\n' 'stderr-first' 'stderr-last' >&2
+    printf '{"jsonrpc":"2.0","id":"%s","result":{"ok":true}}\n' "$response_id"
+    ;;
+  hang)
+    sleep 30
+    ;;
+  crash)
+    printf '%s\n' 'crash-tail' >&2
+    exit 17
+    ;;
+  *) exit 19 ;;
+esac
+"#,
+        )
+        .map_err(|error| format!("write Unix fake sidecar: {error}"))?;
+        Ok(script)
+    }
+
+    async fn spawn_scripted_test_process(
+        manager: &StockResearchManager,
+        root: &Path,
+        mode: &str,
+        response_id: &str,
+    ) -> Result<StockProcess, String> {
+        let script = write_scripted_sidecar(root)?;
+
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut command = Command::new("cmd.exe");
+            command.args([
+                OsString::from("/D"),
+                OsString::from("/Q"),
+                OsString::from("/C"),
+                script.into_os_string(),
+                OsString::from(mode),
+                OsString::from(response_id),
+            ]);
+            command
+        };
+
+        #[cfg(not(target_os = "windows"))]
+        let mut command = {
+            let mut command = Command::new("/bin/sh");
+            command.arg(&script).arg(mode).arg(response_id);
+            command
+        };
+
         command
-            .args(["-c", "read request; exit 17"])
+            .current_dir(root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
         let mut child = command
             .spawn()
-            .map_err(|error| format!("spawn crashing test sidecar: {error}"))?;
+            .map_err(|error| format!("spawn scripted test sidecar: {error}"))?;
         let process_id = child
             .id()
-            .ok_or_else(|| "crashing test sidecar has no process id".to_string())?;
+            .ok_or_else(|| "scripted test sidecar has no process id".to_string())?;
         let process_tree = Arc::new(StockProcessTree::attach(process_id)?);
         let stdin = child
             .stdin
             .take()
-            .ok_or_else(|| "crashing test sidecar has no stdin".to_string())?;
+            .ok_or_else(|| "scripted test sidecar has no stdin".to_string())?;
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| "crashing test sidecar has no stdout".to_string())?;
+            .ok_or_else(|| "scripted test sidecar has no stdout".to_string())?;
+        if let Some(stderr) = child.stderr.take() {
+            manager.capture_stderr_tail(stderr);
+        }
+        manager.set_active_process_tree(Arc::clone(&process_tree))?;
         Ok(StockProcess {
             child,
             stdin,
             stdout: BufReader::new(stdout).lines(),
-            root: PathBuf::from("."),
+            root: root.to_path_buf(),
             process_tree,
         })
     }
@@ -1076,61 +1208,264 @@ mod tests {
 
     #[test]
     fn sidecar_errors_do_not_increment_transport_failure_budget() {
-        assert!(!RequestFailure::Sidecar("provider unavailable".to_string()).breaks_process());
-        assert!(RequestFailure::Timeout.breaks_process());
+        let sidecar = RequestFailure::Sidecar("provider unavailable".to_string());
+        assert!(!sidecar.invalidates_process());
+        assert!(!sidecar.triggers_auto_restart());
+        assert!(RequestFailure::Timeout.invalidates_process());
+        assert!(!RequestFailure::Timeout.triggers_auto_restart());
+        let transport = RequestFailure::Transport("sidecar exited".to_string());
+        assert!(transport.invalidates_process());
+        assert!(transport.triggers_auto_restart());
     }
 
-    #[cfg(not(target_os = "windows"))]
     #[tokio::test]
-    async fn crashed_sidecar_restarts_once_then_requires_manual_restart() {
+    async fn out_of_order_json_rpc_responses_match_the_requested_id() {
         let manager = StockResearchManager::default();
+        let root = scripted_sidecar_dir();
+        assert!(root.path().to_string_lossy().contains("股票 生命周期"));
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
 
-        for expected_failures in 1..=MAX_CONSECUTIVE_FAILURES {
-            let (cancel_tx, cancel_rx) = oneshot::channel();
-            let failure = manager
-                .call_locked_with_spawn(
-                    "status",
-                    json!({}),
-                    &format!("crash-{expected_failures}"),
-                    2_000,
-                    cancel_rx,
-                    spawn_crashing_test_process(),
-                )
-                .await
-                .expect_err("crashing sidecar must fail the request");
-            drop(cancel_tx);
-            assert!(failure.breaks_process());
-            let status = manager.local_status().await;
-            assert_eq!(status.consecutive_failures, expected_failures);
-            assert_eq!(status.running, false);
-        }
-
-        let spawn_attempts = Arc::new(AtomicUsize::new(0));
-        let counted_spawn_attempts = Arc::clone(&spawn_attempts);
-        let (cancel_tx, cancel_rx) = oneshot::channel();
-        let failure = manager
-            .call_locked_with_spawn(
+        let result = manager
+            .call_locked_with_spawns(
                 "status",
                 json!({}),
-                "blocked-third-spawn",
+                "matched-request",
                 2_000,
                 cancel_rx,
+                spawn_scripted_test_process(&manager, root.path(), "reorder", "matched-request"),
+                spawn_scripted_test_process(&manager, root.path(), "reorder", "matched-request"),
+            )
+            .await
+            .expect("manager should ignore a stale response and return the matching response");
+
+        assert_eq!(result, json!({ "sequence": "matched" }));
+        manager.stop().await.expect("stop scripted sidecar");
+        assert!(!manager.local_status().await.running);
+    }
+
+    #[tokio::test]
+    async fn stderr_tail_from_real_process_is_exposed_in_runtime_status() {
+        let manager = StockResearchManager::default();
+        let root = scripted_sidecar_dir();
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+
+        manager
+            .call_locked_with_spawns(
+                "status",
+                json!({}),
+                "stderr-request",
+                2_000,
+                cancel_rx,
+                spawn_scripted_test_process(&manager, root.path(), "stderr", "stderr-request"),
+                spawn_scripted_test_process(&manager, root.path(), "stderr", "stderr-request"),
+            )
+            .await
+            .expect("scripted sidecar response");
+
+        let status = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let status = manager.local_status().await;
+                if status.stderr_tail.iter().any(|line| line == "stderr-last") {
+                    break status;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("stderr reader should publish its tail promptly");
+        assert_eq!(
+            status.stderr_tail,
+            vec!["stderr-first".to_string(), "stderr-last".to_string()]
+        );
+        manager.stop().await.expect("stop scripted sidecar");
+    }
+
+    #[tokio::test]
+    async fn timed_out_request_terminates_process_without_auto_restart() {
+        let manager = StockResearchManager::default();
+        let root = scripted_sidecar_dir();
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+        let started = Instant::now();
+        let replacement_attempts = Arc::new(AtomicUsize::new(0));
+        let counted_replacement_attempts = Arc::clone(&replacement_attempts);
+
+        let failure = manager
+            .call_locked_with_spawns(
+                "status",
+                json!({}),
+                "timeout-request",
+                MIN_TIMEOUT_MS,
+                cancel_rx,
+                spawn_scripted_test_process(&manager, root.path(), "hang", "timeout-request"),
                 async move {
-                    counted_spawn_attempts.fetch_add(1, Ordering::SeqCst);
-                    Err("spawned after restart budget was exhausted".to_string())
+                    counted_replacement_attempts.fetch_add(1, Ordering::SeqCst);
+                    Err("timeout unexpectedly triggered auto restart".to_string())
                 },
             )
             .await
-            .expect_err("third automatic spawn must be blocked");
-        drop(cancel_tx);
-        assert!(failure.message().contains("暂停自动重启"));
-        assert_eq!(spawn_attempts.load(Ordering::SeqCst), 0);
-        assert!(manager.local_status().await.disabled_after_failures);
+            .expect_err("hanging sidecar must time out");
 
-        manager.restart().await.expect("manual restart resets budget");
+        assert!(matches!(failure, RequestFailure::Timeout));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        let status = manager.local_status().await;
+        assert!(!status.running, "timed-out process must be removed");
+        assert_eq!(status.consecutive_failures, 0);
+        assert_eq!(replacement_attempts.load(Ordering::SeqCst), 0);
+        assert!(manager
+            .active_process_tree
+            .lock()
+            .expect("active process tree lock")
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn in_flight_request_can_be_cancelled_and_process_is_cleaned_up() {
+        let manager = StockResearchManager::default();
+        let root = scripted_sidecar_dir();
+        let request_id = "cancel-request";
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        let replacement_attempts = Arc::new(AtomicUsize::new(0));
+        let counted_replacement_attempts = Arc::clone(&replacement_attempts);
+        manager
+            .cancellations
+            .lock()
+            .expect("cancellation map lock")
+            .insert(request_id.to_string(), cancel_tx);
+
+        let call = manager.call_locked_with_spawns(
+            "status",
+            json!({}),
+            request_id,
+            10_000,
+            cancel_rx,
+            spawn_scripted_test_process(&manager, root.path(), "hang", request_id),
+            async move {
+                counted_replacement_attempts.fetch_add(1, Ordering::SeqCst);
+                Err("cancellation unexpectedly triggered auto restart".to_string())
+            },
+        );
+        let cancel = async {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            assert!(manager.cancel(request_id));
+        };
+        let (result, ()) = tokio::join!(call, cancel);
+
+        assert!(matches!(result, Err(RequestFailure::Cancelled)));
+        let status = manager.local_status().await;
+        assert!(!status.running, "cancelled process must be removed");
+        assert_eq!(
+            status.consecutive_failures, 0,
+            "user cancellation must not consume the crash restart budget"
+        );
+        assert_eq!(replacement_attempts.load(Ordering::SeqCst), 0);
+        assert!(!manager.cancel(request_id), "cancellation is single-use");
+    }
+
+    #[tokio::test]
+    async fn crashed_sidecar_restarts_once_then_requires_manual_restart() {
+        let manager = StockResearchManager::default();
+        let root = scripted_sidecar_dir();
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+        let first_failure = manager
+            .call_locked_with_spawns(
+                "status",
+                json!({}),
+                "first-crash",
+                2_000,
+                cancel_rx,
+                spawn_scripted_test_process(&manager, root.path(), "crash", "first-crash"),
+                spawn_scripted_test_process(&manager, root.path(), "crash", "second-crash"),
+            )
+            .await
+            .expect_err("first crashing sidecar must fail its request");
+        assert!(first_failure.triggers_auto_restart());
+
+        let status = manager.local_status().await;
+        assert_eq!(status.consecutive_failures, 1);
+        assert!(
+            status.running,
+            "replacement must be running without another user call"
+        );
+        assert!(!status.disabled_after_failures);
+
+        let forbidden_spawn_attempts = Arc::new(AtomicUsize::new(0));
+        let counted_primary_attempts = Arc::clone(&forbidden_spawn_attempts);
+        let counted_replacement_attempts = Arc::clone(&forbidden_spawn_attempts);
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+        let second_failure = manager
+            .call_locked_with_spawns(
+                "status",
+                json!({}),
+                "second-crash",
+                2_000,
+                cancel_rx,
+                async move {
+                    counted_primary_attempts.fetch_add(1, Ordering::SeqCst);
+                    Err("running replacement should avoid primary spawn".to_string())
+                },
+                async move {
+                    counted_replacement_attempts.fetch_add(1, Ordering::SeqCst);
+                    Err("restart budget should block a second replacement".to_string())
+                },
+            )
+            .await
+            .expect_err("replacement crash must fail the second request");
+        assert!(second_failure.triggers_auto_restart());
+        assert_eq!(forbidden_spawn_attempts.load(Ordering::SeqCst), 0);
+
+        let status = manager.local_status().await;
+        assert_eq!(status.consecutive_failures, MAX_CONSECUTIVE_FAILURES);
+        assert!(!status.running);
+        assert!(status.disabled_after_failures);
+        assert!(manager
+            .active_process_tree
+            .lock()
+            .expect("active process tree lock")
+            .is_none());
+
+        manager
+            .restart()
+            .await
+            .expect("manual restart resets budget");
         let status = manager.local_status().await;
         assert_eq!(status.consecutive_failures, 0);
         assert!(status.available);
+    }
+
+    #[tokio::test]
+    async fn failed_automatic_replacement_disables_manager() {
+        let manager = StockResearchManager::default();
+        let root = scripted_sidecar_dir();
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+        let replacement_attempts = Arc::new(AtomicUsize::new(0));
+        let counted_replacement_attempts = Arc::clone(&replacement_attempts);
+
+        manager
+            .call_locked_with_spawns(
+                "status",
+                json!({}),
+                "crash-before-failed-replacement",
+                2_000,
+                cancel_rx,
+                spawn_scripted_test_process(
+                    &manager,
+                    root.path(),
+                    "crash",
+                    "crash-before-failed-replacement",
+                ),
+                async move {
+                    counted_replacement_attempts.fetch_add(1, Ordering::SeqCst);
+                    Err("replacement launch failed".to_string())
+                },
+            )
+            .await
+            .expect_err("original crash remains the request result");
+
+        assert_eq!(replacement_attempts.load(Ordering::SeqCst), 1);
+        let status = manager.local_status().await;
+        assert_eq!(status.consecutive_failures, MAX_CONSECUTIVE_FAILURES);
+        assert!(status.disabled_after_failures);
+        assert!(!status.running);
     }
 
     #[test]

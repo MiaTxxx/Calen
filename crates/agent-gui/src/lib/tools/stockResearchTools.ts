@@ -129,24 +129,44 @@ const DEFINITIONS: readonly StockToolDefinition[] = [
       deadlineMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 120000 })),
     }),
     scopes: ["chat", "cron_auto_prompt"],
-    experimental: true,
   },
   {
     name: "StockMarketBrief",
     operation: "marketBrief",
     command: "stock_market_brief",
     description:
-      "Build an on-demand CN market brief covering market state, sectors, flows, limit-up/down, hot stocks, unusual moves and sentiment with partial-data warnings.",
+      "Build a CN pre-market, intraday, close, or general market brief. The requested trade date and sections are enforced; unsupported historical or session-specific data is returned as partial with warnings.",
     parameters: Type.Object({
       session: Type.Optional(
-        Type.Union([Type.Literal("preMarket"), Type.Literal("intraday"), Type.Literal("close")]),
+        Type.Union([
+          Type.Literal("pre_market"),
+          Type.Literal("preMarket"),
+          Type.Literal("intraday"),
+          Type.Literal("close"),
+          Type.Literal("general"),
+        ]),
       ),
       tradeDate: Type.Optional(
         Type.String({
           description: "ISO date; defaults to the current market date.",
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$",
         }),
       ),
-      sections: Type.Optional(Type.Array(Type.String(), { maxItems: 12 })),
+      sections: Type.Optional(
+        Type.Array(
+          Type.Union([
+            Type.Literal("movers"),
+            Type.Literal("limitUp"),
+            Type.Literal("limitDown"),
+            Type.Literal("hotSectors"),
+            Type.Literal("moneyFlow"),
+            Type.Literal("dragonTiger"),
+            Type.Literal("unusualMoves"),
+            Type.Literal("sentiment"),
+          ]),
+          { minItems: 1, maxItems: 8, uniqueItems: true },
+        ),
+      ),
       deadlineMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 120000 })),
     }),
     scopes: ["chat", "cron_auto_prompt"],
@@ -171,8 +191,15 @@ const DEFINITIONS: readonly StockToolDefinition[] = [
       startDate: Type.String({ minLength: 10 }),
       endDate: Type.String({ minLength: 10 }),
       parameters: Type.Optional(Type.Record(Type.String(), Type.Any())),
-      benchmark: Type.Optional(Type.String()),
       feeRate: Type.Optional(Type.Number({ minimum: 0, maximum: 0.05, default: 0.001 })),
+      evaluationRatio: Type.Optional(
+        Type.Number({
+          minimum: 0.1,
+          maximum: 0.8,
+          default: 0.3,
+          description: "样本外评估区间占比，必须在 0.1 到 0.8 之间。",
+        }),
+      ),
       deadlineMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 180000 })),
     }),
     scopes: ["chat"],
@@ -216,6 +243,27 @@ function asWarnings(value: unknown) {
     : [];
 }
 
+function asEvidenceTime(value: unknown): string | undefined {
+  const normalized = asString(value);
+  return normalized && normalized !== "unknown" ? normalized : undefined;
+}
+
+const EXPERIMENTAL_RESEARCH_CAPABILITIES = ["technical", "score", "strategy", "evaluator"] as const;
+
+function experimentalCapabilities(evidence: Record<string, unknown>): string[] {
+  const data = asRecord(evidence.data);
+  const capabilities = asRecord(data.capabilities ?? evidence.capabilities);
+  const explicit = Array.isArray(data.experimentalAnalysis)
+    ? data.experimentalAnalysis.flatMap((item) => {
+        const capability = asString(asRecord(item).capability);
+        return capability ? [capability] : [];
+      })
+    : [];
+  return EXPERIMENTAL_RESEARCH_CAPABILITIES.filter(
+    (capability) => Object.hasOwn(capabilities, capability) || explicit.includes(capability),
+  );
+}
+
 function resultDetails(
   definition: StockToolDefinition,
   requestId: string,
@@ -224,6 +272,8 @@ function resultDetails(
   const record = asRecord(result);
   const evidence = asRecord(record.evidence ?? record);
   const instrument = asRecord(evidence.instrument);
+  const quantCapabilities =
+    definition.operation === "research" ? experimentalCapabilities(evidence) : [];
   return {
     kind: "stock_result",
     operation: definition.operation,
@@ -241,22 +291,31 @@ function resultDetails(
             displayName: asString(instrument.displayName ?? instrument.name),
           }
         : undefined,
-    asOf: asString(evidence.asOf),
+    asOf: asEvidenceTime(evidence.asOf),
     retrievedAt: asString(evidence.retrievedAt),
     cached: asBoolean(evidence.cached),
     sources: Array.isArray(evidence.sources)
       ? evidence.sources.map((source) => {
           const item = asRecord(source);
           return {
+            id: asString(item.id),
+            name: asString(item.name ?? item.label),
             provider: asString(item.provider),
             label: asString(item.label ?? item.name),
+            capability: asString(item.capability),
             url: asString(item.url),
-            asOf: asString(item.asOf),
+            asOf: asEvidenceTime(item.asOf),
           };
         })
       : [],
     warnings: asWarnings(evidence.warnings),
-    experimental: definition.experimental === true || evidence.experimental === true,
+    // StockResearch mixes factual evidence with optional quantitative
+    // analyses.  Keep the tool/result factual by default; only Backtest (or
+    // another explicitly experimental tool) marks the whole result.
+    experimental:
+      definition.experimental === true ||
+      (definition.operation !== "research" && evidence.experimental === true),
+    ...(quantCapabilities.length ? { experimentalCapabilities: quantCapabilities } : {}),
     result,
   };
 }
@@ -266,7 +325,9 @@ function resultText(details: StockToolResultDetails) {
     "Calen stock research result. Treat missing/partial fields as unavailable; do not infer them.",
     details.experimental
       ? "This result is experimental research output, not investment advice or a trading instruction."
-      : "This result is research assistance, not investment advice or a trading instruction.",
+      : details.experimentalCapabilities?.length
+        ? `This result contains experimental quantitative sections (${details.experimentalCapabilities.join(", ")}); factual evidence remains source-labelled. It is not investment advice or a trading instruction.`
+        : "This result is research assistance, not investment advice or a trading instruction.",
     JSON.stringify(details.result, null, 2),
   ].join("\n\n");
 }

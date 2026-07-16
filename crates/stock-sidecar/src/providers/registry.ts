@@ -27,6 +27,7 @@ export class ProviderError extends Error {
 }
 
 interface ProviderHealth {
+  hasObservation: boolean;
   consecutiveFailures: number;
   circuitOpenUntilMs: number;
   cooldownUntilMs: number;
@@ -331,14 +332,17 @@ export class ProviderRegistry {
         id: provider.id,
         capabilities: [...provider.capabilities],
         priority: provider.priority,
-        state: this.isAvailable(provider.id, currentMs)
-          ? "ready"
-          : state.cooldownUntilMs > currentMs
-            ? "cooldown"
-            : "unavailable",
+        state: !state.hasObservation
+          ? "unknown"
+          : this.isAvailable(provider.id, currentMs)
+            ? "ready"
+            : state.cooldownUntilMs > currentMs
+              ? "cooldown"
+              : "unavailable",
         enabled: true,
         configured: true,
-        available: this.isAvailable(provider.id, currentMs),
+        available:
+          state.hasObservation && this.isAvailable(provider.id, currentMs),
         consecutiveFailures: state.consecutiveFailures,
       };
       if (state.circuitOpenUntilMs > currentMs)
@@ -350,6 +354,7 @@ export class ProviderRegistry {
       if (state.averageLatencyMs !== undefined)
         status.averageLatencyMs = state.averageLatencyMs;
       if (state.lastError !== undefined) status.lastError = state.lastError;
+      if (!state.hasObservation) status.warnings = ["尚未完成首个真实上游探测"];
       return status;
     });
   }
@@ -378,6 +383,7 @@ export class ProviderRegistry {
 
   private recordSuccess(id: string, latencyMs: number): void {
     const state = this.health.get(id) ?? this.newHealth();
+    state.hasObservation = true;
     state.consecutiveFailures = 0;
     state.circuitOpenUntilMs = 0;
     state.cooldownLevel = 0;
@@ -391,6 +397,7 @@ export class ProviderRegistry {
 
   private recordFailure(provider: StockProvider, error: unknown): void {
     const state = this.health.get(provider.id) ?? this.newHealth();
+    state.hasObservation = true;
     const nowMs = this.now().getTime();
     state.consecutiveFailures += 1;
     state.lastError = error instanceof Error ? error.message : String(error);
@@ -452,6 +459,7 @@ export class ProviderRegistry {
 
   private newHealth(): ProviderHealth {
     return {
+      hasObservation: false,
       consecutiveFailures: 0,
       circuitOpenUntilMs: 0,
       cooldownUntilMs: 0,

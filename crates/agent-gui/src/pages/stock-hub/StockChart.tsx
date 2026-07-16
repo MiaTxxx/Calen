@@ -3,6 +3,8 @@ import {
   CandlestickSeries,
   ColorType,
   createChart,
+  type LineData,
+  LineSeries,
   type Time,
 } from "lightweight-charts";
 import { useEffect, useMemo, useRef } from "react";
@@ -16,6 +18,11 @@ export type StockChartBar = {
   high?: number;
   low?: number;
   close: number;
+};
+
+export type StockChartPoint = {
+  time: string;
+  value: number;
 };
 
 function candleData(bars: readonly StockChartBar[]): CandlestickData<Time>[] {
@@ -39,6 +46,14 @@ function candleData(bars: readonly StockChartBar[]): CandlestickData<Time>[] {
       },
     ];
   });
+}
+
+function lineData(points: readonly StockChartPoint[]): LineData<Time>[] {
+  return points.flatMap((point) =>
+    point.time && Number.isFinite(point.value)
+      ? [{ time: point.time as Time, value: point.value }]
+      : [],
+  );
 }
 
 function CandlestickChart(props: {
@@ -92,6 +107,68 @@ function CandlestickChart(props: {
       chart.remove();
     };
   }, [data, height]);
+
+  return (
+    <div
+      ref={hostRef}
+      role="img"
+      aria-label={label}
+      className={cn("w-full overflow-hidden rounded-xl", className)}
+      style={{ height }}
+    />
+  );
+}
+
+function TimeSeriesChart(props: {
+  data: readonly LineData<Time>[];
+  height: number;
+  positive: boolean;
+  className?: string;
+  label: string;
+}) {
+  const { data, height, positive, className, label } = props;
+  const hostRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const styles = getComputedStyle(document.documentElement);
+    const foreground = styles.getPropertyValue("--foreground").trim() || "#71717a";
+    const border = styles.getPropertyValue("--border").trim() || "#d4d4d8";
+    const chart = createChart(host, {
+      width: Math.max(host.clientWidth, 1),
+      height,
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: foreground,
+        attributionLogo: false,
+      },
+      grid: {
+        vertLines: { color: border },
+        horzLines: { color: border },
+      },
+      rightPriceScale: { borderColor: border },
+      timeScale: { borderColor: border, timeVisible: false },
+      localization: { locale: "zh-CN" },
+    });
+    const series = chart.addSeries(LineSeries, {
+      color: positive ? "#dc2626" : "#059669",
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: true,
+    });
+    series.setData([...data]);
+    chart.timeScale().fitContent();
+    const resize = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width && Number.isFinite(width)) chart.applyOptions({ width, height });
+    });
+    resize.observe(host);
+    return () => {
+      resize.disconnect();
+      chart.remove();
+    };
+  }, [data, height, positive]);
 
   return (
     <div
@@ -158,6 +235,7 @@ function SparklineChart(props: {
 export function StockChart(props: {
   values?: readonly number[];
   bars?: readonly StockChartBar[];
+  points?: readonly StockChartPoint[];
   height?: number;
   positive?: boolean;
   className?: string;
@@ -166,15 +244,29 @@ export function StockChart(props: {
   const {
     values = [],
     bars = [],
+    points = [],
     height = 180,
     positive = true,
     className,
     label = "价格走势",
   } = props;
   const candles = useMemo(() => candleData(bars), [bars]);
+  const line = useMemo(() => lineData(points), [points]);
 
   if (candles.length) {
     return <CandlestickChart data={candles} height={height} className={className} label={label} />;
+  }
+
+  if (line.length) {
+    return (
+      <TimeSeriesChart
+        data={line}
+        height={height}
+        positive={positive}
+        className={className}
+        label={label}
+      />
+    );
   }
 
   const path = buildSparklinePath(values, 720, height - 24);

@@ -9,7 +9,10 @@ param(
     [string]$Repository = $env:GITHUB_REPOSITORY,
     [string]$CurrentTag = $env:LIVEAGENT_RELEASE_TAG,
     [string]$CurrentVersion = $env:LIVEAGENT_APP_VERSION,
-    [string]$GitHubToken = $env:GH_TOKEN
+    [string]$GitHubToken = $env:GH_TOKEN,
+    [string]$PreviousSetupPath,
+    [string]$PreviousMsiPath,
+    [string]$PreviousVersion
 )
 
 Set-StrictMode -Version Latest
@@ -21,8 +24,15 @@ if (-not $IsWindows) {
 
 $SetupPath = (Resolve-Path -LiteralPath $SetupPath).Path
 $MsiPath = (Resolve-Path -LiteralPath $MsiPath).Path
+if ($PreviousSetupPath) {
+    $PreviousSetupPath = (Resolve-Path -LiteralPath $PreviousSetupPath).Path
+}
+if ($PreviousMsiPath) {
+    $PreviousMsiPath = (Resolve-Path -LiteralPath $PreviousMsiPath).Path
+}
 $testRoot = Join-Path ([System.IO.Path]::GetTempPath()) "Calen 安装验收 空格"
 $nsisInstallRoot = Join-Path $testRoot "NSIS 中文 安装目录"
+$nsisUpgradeRoot = Join-Path $testRoot "NSIS 中文 升级目录"
 $msiRequestedRoot = Join-Path $testRoot "MSI 中文 安装目录"
 $logsRoot = Join-Path $testRoot "logs"
 New-Item -ItemType Directory -Force -Path $logsRoot | Out-Null
@@ -200,7 +210,7 @@ function Wait-InstallRootReleased {
     param([Parameter(Mandatory = $true)][string]$InstallRoot)
 
     $fullRoot = [System.IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
-    if ($fullRoot.Length -lt 10 -or (Split-Path -Leaf $fullRoot) -notmatch "Calen|NSIS|MSI|安装目录") {
+    if ($fullRoot.Length -lt 10 -or (Split-Path -Leaf $fullRoot) -notmatch "Calen|NSIS|MSI|安装目录|升级目录") {
         throw "Refusing to validate or remove an unsafe install root: $fullRoot"
     }
 
@@ -234,6 +244,46 @@ function Wait-InstallRootReleased {
         Format-Table -AutoSize |
         Out-String
     throw "Install root remained locked after uninstall: $fullRoot`n$remaining"
+}
+
+function Invoke-NsisInstall {
+    param(
+        [Parameter(Mandatory = $true)][string]$PackagePath,
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [string]$ExpectedVersion,
+        [switch]$PreserveExisting
+    )
+
+    if (-not $PreserveExisting -and (Test-Path -LiteralPath $InstallRoot)) {
+        Remove-Item -LiteralPath $InstallRoot -Recurse -Force
+    }
+    Invoke-CheckedProcess -FilePath $PackagePath -Arguments @("/S", "/D=$InstallRoot") | Out-Null
+    if (-not (Test-Path -LiteralPath $InstallRoot -PathType Container)) {
+        throw "NSIS did not honor the requested install directory: $InstallRoot"
+    }
+    $entry = Get-CalenUninstallEntries |
+        Where-Object {
+            [string](Get-OptionalProperty -InputObject $_ -Name "PSChildName") -notmatch '^\{[0-9A-Fa-f-]+\}$' -and
+            (-not $ExpectedVersion -or
+                [string](Get-OptionalProperty -InputObject $_ -Name "DisplayVersion") -eq $ExpectedVersion)
+        } |
+        Select-Object -First 1
+    if ($ExpectedVersion -and $null -eq $entry) {
+        throw "NSIS completed but did not register Calen version $ExpectedVersion."
+    }
+    return $entry
+}
+
+function Invoke-NsisUninstall {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+
+    $uninstaller = Get-ChildItem -LiteralPath $InstallRoot -Filter "uninstall.exe" -File -Recurse |
+        Select-Object -First 1
+    if ($null -eq $uninstaller) {
+        throw "NSIS uninstaller was not found under: $InstallRoot"
+    }
+    Invoke-CheckedProcess -FilePath $uninstaller.FullName -Arguments @("/S") | Out-Null
+    Wait-InstallRootReleased -InstallRoot $InstallRoot
 }
 
 function Invoke-MsiInstall {
@@ -287,7 +337,20 @@ function ConvertTo-CoreVersion {
     try { return [System.Version]::Parse($core) } catch { return $null }
 }
 
-function Find-PreviousStableMsi {
+function Find-PreviousStableInstallers {
+    if ($PreviousMsiPath -or $PreviousSetupPath) {
+        if (-not $PreviousMsiPath -or -not $PreviousSetupPath) {
+            throw "Deterministic upgrade validation requires both PreviousMsiPath and PreviousSetupPath."
+        }
+        Write-Step "Using explicit previous installers for deterministic upgrade validation"
+        return [pscustomobject]@{
+            Path = $PreviousMsiPath
+            SetupPath = $PreviousSetupPath
+            Tag = if ($PreviousVersion) { "v$PreviousVersion" } else { "explicit previous MSI" }
+            Version = $PreviousVersion
+        }
+    }
+
     if (-not $Repository -or -not $CurrentTag) {
         Write-Host "::notice::Upgrade validation skipped: repository or current tag is unavailable."
         return $null
@@ -298,7 +361,7 @@ function Find-PreviousStableMsi {
     try {
         $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases?per_page=30" -Headers $headers
     } catch {
-        throw "Upgrade validation could not determine whether a previous stable MSI exists because the GitHub release lookup failed: $($_.Exception.Message)"
+        throw "Upgrade validation could not determine whether previous stable Windows installers exist because the GitHub release lookup failed: $($_.Exception.Message)"
     }
 
     $currentCoreVersion = ConvertTo-CoreVersion -TagOrVersion $CurrentTag
@@ -312,21 +375,35 @@ function Find-PreviousStableMsi {
         ) {
             continue
         }
-        $asset = $release.assets |
+        $msiAsset = $release.assets |
             Where-Object { $_.name -match '^Calen-.+-Windows-x64\.msi$' } |
             Select-Object -First 1
-        if ($null -eq $asset) { continue }
-        $downloadPath = Join-Path $testRoot ([string]$asset.name)
-        Write-Step "Downloading previous stable MSI $($release.tag_name) for optional upgrade validation"
-        Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $downloadPath
+        $setupAsset = $release.assets |
+            Where-Object { $_.name -match '^Calen-.+-Windows-x64-Setup\.exe$' } |
+            Select-Object -First 1
+        if ($null -eq $msiAsset -or $null -eq $setupAsset) { continue }
+        $downloadPath = if ($null -ne $msiAsset) {
+            Join-Path $testRoot ([string]$msiAsset.name)
+        } else { $null }
+        $downloadSetupPath = if ($null -ne $setupAsset) {
+            Join-Path $testRoot ([string]$setupAsset.name)
+        } else { $null }
+        Write-Step "Downloading previous stable Windows installers $($release.tag_name) for upgrade validation"
+        if ($downloadPath) {
+            Invoke-WebRequest -Uri $msiAsset.browser_download_url -Headers $headers -OutFile $downloadPath
+        }
+        if ($downloadSetupPath) {
+            Invoke-WebRequest -Uri $setupAsset.browser_download_url -Headers $headers -OutFile $downloadSetupPath
+        }
         return [pscustomobject]@{
             Path = $downloadPath
+            SetupPath = $downloadSetupPath
             Tag = [string]$release.tag_name
             Version = ([string]$release.tag_name).TrimStart('v')
         }
     }
 
-    Write-Host "::notice::Upgrade validation skipped: no previous stable Calen Windows x64 MSI was found."
+    Write-Host "::notice::Upgrade validation skipped: no previous stable Calen Windows x64 installer was found."
     return $null
 }
 
@@ -337,23 +414,56 @@ if ($preexistingEntries.Count -gt 0) {
     }
     throw "Windows installer validation requires a clean runner without Calen installed: $($descriptions -join ', ')"
 }
+$previous = Find-PreviousStableInstallers
 
 try {
     Write-Step "Installing NSIS silently into a Chinese and space-containing path"
-    if (Test-Path -LiteralPath $nsisInstallRoot) {
-        Remove-Item -LiteralPath $nsisInstallRoot -Recurse -Force
-    }
-    Invoke-CheckedProcess -FilePath $SetupPath -Arguments @("/S", "/D=$nsisInstallRoot") | Out-Null
-    if (-not (Test-Path -LiteralPath $nsisInstallRoot -PathType Container)) {
-        throw "NSIS did not honor the requested install directory: $nsisInstallRoot"
-    }
+    Invoke-NsisInstall -PackagePath $SetupPath -InstallRoot $nsisInstallRoot -ExpectedVersion $CurrentVersion | Out-Null
     Invoke-SidecarSmoke -InstallRoot $nsisInstallRoot | Out-Null
-    $uninstaller = Get-ChildItem -LiteralPath $nsisInstallRoot -Filter "uninstall.exe" -File -Recurse | Select-Object -First 1
-    if ($null -eq $uninstaller) {
-        throw "NSIS uninstaller was not found under: $nsisInstallRoot"
+    Invoke-NsisUninstall -InstallRoot $nsisInstallRoot
+
+    if ($null -ne $previous -and $previous.SetupPath) {
+        Write-Step "Installing $($previous.Tag) NSIS, upgrading in place, smoking sidecar, and uninstalling"
+        try {
+            $oldNsisEntry = Invoke-NsisInstall `
+                -PackagePath $previous.SetupPath `
+                -InstallRoot $nsisUpgradeRoot `
+                -ExpectedVersion $previous.Version
+            $oldNsisRoot = Get-InstallRootFromEntry -Entry $oldNsisEntry -PreferredRoot $nsisUpgradeRoot
+            Invoke-SidecarSmoke -InstallRoot $nsisUpgradeRoot | Out-Null
+            $currentNsisEntry = Invoke-NsisInstall `
+                -PackagePath $SetupPath `
+                -InstallRoot $nsisUpgradeRoot `
+                -ExpectedVersion $CurrentVersion `
+                -PreserveExisting
+            $nsisEntriesAfterUpgrade = @(Get-CalenUninstallEntries | Where-Object {
+                [string](Get-OptionalProperty -InputObject $_ -Name "PSChildName") -notmatch '^\{[0-9A-Fa-f-]+\}$'
+            })
+            if ($nsisEntriesAfterUpgrade | Where-Object {
+                [string](Get-OptionalProperty -InputObject $_ -Name "DisplayVersion") -eq $previous.Version
+            }) {
+                throw "Previous NSIS version $($previous.Version) remained registered after current NSIS upgrade."
+            }
+            if (-not ($nsisEntriesAfterUpgrade | Where-Object {
+                [string](Get-OptionalProperty -InputObject $_ -Name "DisplayVersion") -eq $CurrentVersion
+            })) {
+                throw "Current NSIS did not register version $CurrentVersion after upgrade."
+            }
+            $currentNsisRoot = Get-InstallRootFromEntry -Entry $currentNsisEntry -PreferredRoot $nsisUpgradeRoot
+            if (
+                [System.IO.Path]::GetFullPath($oldNsisRoot).TrimEnd('\') -ne
+                [System.IO.Path]::GetFullPath($currentNsisRoot).TrimEnd('\')
+            ) {
+                throw "NSIS upgrade did not reuse the previous install root: old=$oldNsisRoot current=$currentNsisRoot"
+            }
+            Invoke-SidecarSmoke -InstallRoot $nsisUpgradeRoot | Out-Null
+            Invoke-NsisUninstall -InstallRoot $nsisUpgradeRoot
+        } finally {
+            if (Test-Path -LiteralPath $nsisUpgradeRoot) {
+                try { Invoke-NsisUninstall -InstallRoot $nsisUpgradeRoot } catch { Write-Warning $_ }
+            }
+        }
     }
-    Invoke-CheckedProcess -FilePath $uninstaller.FullName -Arguments @("/S") | Out-Null
-    Wait-InstallRootReleased -InstallRoot $nsisInstallRoot
 
     Write-Step "Installing MSI and verifying its honored custom or registered default directory"
     if (Test-Path -LiteralPath $msiRequestedRoot) {
@@ -370,12 +480,14 @@ try {
     Invoke-MsiUninstall -Entry $msiEntry -FallbackPackage $MsiPath
     Wait-InstallRootReleased -InstallRoot $msiInstallRoot
 
-    $previous = Find-PreviousStableMsi
-    if ($null -ne $previous) {
+    if ($null -ne $previous -and $previous.Path) {
         Write-Step "Installing $($previous.Tag), upgrading with current MSI, smoking sidecar, and uninstalling"
         $upgradeRoots = [System.Collections.Generic.List[string]]::new()
         try {
-            $oldEntry = Invoke-MsiInstall -PackagePath $previous.Path -LogName "upgrade-old-install.log"
+            $oldEntry = Invoke-MsiInstall `
+                -PackagePath $previous.Path `
+                -ExpectedVersion $previous.Version `
+                -LogName "upgrade-old-install.log"
             $oldInstallLocation = Get-OptionalProperty -InputObject $oldEntry -Name "InstallLocation"
             if ($oldInstallLocation) { $upgradeRoots.Add([string]$oldInstallLocation) }
             $oldProductCode = [string](Get-OptionalProperty -InputObject $oldEntry -Name "PSChildName")
@@ -412,14 +524,23 @@ try {
 } finally {
     $cleanupRoots = [System.Collections.Generic.List[string]]::new()
     $cleanupRoots.Add($nsisInstallRoot)
+    $cleanupRoots.Add($nsisUpgradeRoot)
     $cleanupRoots.Add($msiRequestedRoot)
+    foreach ($nsisRoot in @($nsisInstallRoot, $nsisUpgradeRoot)) {
+        if (Test-Path -LiteralPath $nsisRoot) {
+            try { Invoke-NsisUninstall -InstallRoot $nsisRoot } catch { Write-Warning $_ }
+        }
+    }
     foreach ($entry in @(Get-CalenUninstallEntries)) {
         try {
             $cleanupRoots.Add((Get-InstallRootFromEntry -Entry $entry))
         } catch {
             Write-Warning "Could not resolve cleanup root for installed Calen entry: $_"
         }
-        try { Invoke-MsiUninstall -Entry $entry -FallbackPackage $MsiPath } catch { Write-Warning $_ }
+        $productCode = [string](Get-OptionalProperty -InputObject $entry -Name "PSChildName")
+        if ($productCode -match '^\{[0-9A-Fa-f-]+\}$') {
+            try { Invoke-MsiUninstall -Entry $entry -FallbackPackage $MsiPath } catch { Write-Warning $_ }
+        }
     }
     foreach ($root in ($cleanupRoots | Select-Object -Unique)) {
         if (Test-Path -LiteralPath $root) {

@@ -296,6 +296,55 @@ function StockResultTrendChart({ trend }: { trend: StockResultTrend }) {
   );
 }
 
+function StockResultSources({
+  sources,
+}: {
+  sources: NonNullable<StockToolResultDetails["sources"]>;
+}) {
+  if (sources.length === 0) return null;
+  return (
+    <ToolSection label="证据来源">
+      <div className="space-y-1.5">
+        {sources.map((source) => {
+          const name = source.name || source.label || source.provider || "未命名来源";
+          return (
+            <ToolSurface
+              key={
+                source.id ||
+                `${name}-${source.provider ?? "unknown"}-${source.capability ?? "unknown"}-${source.asOf ?? "unknown"}`
+              }
+              className="px-2.5 py-2"
+            >
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[calc(10.5px*var(--zone-font-scale,1))]">
+                <span className="font-semibold text-foreground/82">{name}</span>
+                {source.provider && source.provider !== name ? (
+                  <span className="text-muted-foreground/70">({source.provider})</span>
+                ) : null}
+                <span className="text-muted-foreground/55">
+                  · {source.capability || "能力未标注"}
+                </span>
+              </div>
+              <div className="mt-0.5 text-[calc(10px*var(--zone-font-scale,1))] text-muted-foreground/68">
+                证据截至 {source.asOf || "未知"}
+                {source.url ? (
+                  <a
+                    className="ml-2 text-primary hover:underline"
+                    href={source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    打开来源
+                  </a>
+                ) : null}
+              </div>
+            </ToolSurface>
+          );
+        })}
+      </div>
+    </ToolSection>
+  );
+}
+
 function StockRawResult({ result }: { result: unknown }) {
   return (
     <details className="group/stock-raw rounded-[10px] border border-black/[0.05] bg-black/[0.015] dark:border-white/[0.07] dark:bg-white/[0.025]">
@@ -395,18 +444,25 @@ export function ToolResultDisplay({
           <MetaTags
             tags={[
               { label: "operation", value: details.operation },
-              ...(details.asOf ? [{ label: "as of", value: details.asOf }] : []),
+              ...(details.asOf ? [{ label: "earliest as of", value: details.asOf }] : []),
               ...(details.retrievedAt ? [{ label: "retrieved", value: details.retrievedAt }] : []),
               ...(typeof details.cached === "boolean"
                 ? [{ label: "cache", value: details.cached ? "hit" : "live" }]
                 : []),
               ...(details.sources ?? []).slice(0, 4).map((source) => ({
                 label: "source",
-                value: source.label || source.provider || "unknown",
+                value: source.name || source.label || source.provider || "unknown",
               })),
             ]}
           />
+          {details.experimentalCapabilities?.length ? (
+            <div className="mt-2 rounded-lg border border-violet-500/20 bg-violet-500/[0.06] px-2.5 py-1.5 text-[calc(10px*var(--zone-font-scale,1))] text-violet-800 dark:text-violet-200">
+              含实验性量化分析：{details.experimentalCapabilities.join("、")}
+              。仅用于研究，不构成交易指令。
+            </div>
+          ) : null}
         </ToolSurface>
+        <StockResultSources sources={details.sources ?? []} />
         <StockResultMetrics metrics={cardModel.metrics} />
         {cardModel.trend ? <StockResultTrendChart trend={cardModel.trend} /> : null}
         {(details.warnings?.length ?? 0) > 0 ? (

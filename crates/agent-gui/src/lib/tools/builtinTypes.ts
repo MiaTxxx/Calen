@@ -387,9 +387,18 @@ export type StockToolResultDetails = {
   asOf?: string;
   retrievedAt?: string;
   cached?: boolean;
-  sources?: Array<{ provider?: string; label?: string; url?: string; asOf?: string }>;
+  sources?: Array<{
+    id?: string;
+    name?: string;
+    provider?: string;
+    label?: string;
+    capability?: string;
+    url?: string;
+    asOf?: string;
+  }>;
   warnings?: string[];
   experimental?: boolean;
+  experimentalCapabilities?: string[];
   result: unknown;
 };
 

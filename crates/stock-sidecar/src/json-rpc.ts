@@ -1,6 +1,10 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import type { StockSidecarPort } from "./types.ts";
+import {
+  MARKET_BRIEF_SECTIONS,
+  MARKET_BRIEF_SESSIONS,
+  type StockSidecarPort,
+} from "./types.ts";
 
 type JsonRpcId = string | number | null;
 
@@ -115,9 +119,13 @@ function validInteger(
 }
 
 function validDate(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+    return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
   return (
-    value === undefined ||
-    (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value))
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value
   );
 }
 
@@ -150,6 +158,8 @@ const BACKTEST_STRATEGY_IDS = new Set([
   ...QUANT_STRATEGY_IDS,
   "fused",
 ]);
+const MARKET_BRIEF_SESSION_IDS = new Set<string>(MARKET_BRIEF_SESSIONS);
+const MARKET_BRIEF_SECTION_IDS = new Set<string>(MARKET_BRIEF_SECTIONS);
 
 function validateParams(
   method: string,
@@ -240,6 +250,32 @@ function validateParams(
       return "marketBrief.market 必须是 CN、HK 或 US";
     if (!validInteger(params.limit, 1, 100))
       return "marketBrief.limit 必须是 1-100 的整数";
+    if (
+      params.session !== undefined &&
+      (typeof params.session !== "string" ||
+        !MARKET_BRIEF_SESSION_IDS.has(params.session))
+    )
+      return "marketBrief.session 必须是 pre_market、intraday、close 或 general";
+    if (!validDate(params.tradeDate))
+      return "marketBrief.tradeDate 必须是有效的 YYYY-MM-DD 日期";
+    if (params.sections !== undefined) {
+      if (
+        !Array.isArray(params.sections) ||
+        params.sections.length < 1 ||
+        params.sections.length > MARKET_BRIEF_SECTIONS.length
+      )
+        return "marketBrief.sections 必须是非空的市场分项数组";
+      if (
+        params.sections.some(
+          (section) =>
+            typeof section !== "string" ||
+            !MARKET_BRIEF_SECTION_IDS.has(section)
+        )
+      )
+        return "marketBrief.sections 包含未知市场分项";
+      if (new Set(params.sections).size !== params.sections.length)
+        return "marketBrief.sections 不得包含重复分项";
+    }
     return null;
   }
   if (method === "status") return null;
@@ -258,6 +294,13 @@ function validateParams(
         params.feeRate >= 1)
     )
       return "backtest.feeRate 超出范围";
+    if (
+      params.evaluationRatio !== undefined &&
+      (!validNumber(params.evaluationRatio) ||
+        params.evaluationRatio < 0.1 ||
+        params.evaluationRatio > 0.8)
+    )
+      return "backtest.evaluationRatio 必须在 0.1-0.8 范围内";
     if (!validDate(params.start) || !validDate(params.end))
       return "backtest.start/end 必须是 ISO 日期";
     if (

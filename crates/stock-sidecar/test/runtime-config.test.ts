@@ -35,10 +35,10 @@ test("runtime settings filter providers and never expose provider keys in status
   const byId = Object.fromEntries(
     status.providers.map((provider) => [provider.id, provider])
   );
-  assert.equal(byId.eastmoney?.state, "ready");
+  assert.equal(byId.eastmoney?.state, "unknown");
   assert.equal(byId.tencent?.state, "disabled");
-  assert.equal(byId.sinafinance?.state, "ready");
-  assert.equal(byId.sinafinance?.available, true);
+  assert.equal(byId.sinafinance?.state, "unknown");
+  assert.equal(byId.sinafinance?.available, false);
   assert.doesNotMatch(JSON.stringify(status), /top-secret|also-secret/);
 });
 
@@ -76,6 +76,6 @@ test("implemented BaoStock remains disabled until explicitly enabled", async () 
   const status = await createStockResearchServiceFromEnvironment(env).status();
   assert.equal(
     status.providers.find((provider) => provider.id === "baostock")?.state,
-    "ready"
+    "unknown"
   );
 });

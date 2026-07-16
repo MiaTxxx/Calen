@@ -87,12 +87,12 @@ test("snapshot optionally merges bounded chart, profile, and derived metrics", a
       };
     },
     async history(_ref, request) {
-      return { data: bars.slice(-(request.limit ?? 30)), asOf: "2026-07-15" };
+      return { data: bars.slice(-(request.limit ?? 30)), asOf: "2026-06-30" };
     },
     async profile() {
       return {
         data: { industry: "白酒", marketCap: 1570000000000 },
-        asOf: "2026-07-15",
+        asOf: "2026-03-31",
       };
     },
   };
@@ -113,5 +113,10 @@ test("snapshot optionally merges bounded chart, profile, and derived metrics", a
   assert.deepEqual(
     result.sources.map((source) => source.capability),
     ["snapshot", "history", "profile"]
+  );
+  assert.equal(
+    result.asOf,
+    "2026-03-31",
+    "aggregate freshness must not hide an older profile behind a fresh quote"
   );
 });

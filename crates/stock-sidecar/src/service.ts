@@ -55,6 +55,24 @@ const REMOTE_RESEARCH_CAPABILITIES = new Set<StockResearchCapability>([
   "etf",
 ]);
 
+/**
+ * Aggregate evidence uses the oldest source timestamp as a conservative
+ * "all included facts are at least current through" boundary. Individual
+ * source timestamps remain available for precise freshness inspection.
+ */
+function aggregateAsOf(
+  sources: readonly EvidenceSource[],
+  fallback: string
+): string {
+  if (sources.some((source) => source.asOf === "unknown")) return "unknown";
+  return (
+    sources
+      .map((source) => source.asOf)
+      .sort()
+      .at(0) ?? fallback
+  );
+}
+
 function enrichEtfPremium(
   value: unknown,
   snapshot: StockSnapshot | null | undefined
@@ -346,11 +364,7 @@ export function createStockResearchService(
         instrument: request.instrument,
         data,
         sources,
-        asOf:
-          sources
-            .map((source) => source.asOf)
-            .sort()
-            .at(-1) ?? quote.source.asOf,
+        asOf: aggregateAsOf(sources, quote.source.asOf),
         retrievedAt,
         cached: sources.length > 0 && sources.every((source) => source.cached),
         warnings,
@@ -559,11 +573,7 @@ export function createStockResearchService(
           ),
         },
         sources: uniqueSources,
-        asOf:
-          uniqueSources
-            .map((source) => source.asOf)
-            .sort()
-            .at(-1) ?? retrievedAt,
+        asOf: aggregateAsOf(uniqueSources, retrievedAt),
         retrievedAt,
         cached:
           uniqueSources.length > 0 &&
@@ -576,9 +586,18 @@ export function createStockResearchService(
       signal?: AbortSignal
     ): Promise<StockEvidenceResult> {
       const retrievedAt = now().toISOString();
+      const sectionKey = request.sections?.length
+        ? [...request.sections].sort().join(",")
+        : "default";
       const result = await registry.query(
         "marketBrief",
-        `${request.market ?? "CN"}:${request.limit ?? 20}`,
+        [
+          request.market ?? "CN",
+          request.session ?? "general",
+          request.tradeDate ?? "latest",
+          sectionKey,
+          request.limit ?? 20,
+        ].join(":"),
         (provider, context) => provider.marketBrief!(request, context),
         signal
       );
@@ -608,9 +627,11 @@ export function createStockResearchService(
       const retrievedAt = now().toISOString();
       if (request.bars) return runBacktest(request, request.bars, retrievedAt);
       if (!request.instrument)
-        return unavailableBacktestResult(retrievedAt, [
-          "必须提供 instrument 或 bars",
-        ]);
+        return unavailableBacktestResult(
+          retrievedAt,
+          ["必须提供 instrument 或 bars"],
+          request
+        );
       const historyRequest = { limit: 2_000 } as {
         limit: number;
         start?: string;
@@ -626,7 +647,11 @@ export function createStockResearchService(
         signal
       );
       if (!history.data)
-        return unavailableBacktestResult(retrievedAt, history.warnings);
+        return unavailableBacktestResult(
+          retrievedAt,
+          history.warnings,
+          request
+        );
       const result = runBacktest(request, history.data, retrievedAt);
       if (history.source) result.sources.unshift(history.source);
       result.warnings.unshift(...history.warnings);
@@ -642,6 +667,9 @@ export function createStockResearchService(
       const available = providerStatus.filter(
         (provider) => provider.available
       ).length;
+      const pendingProbe = providerStatus.some(
+        (provider) => provider.enabled && provider.state === "unknown"
+      );
       return {
         state:
           available > 0 &&
@@ -650,9 +678,11 @@ export function createStockResearchService(
             ? "ready"
             : available > 0
               ? "degraded"
-              : providerStatus.length
-                ? "unavailable"
-                : "ready",
+              : pendingProbe
+                ? "degraded"
+                : providerStatus.length
+                  ? "unavailable"
+                  : "ready",
         service: "calen-stock-sidecar",
         version: "0.1.0",
         providers: providerStatus,

@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { GlassPanel, HubBackdrop, HubHeader } from "../../components/hub/HubChrome";
 import {
   AlertTriangle,
@@ -19,15 +19,18 @@ import {
   type AsyncResource,
   type BacktestResult,
   formatStockError,
+  generateStockAiResearchBrief,
   type InstrumentRef,
   type InstrumentSearchResult,
   type MarketBrief,
   parseFiniteNumber,
   type QuoteSnapshot,
   type ResearchBundle,
+  type StockAiResearchBrief,
   type StockBacktestStrategyId,
   type StockEvidenceMetadata,
   type StockEvidenceResult,
+  type StockResearchModelSettings,
   type StockResultStatus,
   type StockServiceStatus,
   type StockSettings,
@@ -43,7 +46,7 @@ type Props = {
   sidebarOpen: boolean;
   onOpenSidebar: () => void;
   initialView?: StockHubView;
-  selectedModel?: { customProviderId: string; model: string };
+  modelSettings: StockResearchModelSettings;
 };
 
 const views: Array<{ value: StockHubView; label: string; hint: string }> = [
@@ -58,7 +61,7 @@ export function StockHubPage({
   sidebarOpen,
   onOpenSidebar,
   initialView = "research",
-  selectedModel,
+  modelSettings,
 }: Props) {
   const [view, setView] = useState<StockHubView>(initialView);
   const [status, setStatus] = useState<AsyncResource<StockServiceStatus>>({
@@ -112,8 +115,8 @@ export function StockHubPage({
                 </button>
               ))}
             </nav>
-            {view === "research" ? <ResearchView /> : null}
-            {view === "market" ? <MarketView selectedModel={selectedModel} /> : null}
+            {view === "research" ? <ResearchView modelSettings={modelSettings} /> : null}
+            {view === "market" ? <MarketView selectedModel={modelSettings.selectedModel} /> : null}
             {view === "portfolio" ? <PortfolioView /> : null}
             {view === "lab" ? <LabView /> : null}
             {view === "sources" ? (
@@ -152,7 +155,10 @@ function ServicePill({ resource }: { resource: AsyncResource<StockServiceStatus>
   );
 }
 
-function ResearchView() {
+function ResearchView({ modelSettings }: { modelSettings: StockResearchModelSettings }) {
+  const searchSequence = useRef(0);
+  const inspectSequence = useRef(0);
+  const researchSequence = useRef(0);
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<AsyncResource<InstrumentSearchResult>>({ state: "idle" });
   const [selected, setSelected] = useState<InstrumentRef | null>(null);
@@ -162,66 +168,85 @@ function ResearchView() {
   const [research, setResearch] = useState<AsyncResource<StockEvidenceResult<ResearchBundle>>>({
     state: "idle",
   });
+  const [aiBrief, setAiBrief] = useState<AsyncResource<StockAiResearchBrief>>({ state: "idle" });
 
   async function search(event: FormEvent) {
     event.preventDefault();
     if (!query.trim()) return;
+    const sequence = ++searchSequence.current;
     setMatches({ state: "loading" });
     try {
-      setMatches({
-        state: "ready",
-        data: await stockResearch.resolve({ query: query.trim(), limit: 8 }),
-      });
+      const data = await stockResearch.resolve({ query: query.trim(), limit: 8 });
+      if (sequence !== searchSequence.current) return;
+      setMatches({ state: "ready", data });
     } catch (error) {
+      if (sequence !== searchSequence.current) return;
       setMatches({ state: "error", message: formatStockError(error) });
     }
   }
 
   async function inspect(instrument: InstrumentRef) {
+    const sequence = ++inspectSequence.current;
+    researchSequence.current += 1;
     setSelected(instrument);
     setSnapshot({ state: "loading" });
     setResearch({ state: "idle" });
+    setAiBrief({ state: "idle" });
     try {
-      setSnapshot({
-        state: "ready",
-        data: await stockResearch.snapshot({
-          instrument,
-          includeHistory: true,
-        }),
+      const data = await stockResearch.snapshot({
+        instrument,
+        includeHistory: true,
       });
+      if (sequence !== inspectSequence.current) return;
+      setSnapshot({ state: "ready", data });
     } catch (error) {
+      if (sequence !== inspectSequence.current) return;
       setSnapshot({ state: "error", message: formatStockError(error) });
     }
   }
 
   async function runResearch() {
     if (!selected) return;
+    const sequence = ++researchSequence.current;
     setResearch({ state: "loading" });
+    setAiBrief({ state: "loading" });
     try {
-      setResearch({
-        state: "ready",
-        data: await stockResearch.research({
-          instrument: selected,
-          capabilities: [
-            "quote",
-            "history",
-            "profile",
-            "financials",
-            "shareholders",
-            "dividends",
-            "capital_flow",
-            "news",
-            "notices",
-            ...(selected.assetType === "etf" ? (["etf"] as const) : []),
-            "technical",
-            "score",
-            "strategy",
-            "evaluator",
-          ],
-        }),
+      const evidence = await stockResearch.research({
+        instrument: selected,
+        capabilities: [
+          "quote",
+          "history",
+          "profile",
+          "financials",
+          "shareholders",
+          "dividends",
+          "capital_flow",
+          "news",
+          "notices",
+          ...(selected.assetType === "etf" ? (["etf"] as const) : []),
+          "technical",
+          "score",
+          "strategy",
+          "evaluator",
+        ],
       });
+      if (sequence !== researchSequence.current) return;
+      setResearch({ state: "ready", data: evidence });
+      try {
+        const data = await generateStockAiResearchBrief({
+          settings: modelSettings,
+          evidence,
+        });
+        if (sequence !== researchSequence.current) return;
+        setAiBrief({ state: "ready", data });
+      } catch (error) {
+        if (sequence !== researchSequence.current) return;
+        setAiBrief({ state: "error", message: formatStockError(error) });
+      }
     } catch (error) {
+      if (sequence !== researchSequence.current) return;
       setResearch({ state: "error", message: formatStockError(error) });
+      setAiBrief({ state: "idle" });
     }
   }
 
@@ -288,10 +313,12 @@ function ResearchView() {
           />
         ) : null}
         {research.state === "loading" ? (
-          <LoadingCard text="正在整理事实、风险与待验证事项…" />
+          <LoadingCard text="正在聚合财务、公告与量化研究证据…" />
         ) : null}
         <ResourceError resource={research} panel />
-        {research.state === "ready" ? <ResearchCard result={research.data} /> : null}
+        {research.state === "ready" ? (
+          <ResearchCard result={research.data} aiBrief={aiBrief} />
+        ) : null}
       </div>
     </div>
   );
@@ -366,23 +393,30 @@ function SnapshotCard({
   );
 }
 
-function ResearchCard({ result }: { result: StockEvidenceResult<ResearchBundle> }) {
+function ResearchCard({
+  result,
+  aiBrief,
+}: {
+  result: StockEvidenceResult<ResearchBundle>;
+  aiBrief: AsyncResource<StockAiResearchBrief>;
+}) {
   if (!result.data) return <UnavailableCard result={result} />;
   const data = result.data;
   return (
     <GlassPanel>
       <EvidenceHeader result={result} title={data.title} />
-      <p className="mt-3 text-[13px] leading-6 text-foreground/85">{data.summary}</p>
+      <AiResearchBriefSection resource={aiBrief} />
       <div className="mt-4">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-xs font-semibold">事实与证据</h3>
-          <span className="text-[10px] text-muted-foreground">Provider 返回的事实数据</span>
+          <span className="text-[10px] text-muted-foreground">
+            仅展示 sidecar / Provider 返回内容
+          </span>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <BulletSection title="关键事实" items={data.facts} />
-          <BulletSection title="支持论据" items={data.positiveCases} />
-          <BulletSection title="主要风险" items={data.risks} warning />
-          <BulletSection title="待验证事项" items={data.openQuestions} />
+          <BulletSection title="Provider 关键事实" items={data.facts} />
+          <BulletSection title="Provider 数据缺口" items={data.risks} warning />
+          <BulletSection title="Provider 待验证事项" items={data.openQuestions} />
         </div>
       </div>
       {data.evidenceSections.length ? <ResearchEvidenceSections data={data} /> : null}
@@ -391,6 +425,56 @@ function ResearchCard({ result }: { result: StockEvidenceResult<ResearchBundle> 
       ) : null}
       <Disclaimer />
     </GlassPanel>
+  );
+}
+
+function AiResearchBriefSection({ resource }: { resource: AsyncResource<StockAiResearchBrief> }) {
+  if (resource.state === "loading") {
+    return (
+      <section className="mt-4 rounded-2xl border border-primary/15 bg-primary/[0.035] p-4">
+        <div className="flex items-center gap-2 text-xs font-semibold">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          正在调用所选模型生成 AI 研究简报…
+        </div>
+        <p className="mt-2 text-[10.5px] text-muted-foreground">
+          模型只能读取下方证据包，不启用联网搜索，也不会修改持仓。
+        </p>
+      </section>
+    );
+  }
+  if (resource.state === "error") {
+    return (
+      <section className="mt-4 rounded-2xl border border-destructive/25 bg-destructive/5 p-4">
+        <div className="text-xs font-semibold text-destructive">AI 研究简报生成失败</div>
+        <p className="mt-2 text-[10.5px] leading-5 text-muted-foreground">{resource.message}</p>
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          下方 Provider 证据仍可核验；Calen 不会用 sidecar 空字段伪装成模型结论。
+        </p>
+      </section>
+    );
+  }
+  if (resource.state !== "ready") return null;
+  const brief = resource.data;
+  return (
+    <section className="mt-4 rounded-2xl border border-primary/15 bg-primary/[0.035] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4" />
+          <h3 className="text-xs font-semibold">AI 深度研究简报</h3>
+        </div>
+        <span className="text-[9.5px] text-muted-foreground">
+          {brief.model.providerId} / {brief.model.model} · {brief.generatedAt}
+        </span>
+      </div>
+      <p className="mt-3 text-[13px] leading-6 text-foreground/85">{brief.summary}</p>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <BulletSection title="可核验事实" items={brief.facts} />
+        <BulletSection title="支持论据" items={brief.supportingCases} />
+        <BulletSection title="反面论据" items={brief.counterCases} warning />
+        <BulletSection title="主要风险" items={brief.risks} warning />
+        <BulletSection title="待验证事项" items={brief.openQuestions} />
+      </div>
+    </section>
   );
 }
 
@@ -668,7 +752,11 @@ function ResearchMetadataItem({ label, value }: { label: string; value: string }
   );
 }
 
-function MarketView({ selectedModel }: { selectedModel?: Props["selectedModel"] }) {
+function MarketView({
+  selectedModel,
+}: {
+  selectedModel?: StockResearchModelSettings["selectedModel"];
+}) {
   const [brief, setBrief] = useState<AsyncResource<StockEvidenceResult<MarketBrief>>>({
     state: "idle",
   });
@@ -823,6 +911,7 @@ function LabView() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [period, setPeriod] = useState("20");
+  const [evaluationRatio, setEvaluationRatio] = useState("0.3");
   const [strategy, setStrategy] = useState<StockBacktestStrategyId>("fused");
   const [result, setResult] = useState<AsyncResource<StockEvidenceResult<BacktestResult>>>({
     state: "idle",
@@ -830,7 +919,16 @@ function LabView() {
   async function run(event: FormEvent) {
     event.preventDefault();
     const parsedPeriod = parseFiniteNumber(period);
-    if (!symbol.trim() || !from || !to || (strategy === "sma-cross" && parsedPeriod === null))
+    const parsedEvaluationRatio = parseFiniteNumber(evaluationRatio);
+    if (
+      !symbol.trim() ||
+      !from ||
+      !to ||
+      parsedEvaluationRatio === null ||
+      parsedEvaluationRatio < 0.1 ||
+      parsedEvaluationRatio > 0.8 ||
+      (strategy === "sma-cross" && parsedPeriod === null)
+    )
       return;
     setResult({ state: "loading" });
     try {
@@ -848,7 +946,7 @@ function LabView() {
           from,
           to,
           parameters: strategy === "sma-cross" ? { period: parsedPeriod } : {},
-          benchmark: "market",
+          evaluationRatio: parsedEvaluationRatio,
         }),
       });
     } catch (error) {
@@ -902,6 +1000,18 @@ function LabView() {
               disabled={strategy !== "sma-cross"}
             />
           </Field>
+          <Field label="样本外评估比例">
+            <Input
+              type="number"
+              min={0.1}
+              max={0.8}
+              step={0.05}
+              inputMode="decimal"
+              value={evaluationRatio}
+              onChange={(event) => setEvaluationRatio(event.target.value)}
+              placeholder="0.3"
+            />
+          </Field>
           <Button type="submit" className="w-full" disabled={result.state === "loading"}>
             {result.state === "loading" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             运行回测
@@ -949,23 +1059,122 @@ function BacktestCard({ result }: { result: StockEvidenceResult<BacktestResult> 
           label="最大回撤"
           value={data.maxDrawdownPercent === null ? "—" : `${data.maxDrawdownPercent}%`}
         />
-        <Metric label="数据覆盖" value={`${Math.round(data.coverage * 100)}%`} />
+        <Metric
+          label="数据覆盖"
+          value={`${Math.round(data.coverage * 100)}%${result.status === "partial" ? "（部分）" : ""}`}
+        />
       </div>
       <StockChart
-        values={data.equityCurve ?? []}
+        points={data.equityCurve.map((point) => ({ time: point.time, value: point.equity }))}
         positive={(data.returnPercent ?? 0) >= 0}
         className="mt-4"
         label="回测权益曲线"
       />
-      <div className="mt-3 text-[11px] text-muted-foreground">
-        {data.algorithmId} v{data.algorithmVersion} · {data.sample.from} 至 {data.sample.to} ·{" "}
-        {data.sample.points} 个样本 · 基准 {data.benchmark}
+      <div className="mt-3 rounded-xl border border-border/35 bg-background/45 p-3 text-[11px] text-muted-foreground">
+        <div className="font-medium text-foreground/80">
+          {data.algorithmId} v{data.algorithmVersion} · 基准 {data.benchmark || "未知"}
+        </div>
+        <div className="mt-1">
+          全部样本：{data.sample.from || "未知"} 至 {data.sample.to || "未知"} ·{" "}
+          {data.sample.points} 根 · 覆盖率 {Math.round(data.sample.coverage * 100)}%
+        </div>
+        <div className="mt-1">
+          校准区间：{data.sample.calibration.from || "未知"} 至{" "}
+          {data.sample.calibration.to || "未知"} · {data.sample.calibration.points} 根 · 覆盖率{" "}
+          {Math.round(data.sample.calibration.coverage * 100)}%
+        </div>
+        <div className="mt-1">
+          样本外评估：{data.sample.evaluation.from || "未知"} 至{" "}
+          {data.sample.evaluation.to || "未知"} · {data.sample.evaluation.points} 根 · 覆盖率{" "}
+          {Math.round(data.sample.evaluation.coverage * 100)}%
+        </div>
       </div>
+      <BacktestParameters parameters={data.parameters} />
+      <BacktestTrades trades={data.trades} />
       {data.limitations.length ? (
         <BulletSection title="限制说明" items={data.limitations} warning />
       ) : null}
       <Disclaimer />
     </GlassPanel>
+  );
+}
+
+function BacktestParameters({ parameters }: { parameters: Record<string, unknown> }) {
+  const entries = Object.entries(parameters);
+  if (!entries.length) return null;
+  return (
+    <div className="mt-3 rounded-xl border border-border/35 bg-background/45 p-3">
+      <div className="text-xs font-semibold">算法参数与费用假设</div>
+      <div className="mt-2 grid gap-1.5 text-[11px] text-muted-foreground sm:grid-cols-2">
+        {entries.map(([key, value]) => (
+          <div key={key} className="flex items-start justify-between gap-3">
+            <span>{key}</span>
+            <span className="text-right font-mono text-foreground/80">
+              {formatBacktestParameter(key, value)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function formatBacktestParameter(key: string, value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (key === "feeRate" || key === "evaluationRatio") {
+      return `${(value * 100).toLocaleString("zh-CN", { maximumFractionDigits: 4 })}%`;
+    }
+    return value.toLocaleString("zh-CN", { maximumFractionDigits: 4 });
+  }
+  if (value && typeof value === "object") return JSON.stringify(value);
+  return String(value ?? "—");
+}
+
+function BacktestTrades({ trades }: { trades: BacktestResult["trades"] }) {
+  return (
+    <div className="mt-3 rounded-xl border border-border/35 bg-background/45 p-3">
+      <div className="text-xs font-semibold">逐笔交易（信号 / 执行 / 费用）</div>
+      {trades.length ? (
+        <div className="mt-2 overflow-x-auto">
+          <table className="w-full min-w-[620px] text-left text-[11px] text-muted-foreground">
+            <thead>
+              <tr className="border-b border-border/35 text-[10px]">
+                <th className="px-2 py-1.5 font-medium">方向</th>
+                <th className="px-2 py-1.5 font-medium">信号时间</th>
+                <th className="px-2 py-1.5 font-medium">执行时间</th>
+                <th className="px-2 py-1.5 text-right font-medium">价格</th>
+                <th className="px-2 py-1.5 text-right font-medium">数量</th>
+                <th className="px-2 py-1.5 text-right font-medium">费用</th>
+              </tr>
+            </thead>
+            <tbody>
+              {trades.map((trade) => (
+                <tr
+                  key={`${trade.signalTime}-${trade.executionTime}-${trade.side}`}
+                  className="border-b border-border/20 last:border-0"
+                >
+                  <td
+                    className={cn(
+                      "px-2 py-1.5 font-medium",
+                      trade.side === "buy" ? "text-red-600" : "text-emerald-600",
+                    )}
+                  >
+                    {trade.side === "buy" ? "买入" : "卖出"}
+                  </td>
+                  <td className="px-2 py-1.5 font-mono">{trade.signalTime}</td>
+                  <td className="px-2 py-1.5 font-mono">{trade.executionTime}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{trade.price}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{trade.quantity}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{trade.fee}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="mt-2 text-[11px] text-muted-foreground">评估区间内没有可记录的交易。</div>
+      )}
+    </div>
   );
 }
 
@@ -1110,18 +1319,22 @@ function SourcesView({
                     status={
                       provider.state === "ready"
                         ? "ok"
-                        : provider.state === "cooldown"
+                        : provider.state === "unknown"
                           ? "partial"
-                          : "unavailable"
+                          : provider.state === "cooldown"
+                            ? "partial"
+                            : "unavailable"
                     }
                     label={
                       provider.state === "ready"
                         ? "可用"
-                        : provider.state === "cooldown"
-                          ? "冷却中"
-                          : provider.state === "unconfigured"
-                            ? "未配置"
-                            : "失败"
+                        : provider.state === "unknown"
+                          ? "待探测"
+                          : provider.state === "cooldown"
+                            ? "冷却中"
+                            : provider.state === "unconfigured"
+                              ? "未配置"
+                              : "失败"
                     }
                   />
                 </div>
@@ -1344,19 +1557,30 @@ function EvidenceHeader({ result, title }: { result: StockEvidenceMetadata; titl
           <StatusBadge status={result.status} />
         </div>
         <div className="mt-1 text-[10.5px] text-muted-foreground">
-          截至 {result.asOf ?? "未知"} · 获取于 {result.retrievedAt}
+          最早证据截至 {result.asOf ?? "未知"} · 获取于 {result.retrievedAt || "未知"}
           {result.cached ? " · 缓存" : ""}
         </div>
       </div>
-      <div className="flex flex-wrap justify-end gap-1">
+      <div className="flex w-full flex-col gap-1.5 sm:w-auto sm:min-w-[260px] sm:max-w-[56%]">
         {result.sources.map((source) => (
-          <span
+          <div
             key={source.id}
             title={source.url}
-            className="rounded-full border border-border/45 bg-background/60 px-2 py-1 text-[9.5px] text-muted-foreground"
+            className="rounded-xl border border-border/45 bg-background/60 px-2.5 py-1.5 text-[9.5px] text-muted-foreground"
           >
-            {source.name}
-          </span>
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+              <span className="font-medium text-foreground/80">{source.name}</span>
+              {source.provider && source.provider !== source.name ? (
+                <span className="text-muted-foreground/75">({source.provider})</span>
+              ) : null}
+              <span className="text-muted-foreground/55">
+                · {source.capability ?? "能力未标注"}
+              </span>
+            </div>
+            <div className="mt-0.5 text-[9px] text-muted-foreground/70">
+              证据截至 {source.asOf ?? "未知"}
+            </div>
+          </div>
         ))}
       </div>
       {result.warnings.length ? (

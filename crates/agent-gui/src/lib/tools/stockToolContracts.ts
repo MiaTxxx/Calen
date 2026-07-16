@@ -20,6 +20,15 @@ function finiteNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function normalizeMarketBriefSession(value: unknown) {
+  const session = string(value);
+  if (session === "preMarket" || session === "pre_open" || session === "pre_market")
+    return "pre_market";
+  if (session === "intraday") return "intraday";
+  if (session === "close") return "close";
+  return "general";
+}
+
 function normalizeToolInstrument(value: unknown): Record<string, unknown> {
   const instrument = record(value);
   const symbol = string(instrument.symbol) ?? "";
@@ -63,7 +72,12 @@ export function toStockSidecarToolPayload(
   rawPayload: Record<string, unknown>,
 ): Record<string, unknown> {
   if (operation === "resolve" || operation === "portfolio") return rawPayload;
-  if (operation === "marketBrief") return { market: "CN", ...rawPayload };
+  if (operation === "marketBrief")
+    return {
+      market: "CN",
+      ...rawPayload,
+      session: normalizeMarketBriefSession(rawPayload.session),
+    };
   const instrument = normalizeToolInstrument(rawPayload.instrument);
   if (operation === "snapshot") {
     const historyDays = finiteNumber(rawPayload.historyDays) ?? 30;
@@ -105,13 +119,16 @@ export function toStockSidecarToolPayload(
     1,
     Math.min(Math.trunc(shortWindow), normalizedLongWindow - 1),
   );
+  const evaluationRatio = finiteNumber(rawPayload.evaluationRatio ?? parameters.evaluationRatio);
+  const { benchmark: _unsupportedBenchmark, ...payload } = rawPayload;
   return {
-    ...rawPayload,
+    ...payload,
     instrument,
     start: string(rawPayload.startDate),
     end: string(rawPayload.endDate),
     initialCash: finiteNumber(parameters.initialCash),
     feeRate: finiteNumber(rawPayload.feeRate ?? parameters.feeRate),
+    ...(evaluationRatio === undefined ? {} : { evaluationRatio }),
     strategy:
       rawPayload.strategy === "trend" ||
       rawPayload.strategy === "mean-reversion" ||

@@ -176,26 +176,47 @@ export interface MarketBrief {
     tone?: "up" | "down" | "neutral";
   }>;
   generatedFor: "pre_open" | "close" | "on_demand";
+  tradeDate?: string;
+  requestedSections?: MarketBriefSection[];
 }
+
+export type MarketBriefSection =
+  | "movers"
+  | "limitUp"
+  | "limitDown"
+  | "hotSectors"
+  | "moneyFlow"
+  | "dragonTiger"
+  | "unusualMoves"
+  | "sentiment";
 
 export interface BacktestResult {
   algorithmId: string;
   algorithmVersion: string;
   parameters: Record<string, unknown>;
-  sample: { from: string; to: string; points: number };
+  sample: {
+    from: string;
+    to: string;
+    points: number;
+    coverage: number;
+    calibration: { from: string; to: string; points: number; coverage: number };
+    evaluation: { from: string; to: string; points: number; coverage: number };
+  };
   benchmark: string;
   returnPercent: number | null;
   benchmarkReturnPercent: number | null;
   maxDrawdownPercent: number | null;
   trades: Array<{
-    time: string;
+    signalTime: string;
+    executionTime: string;
     side: "buy" | "sell";
     price: number;
     quantity: number;
+    fee: number;
   }>;
   coverage: number;
   limitations: string[];
-  equityCurve?: number[];
+  equityCurve: Array<{ time: string; equity: number }>;
 }
 
 export interface StockServiceStatus {
@@ -205,7 +226,7 @@ export interface StockServiceStatus {
   providers: Array<{
     id: string;
     name: string;
-    state: "ready" | "cooldown" | "unconfigured" | "failed";
+    state: "unknown" | "ready" | "cooldown" | "unconfigured" | "failed";
     capabilities: StockCapability[];
     lastSuccessAt?: string;
     message?: string;
@@ -402,7 +423,10 @@ export interface StockResearchRequest {
 }
 export interface MarketBriefRequest {
   market: StockMarket;
-  session?: "pre_open" | "close" | "on_demand";
+  session?: "pre_market" | "pre_open" | "intraday" | "close" | "general" | "on_demand";
+  tradeDate?: string;
+  sections?: MarketBriefSection[];
+  limit?: number;
 }
 export interface StockBacktestRequest {
   instrument: InstrumentRef;
@@ -410,7 +434,7 @@ export interface StockBacktestRequest {
   from: string;
   to: string;
   parameters?: Record<string, unknown>;
-  benchmark?: string;
+  evaluationRatio?: number;
 }
 
 export interface StockResearchPort {

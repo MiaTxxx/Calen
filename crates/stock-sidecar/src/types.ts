@@ -44,6 +44,26 @@ export interface InstrumentRef {
 
 export type EvidenceStatus = "ok" | "partial" | "unavailable";
 
+export const MARKET_BRIEF_SESSIONS = [
+  "pre_market",
+  "intraday",
+  "close",
+  "general",
+] as const;
+export type MarketBriefSession = (typeof MARKET_BRIEF_SESSIONS)[number];
+
+export const MARKET_BRIEF_SECTIONS = [
+  "movers",
+  "limitUp",
+  "limitDown",
+  "hotSectors",
+  "moneyFlow",
+  "dragonTiger",
+  "unusualMoves",
+  "sentiment",
+] as const;
+export type MarketBriefSection = (typeof MARKET_BRIEF_SECTIONS)[number];
+
 export interface EvidenceSource {
   id: string;
   name: string;
@@ -189,6 +209,9 @@ export interface StockResearchRequest {
 export interface MarketBriefRequest {
   market?: Market;
   limit?: number;
+  session?: MarketBriefSession;
+  tradeDate?: string;
+  sections?: MarketBriefSection[];
 }
 
 export interface StockBacktestRequest {
@@ -198,6 +221,7 @@ export interface StockBacktestRequest {
   end?: string;
   initialCash?: number;
   feeRate?: number;
+  evaluationRatio?: number;
   strategy?: {
     id?: StockBacktestStrategyId;
     shortWindow?: number;
@@ -214,13 +238,28 @@ export interface BacktestTrade {
   fee: number;
 }
 
+export interface BacktestSampleWindow {
+  start: string;
+  end: string;
+  bars: number;
+  coverage: number;
+}
+
+export interface BacktestEquityPoint {
+  time: string;
+  equity: number;
+}
+
 export interface StockBacktestResult extends EvidenceEnvelope {
   algorithm: {
     id: string;
     version: string;
     parameters: Record<string, unknown>;
   };
-  sample: { start: string; end: string; bars: number; coverage: number };
+  sample: BacktestSampleWindow & {
+    calibration: BacktestSampleWindow;
+    evaluation: BacktestSampleWindow;
+  };
   benchmark: { name: "buy-and-hold"; returnPercent: number };
   metrics: {
     finalEquity: number;
@@ -228,6 +267,7 @@ export interface StockBacktestResult extends EvidenceEnvelope {
     maxDrawdownPercent: number;
   };
   trades: BacktestTrade[];
+  equityCurve: BacktestEquityPoint[];
   limitations: string[];
 }
 
@@ -235,7 +275,13 @@ export interface ProviderStatus {
   id: string;
   capabilities: StockCapability[];
   priority: number;
-  state: "ready" | "disabled" | "unconfigured" | "cooldown" | "unavailable";
+  state:
+    | "unknown"
+    | "ready"
+    | "disabled"
+    | "unconfigured"
+    | "cooldown"
+    | "unavailable";
   enabled: boolean;
   configured: boolean;
   available: boolean;

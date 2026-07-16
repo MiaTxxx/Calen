@@ -1,3 +1,9 @@
+/**
+ * Tencent adapter, independently rewritten for Calen's StockProvider seam.
+ * Cross-market profile endpoint selection and field mapping were adapted from
+ * Opptrix (Apache-2.0):
+ * packages/a-stock-layer/src/providers/tencent/api/{hk,us}-detail-service.ts.
+ */
 import { ProviderError } from "./registry.ts";
 import { makeInstrument, normalizeInstrument } from "../instruments.ts";
 import type {
@@ -115,6 +121,133 @@ function numeric(value: string | undefined): number | undefined {
   if (value === undefined || value === "") return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function text(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+async function fetchTencentCompanyProfile(
+  instrument: InstrumentRef,
+  context: ProviderContext
+): Promise<ProviderEvidence<unknown> | null> {
+  if (instrument.market !== "HK" && instrument.market !== "US") return null;
+  const url = new URL(
+    instrument.market === "HK"
+      ? "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/hkStockinfo/jiankuang"
+      : "https://proxy.finance.qq.com/ifzqgtimg/appstock/us/introduce/brief"
+  );
+  url.searchParams.set(
+    instrument.market === "HK" ? "code" : "symbol",
+    providerSymbol(instrument)
+  );
+  if (instrument.market === "US")
+    url.searchParams.set("app", "official_website");
+  const init: RequestInit = {
+    headers: { Accept: "application/json", Referer: "https://gu.qq.com/" },
+  };
+  if (context.signal) init.signal = context.signal;
+  const response = await context.fetch(url, init);
+  if (!response.ok)
+    throw new ProviderError(`HTTP ${response.status}`, {
+      status: response.status,
+    });
+  const payload = record(await response.json());
+  if (Number(payload?.code) !== 0)
+    throw new ProviderError(text(payload?.msg) ?? "腾讯公司资料接口返回错误");
+  const data = record(payload?.data);
+  if (!data) return null;
+  const asOf = "unknown";
+
+  if (instrument.market === "HK") {
+    const basic = record(data.basic);
+    if (!basic) return null;
+    const plates = Array.isArray(basic.plate)
+      ? basic.plate.flatMap((item) => {
+          if (typeof item === "string" && item.trim()) return [item.trim()];
+          const row = record(item);
+          const name = text(row?.name ?? row?.plateName);
+          return name ? [name] : [];
+        })
+      : text(basic.plate)
+        ? [text(basic.plate)!]
+        : [];
+    return {
+      data: {
+        symbol: instrument.symbol,
+        name: text(basic.ChiName) ?? instrument.name,
+        market: instrument.market,
+        exchange: instrument.exchange,
+        currency: instrument.currency,
+        website: text(basic.Website),
+        business: text(basic.Business),
+        description: text(basic.BriefIntroduction),
+        chairman: text(basic.Chairman),
+        listingDate: text(basic.ListedDate),
+        industry: plates[0],
+        plates,
+        totalShares: text(basic.STOCK_SUM),
+        hkShares: text(basic.HK_STOCK_SUM),
+        coverage: "company-profile",
+      },
+      asOf,
+      warnings: [
+        "腾讯公司资料接口未提供独立数据截至时间；asOf 标记为 unknown。",
+      ],
+    };
+  }
+
+  const basic = record(data.jbxx);
+  if (!basic) return null;
+  const industry = record(basic.industry);
+  const revenueBreakdown = Array.isArray(data.srgc)
+    ? data.srgc.flatMap((entry) => {
+        const row = record(entry);
+        if (!row) return [];
+        return [
+          {
+            date: text(row.date),
+            currency: text(row.currency),
+            segments: Array.isArray(row.detail)
+              ? row.detail.flatMap((segment) => {
+                  const item = record(segment);
+                  const label = text(item?.label);
+                  return label
+                    ? [
+                        {
+                          label,
+                          sales: text(item?.sales),
+                          ratio: text(item?.zb),
+                        },
+                      ]
+                    : [];
+                })
+              : [],
+          },
+        ];
+      })
+    : [];
+  return {
+    data: {
+      symbol: instrument.symbol,
+      name: text(basic.gsmc) ?? instrument.name,
+      market: instrument.market,
+      exchange: text(basic.jys) ?? instrument.exchange,
+      currency: instrument.currency,
+      website: text(basic.website),
+      description: text(basic.jianjie),
+      listingDate: text(basic.ssrq),
+      industry: text(industry?.name),
+      industryCode: text(industry?.code),
+      totalShares: text(basic.zgb),
+      revenueBreakdown,
+      coverage: "company-profile",
+    },
+    asOf,
+    warnings: ["腾讯公司资料接口未提供独立数据截至时间；asOf 标记为 unknown。"],
+  };
 }
 
 function marketTime(
@@ -265,6 +398,11 @@ export function createTencentBasicProfileProvider(): StockProvider {
     free: true,
     capabilities: ["profile"],
     async profile(instrument, context): Promise<ProviderEvidence<unknown>> {
+      const companyProfile = await fetchTencentCompanyProfile(
+        instrument,
+        context
+      );
+      if (companyProfile?.data) return companyProfile;
       const quote = await quoteProvider.snapshot!(instrument, context);
       if (!quote.data) {
         const result: ProviderEvidence<unknown> = {
@@ -284,9 +422,7 @@ export function createTencentBasicProfileProvider(): StockProvider {
           coverage: "basic-quote-identity",
         },
         asOf: quote.asOf,
-        warnings: [
-          "腾讯基础资料仅包含证券身份与交易市场，不包含完整公司档案。",
-        ],
+        warnings: ["腾讯公司资料不可用，本次仅返回证券身份与交易市场。"],
       };
     },
   };

@@ -221,10 +221,15 @@ jobs:
           CARGO_TERM_COLOR: always
         run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml stock::tests --lib
 
+      - name: Test stock portfolio ledger, CSV, and encrypted backup
+        env:
+          CARGO_TERM_COLOR: always
+        run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml stock_portfolio::tests --lib
+
   tauri-windows-check:
-    name: Tauri Windows Check
+    name: Tauri Windows Installer Smoke
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
 
@@ -243,6 +248,33 @@ jobs:
           pnpm --dir crates/stock-sidecar test
           pnpm --dir crates/stock-sidecar build
           pnpm --dir crates/stock-sidecar verify:bundle
+
+      - name: Install GUI dependencies
+        working-directory: crates/agent-gui
+        run: pnpm install --frozen-lockfile
+
+      - name: Stage stock sidecar installer resources
+        shell: pwsh
+        run: |
+          $resourceDir = "crates/agent-gui/src-tauri/resources/stock-sidecar"
+          New-Item -ItemType Directory -Force "$resourceDir/dist" | Out-Null
+          Copy-Item (Get-Command node).Source "$resourceDir/node.exe" -Force
+          Copy-Item "crates/stock-sidecar/dist/*" "$resourceDir/dist" -Recurse -Force
+          Copy-Item "crates/stock-sidecar/package.json" "$resourceDir/package.json" -Force
+          $required = @(
+            "$resourceDir/node.exe",
+            "$resourceDir/dist/stdio.mjs",
+            "$resourceDir/dist/NOTICE.md",
+            "$resourceDir/dist/licenses/opptrix-Apache-2.0.txt"
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Missing staged installer resource: $path"
+            }
+          }
+          if (Test-Path -LiteralPath "$resourceDir/node_modules") {
+            throw "Installer sidecar resource must not contain node_modules."
+          }
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -265,6 +297,92 @@ jobs:
         env:
           CARGO_TERM_COLOR: always
         run: cargo test --manifest-path crates/stock-process-tree/Cargo.toml
+
+      - name: Test stock portfolio ledger on Windows
+        env:
+          CARGO_TERM_COLOR: always
+        run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml stock_portfolio::tests --lib
+
+      - name: Generate ephemeral updater signing key
+        shell: pwsh
+        run: |
+          $keyPath = Join-Path $env:RUNNER_TEMP "calen-ci-updater.key"
+          pnpm --dir crates/agent-gui exec tauri signer generate --ci --write-keys "$keyPath" --password "calen-ci-only"
+          "TAURI_SIGNING_PRIVATE_KEY_PATH=$keyPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=calen-ci-only" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $delimiter = "CALEN_UPDATER_KEY_$([Guid]::NewGuid().ToString('N'))"
+          "CALEN_UPDATER_PUBLIC_KEY<<$delimiter" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Get-Content -LiteralPath "$keyPath.pub" -Raw | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $delimiter | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build previous Windows installers for upgrade smoke
+        shell: pwsh
+        env:
+          CALEN_UPDATE_REPOSITORY: ${{ github.repository }}
+        run: |
+          node scripts/release/prepare-app-version-from-tag.mjs v0.0.1 --tauri-config crates/agent-gui/src-tauri/tauri.ci.generated.conf.json
+          pnpm --dir crates/agent-gui tauri build `
+            --config src-tauri/tauri.windows.release.conf.json `
+            --config src-tauri/tauri.ci.generated.conf.json `
+            --target x86_64-pc-windows-msvc `
+            --bundles nsis,msi `
+            --ci
+
+          $previousSetup = Get-ChildItem `
+            -LiteralPath "crates/agent-gui/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis" `
+            -Filter "*.exe" -File | Select-Object -First 1
+          $previousMsi = Get-ChildItem `
+            -LiteralPath "crates/agent-gui/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi" `
+            -Filter "*.msi" -File | Select-Object -First 1
+          if ($null -eq $previousSetup -or $null -eq $previousMsi) {
+            throw "Previous Windows installer smoke build did not produce both NSIS and MSI artifacts."
+          }
+          $savedPreviousSetup = Join-Path $env:RUNNER_TEMP "Calen-0.0.1-Windows-x64-Setup.exe"
+          $savedPreviousMsi = Join-Path $env:RUNNER_TEMP "Calen-0.0.1-Windows-x64.msi"
+          Copy-Item -LiteralPath $previousSetup.FullName -Destination $savedPreviousSetup -Force
+          Copy-Item -LiteralPath $previousMsi.FullName -Destination $savedPreviousMsi -Force
+          "CALEN_CI_PREVIOUS_SETUP=$savedPreviousSetup" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CALEN_CI_PREVIOUS_MSI=$savedPreviousMsi" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build current Windows installer smoke artifacts
+        shell: pwsh
+        env:
+          CALEN_UPDATE_REPOSITORY: ${{ github.repository }}
+        run: |
+          $bundleRoot = "crates/agent-gui/src-tauri/target/x86_64-pc-windows-msvc/release/bundle"
+          if (Test-Path -LiteralPath $bundleRoot) {
+            Remove-Item -LiteralPath $bundleRoot -Recurse -Force
+          }
+          node scripts/release/prepare-app-version-from-tag.mjs v0.0.2 --tauri-config crates/agent-gui/src-tauri/tauri.ci.generated.conf.json
+          pnpm --dir crates/agent-gui tauri build `
+            --config src-tauri/tauri.windows.release.conf.json `
+            --config src-tauri/tauri.ci.generated.conf.json `
+            --target x86_64-pc-windows-msvc `
+            --bundles nsis,msi `
+            --ci
+
+      - name: Validate temporary Windows installers in Chinese paths
+        shell: pwsh
+        run: |
+          $bundleRoot = "crates/agent-gui/src-tauri/target/x86_64-pc-windows-msvc/release/bundle"
+          $setup = Get-ChildItem -LiteralPath "$bundleRoot/nsis" -Filter "*.exe" -File | Select-Object -First 1
+          $msi = Get-ChildItem -LiteralPath "$bundleRoot/msi" -Filter "*.msi" -File | Select-Object -First 1
+          if ($null -eq $setup -or $null -eq $msi) {
+            throw "Windows installer smoke build did not produce both NSIS and MSI artifacts."
+          }
+          foreach ($signature in @("$($setup.FullName).sig", "$($msi.FullName).sig")) {
+            if (-not (Test-Path -LiteralPath $signature -PathType Leaf)) {
+              throw "Updater signature was not generated: $signature"
+            }
+          }
+          Write-Host "Calen installer smoke artifacts must not be uploaded; validating in place."
+          & scripts/release/test-windows-installers.ps1 `
+            -SetupPath $setup.FullName `
+            -MsiPath $msi.FullName `
+            -PreviousSetupPath $env:CALEN_CI_PREVIOUS_SETUP `
+            -PreviousMsiPath $env:CALEN_CI_PREVIOUS_MSI `
+            -PreviousVersion "0.0.1" `
+            -CurrentVersion "0.0.2"
 
   mirror:
     name: GUI/WebUI Mirror Check

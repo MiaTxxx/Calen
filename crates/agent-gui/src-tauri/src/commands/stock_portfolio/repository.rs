@@ -1,7 +1,7 @@
 use super::{csv, types::*};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::{
     collections::{BTreeMap, HashMap},
     fs,
@@ -204,13 +204,15 @@ impl StockPortfolioRepository {
         &mut self,
         input: TransactionInput,
     ) -> Result<TransactionRecord, String> {
-        let record = normalize_transaction(input)?;
+        let mut record = normalize_transaction(input)?;
         let transaction = self
             .conn
-            .transaction()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|e| format!("开始交易流水事务失败：{e}"))?;
         ensure_portfolio_exists(&transaction, &record.portfolio_id)?;
         ensure_instrument_consistency(&transaction, &record)?;
+        record.created_at =
+            next_transaction_created_at(&transaction, &record.portfolio_id, record.created_at)?;
         insert_transaction(&transaction, &record)?;
         validate_ledger(&transaction, &record.portfolio_id)?;
         touch_portfolio(&transaction, &record.portfolio_id)?;
@@ -424,10 +426,12 @@ impl StockPortfolioRepository {
 
         let transaction = self
             .conn
-            .transaction()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|e| format!("开始 CSV 导入事务失败：{e}"))?;
-        for record in &records {
+        for record in &mut records {
             ensure_instrument_consistency(&transaction, record)?;
+            record.created_at =
+                next_transaction_created_at(&transaction, &record.portfolio_id, record.created_at)?;
             insert_transaction(&transaction, record)?;
         }
         validate_ledger(&transaction, &portfolio.id)?;
@@ -958,6 +962,26 @@ fn load_transactions(
         })
     })
     .collect()
+}
+
+fn next_transaction_created_at(
+    conn: &Connection,
+    portfolio_id: &str,
+    proposed: i64,
+) -> Result<i64, String> {
+    let latest = conn
+        .query_row(
+            "SELECT MAX(created_at) FROM stock_transaction WHERE portfolio_id = ?1",
+            [portfolio_id],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .map_err(|e| format!("read latest stock transaction order: {e}"))?;
+    match latest {
+        Some(latest) if proposed <= latest => latest
+            .checked_add(1)
+            .ok_or_else(|| "stock transaction order overflow".to_string()),
+        _ => Ok(proposed),
+    }
 }
 
 fn normalize_transaction(input: TransactionInput) -> Result<TransactionRecord, String> {

@@ -210,6 +210,55 @@ fn invalid_backdated_sale_is_rejected_without_partial_write() {
 }
 
 #[test]
+fn same_timestamp_transactions_preserve_recording_order_when_the_clock_moves_backwards() {
+    let mut repo = repository();
+    let portfolio = repo
+        .create_portfolio("stable ordering", Currency::Cny)
+        .expect("create portfolio");
+    let stock = instrument("CN:000001", Currency::Cny);
+    let mut backup = repo.export_backup_document().expect("export seed backup");
+    backup.transactions.push(TransactionRecord {
+        id: "z-buy".to_string(),
+        portfolio_id: portfolio.id.clone(),
+        instrument: stock.clone(),
+        transaction_type: TransactionKind::Buy,
+        occurred_at: "2026-02-03T00:00:00Z".to_string(),
+        quantity: Some(1.0),
+        price: Some(10.0),
+        fee: Some(0.0),
+        cash_amount: None,
+        split_ratio: None,
+        note: None,
+        created_at: 4_000_000_000_000,
+    });
+    repo.restore_backup_document(backup, RestoreMode::Merge)
+        .expect("restore seed transaction");
+
+    let mut sell = transaction(
+        &portfolio.id,
+        stock,
+        TransactionKind::Sell,
+        "2026-02-03T00:00:00Z",
+    );
+    sell.id = Some("a-sell".to_string());
+    sell.quantity = Some(1.0);
+    sell.price = Some(11.0);
+    let sell = repo
+        .record_transaction(sell)
+        .expect("record same-timestamp sale after the restored buy");
+
+    assert_eq!(sell.created_at, 4_000_000_000_001);
+    assert_eq!(
+        repo.list_transactions(&portfolio.id)
+            .expect("list deterministically ordered transactions")
+            .into_iter()
+            .map(|record| record.id)
+            .collect::<Vec<_>>(),
+        vec!["z-buy", "a-sell"]
+    );
+}
+
+#[test]
 fn deleting_a_required_buy_is_rejected_without_corrupting_the_ledger() {
     let mut repo = repository();
     let portfolio = repo
@@ -376,8 +425,8 @@ fn csv_import_history_preserves_the_source_label() {
         .create_portfolio("CSV audit", Currency::Cny)
         .expect("create portfolio");
     let document = concat!(
-        "market,symbol,transaction_type,date,quantity,price,currency\r\n",
-        "CN,600000,BUY,2026-04-01,100,12.5,CNY\r\n"
+        "portfolio,market,symbol,transaction_type,date,quantity,price,fee,currency,note\r\n",
+        "CSV audit,CN,600000,BUY,2026-04-01,100,12.5,,CNY,\r\n"
     );
 
     repo.import_transactions_csv_with_source(
@@ -403,9 +452,9 @@ fn failed_csv_import_is_audited_without_partial_ledger_writes() {
         .create_portfolio("CSV rollback", Currency::Cny)
         .expect("create portfolio");
     let document = concat!(
-        "market,symbol,transaction_type,date,quantity,price,currency\r\n",
-        "CN,600000,BUY,2026-04-01,100,12.5,CNY\r\n",
-        "CN,600001,BUY,not-a-date,100,8.5,CNY\r\n"
+        "portfolio,market,symbol,transaction_type,date,quantity,price,fee,currency,note\r\n",
+        "CSV rollback,CN,600000,BUY,2026-04-01,100,12.5,,CNY,\r\n",
+        "CSV rollback,CN,600001,BUY,not-a-date,100,8.5,,CNY,\r\n"
     );
 
     let error = repo
@@ -428,6 +477,78 @@ fn failed_csv_import_is_audited_without_partial_ledger_writes() {
         .error_summary
         .as_deref()
         .is_some_and(|summary| summary.contains("CSV row 3")));
+}
+
+#[test]
+fn csv_import_rolls_back_inserted_rows_when_ledger_validation_fails() {
+    let mut repo = repository();
+    let portfolio = repo
+        .create_portfolio("CSV ledger rollback", Currency::Cny)
+        .expect("create portfolio");
+    let document = concat!(
+        "portfolio,market,symbol,transaction_type,date,quantity,price,fee,currency,note\r\n",
+        "CSV ledger rollback,CN,600000,BUY,2026-04-01,1,12.5,0,CNY,seed buy\r\n",
+        "CSV ledger rollback,CN,600000,SELL,2026-04-02,2,13,0,CNY,invalid sale\r\n"
+    );
+
+    let error = repo
+        .import_transactions_csv_with_source(&portfolio.id, document, "broker-export.csv")
+        .expect_err("reject ledger-invalid CSV import");
+    assert!(error.contains("would sell 2 shares while only 1 are held"));
+    assert!(repo
+        .list_transactions(&portfolio.id)
+        .expect("list transactions after rollback")
+        .is_empty());
+
+    let imports = repo
+        .list_csv_import_records(&portfolio.id)
+        .expect("list failed CSV import audit");
+    assert_eq!(imports.len(), 1);
+    assert_eq!(imports[0].total_rows, 2);
+    assert_eq!(imports[0].success_count, 0);
+    assert_eq!(imports[0].failure_count, 2);
+    assert!(imports[0]
+        .error_summary
+        .as_deref()
+        .is_some_and(|summary| summary.contains("would sell 2 shares")));
+}
+
+#[test]
+fn replace_all_backup_restore_rolls_back_when_the_backup_is_invalid() {
+    let mut repo = repository();
+    let portfolio = repo
+        .create_portfolio("keep on restore failure", Currency::Cny)
+        .expect("create portfolio");
+    let mut buy = transaction(
+        &portfolio.id,
+        instrument("CN:600000", Currency::Cny),
+        TransactionKind::Buy,
+        "2026-04-01",
+    );
+    buy.quantity = Some(1.0);
+    buy.price = Some(10.0);
+    repo.record_transaction(buy).expect("record existing buy");
+    let before_portfolios = repo
+        .list_portfolios()
+        .expect("list portfolios before restore");
+    let before_transactions = repo
+        .list_transactions(&portfolio.id)
+        .expect("list transactions before restore");
+    let mut invalid_backup = repo.export_backup_document().expect("export backup");
+    invalid_backup.portfolios.clear();
+
+    repo.restore_backup_document(invalid_backup, RestoreMode::ReplaceAll)
+        .expect_err("reject backup with orphaned transaction");
+
+    assert_eq!(
+        repo.list_portfolios().expect("list preserved portfolios"),
+        before_portfolios
+    );
+    assert_eq!(
+        repo.list_transactions(&portfolio.id)
+            .expect("list preserved transactions"),
+        before_transactions
+    );
 }
 
 #[test]
@@ -496,8 +617,8 @@ fn password_cipher_adapter_round_trips_the_versioned_backup_contract() {
         .import_transactions_csv_with_source(
             &portfolio.id,
             concat!(
-                "market,symbol,transaction_type,date,quantity,price,currency\r\n",
-                "US,AAPL,BUY,2026-05-01,1,200,USD\r\n"
+                "portfolio,market,symbol,transaction_type,date,quantity,price,fee,currency,note\r\n",
+                "backup portfolio,US,AAPL,BUY,2026-05-01,1,200,,USD,\r\n"
             ),
             "backup-import.csv",
         )
@@ -512,6 +633,21 @@ fn password_cipher_adapter_round_trips_the_versioned_backup_contract() {
         .starts_with(b"{"));
 
     let mut target = repository();
+    let existing = target
+        .create_portfolio("preserve until authenticated", Currency::Cny)
+        .expect("create existing target portfolio");
+    target
+        .restore_backup_with_cipher(
+            envelope.clone(),
+            "wrong-password",
+            RestoreMode::ReplaceAll,
+            &TestCipher,
+        )
+        .expect_err("reject incorrect backup password");
+    assert_eq!(
+        target.list_portfolios().expect("list untouched target"),
+        vec![existing]
+    );
     target
         .restore_backup_with_cipher(
             envelope,

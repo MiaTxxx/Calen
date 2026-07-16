@@ -191,3 +191,231 @@ test("marketBrief is partial when a required market section has no source", asyn
   assert.notEqual(sections.hotSectors, null);
   assert.match(result.warnings.join("\n"), /limitUp/);
 });
+
+test("market sentiment stays unavailable when a scoring component has no evidence", async () => {
+  const service = createStockResearchService({
+    fetch: async (input) => {
+      const url = new URL(String(input));
+      if (
+        url.pathname.includes("getTopicZTPool") ||
+        url.pathname.includes("getTopicDTPool")
+      )
+        return Response.json({
+          data: { tc: 1, pool: [{ c: "600001", n: "样本" }] },
+        });
+      if (url.pathname.endsWith("/api/qt/clist/get")) {
+        const fid = url.searchParams.get("fid");
+        return Response.json({
+          data: {
+            diff: [
+              fid === "f62"
+                ? { f12: "BK1", f14: "行业", f62: 10 }
+                : { f12: "BK2", f14: "板块", f3: null },
+            ],
+          },
+        });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    },
+    now: () => new Date("2026-07-15T07:00:00.000Z"),
+  });
+
+  const result = await service.marketBrief({
+    market: "CN",
+    sections: ["sentiment"],
+  });
+  const sections = (result.data as any).sections;
+  assert.equal(result.status, "partial");
+  assert.equal(sections.sentiment, null);
+  assert.match(result.warnings.join("\n"), /板块涨跌.*证据不完整/);
+});
+
+test("marketBrief request dimensions participate in routing and cache identity", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const service = createStockResearchService({
+    throttleIntervalMs: 0,
+    providers: [
+      {
+        id: "market-test",
+        priority: 1,
+        capabilities: ["marketBrief"],
+        async marketBrief(request) {
+          requests.push({ ...request });
+          return {
+            data: {
+              market: request.market ?? "CN",
+              session: request.session ?? "general",
+              tradeDate: request.tradeDate,
+              requestedSections: request.sections ?? [],
+              movers: [],
+              sections: {},
+            },
+            asOf: request.tradeDate ?? "2026-07-16",
+          };
+        },
+      },
+    ],
+  });
+
+  const preMarket = await service.marketBrief({
+    market: "CN",
+    session: "pre_market",
+    tradeDate: "2026-07-15",
+    sections: ["dragonTiger"],
+  });
+  const close = await service.marketBrief({
+    market: "CN",
+    session: "close",
+    tradeDate: "2026-07-16",
+    sections: ["limitUp", "limitDown"],
+  });
+
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests[0], {
+    market: "CN",
+    session: "pre_market",
+    tradeDate: "2026-07-15",
+    sections: ["dragonTiger"],
+  });
+  assert.deepEqual(requests[1], {
+    market: "CN",
+    session: "close",
+    tradeDate: "2026-07-16",
+    sections: ["limitUp", "limitDown"],
+  });
+  assert.equal((preMarket.data as any).session, "pre_market");
+  assert.equal((close.data as any).tradeDate, "2026-07-16");
+});
+
+test("pre-market and close defaults produce different provider query plans", async () => {
+  const requestedUrls: URL[] = [];
+  const service = createStockResearchService({
+    now: () => new Date("2026-07-16T08:00:00.000Z"),
+    throttleIntervalMs: 0,
+    fetch: async (input) => {
+      const url = new URL(String(input));
+      requestedUrls.push(url);
+      if (
+        url.pathname.includes("getTopicZTPool") ||
+        url.pathname.includes("getTopicDTPool")
+      )
+        return Response.json({ data: { tc: 0, qdate: 20260716, pool: [] } });
+      if (url.pathname.includes("getAllStockChanges"))
+        return Response.json({ data: { allstock: [] } });
+      if (url.hostname === "datacenter-web.eastmoney.com")
+        return Response.json({ result: { data: [] } });
+      if (url.pathname.endsWith("/api/qt/clist/get"))
+        return Response.json({
+          data: {
+            diff: [
+              {
+                f12: "600519",
+                f14: "贵州茅台",
+                f2: 1500,
+                f3: 1,
+                f4: 15,
+                f5: 100,
+                f6: 1000,
+                f62: 10,
+              },
+            ],
+          },
+        });
+      throw new Error(`unexpected URL: ${url}`);
+    },
+  });
+
+  const preMarket = await service.marketBrief({
+    market: "CN",
+    session: "pre_market",
+  });
+  const preMarketPaths = requestedUrls.map((url) => url.pathname);
+  requestedUrls.length = 0;
+  const close = await service.marketBrief({ market: "CN", session: "close" });
+  const closePaths = requestedUrls.map((url) => url.pathname);
+
+  assert.deepEqual((preMarket.data as any).requestedSections, [
+    "movers",
+    "hotSectors",
+    "moneyFlow",
+    "dragonTiger",
+  ]);
+  assert.equal(
+    preMarketPaths.some((path) => path.includes("getTopicZTPool")),
+    false
+  );
+  assert.equal(
+    preMarketPaths.some((path) => path.includes("getAllStockChanges")),
+    false
+  );
+  assert.match(preMarket.warnings.join("\n"), /pre_market/);
+  assert.equal((close.data as any).session, "close");
+  assert.equal(
+    closePaths.some((path) => path.includes("getTopicZTPool")),
+    true
+  );
+  assert.equal(
+    closePaths.some((path) => path.includes("getAllStockChanges")),
+    true
+  );
+});
+
+test("historical marketBrief only returns date-aware Eastmoney sections and warns for live-only data", async () => {
+  const requestedUrls: URL[] = [];
+  const service = createStockResearchService({
+    now: () => new Date("2026-07-16T08:00:00.000Z"),
+    fetch: async (input) => {
+      const url = new URL(String(input));
+      requestedUrls.push(url);
+      if (url.pathname.includes("getTopicZTPool"))
+        return Response.json({ data: { tc: 1, qdate: 20260715, pool: [] } });
+      if (url.hostname === "datacenter-web.eastmoney.com")
+        return Response.json({
+          result: {
+            data: [
+              {
+                SECURITY_CODE: "600004",
+                SECURITY_NAME_ABBR: "龙虎榜股",
+                TRADE_DATE: "2026-07-15",
+              },
+            ],
+          },
+        });
+      throw new Error(`historical request must not call live-only URL: ${url}`);
+    },
+  });
+
+  const result = await service.marketBrief({
+    market: "CN",
+    session: "close",
+    tradeDate: "2026-07-15",
+    sections: ["limitUp", "movers", "dragonTiger"],
+    limit: 5,
+  });
+  const data = result.data as any;
+
+  assert.equal(result.status, "partial");
+  assert.equal(data.session, "close");
+  assert.equal(data.tradeDate, "2026-07-15");
+  assert.deepEqual(data.requestedSections, [
+    "limitUp",
+    "movers",
+    "dragonTiger",
+  ]);
+  assert.equal(data.sections.limitUp.total, 1);
+  assert.equal(data.sections.dragonTiger.items[0].symbol, "600004");
+  assert.deepEqual(data.movers, []);
+  assert.match(result.warnings.join("\n"), /movers.*历史交易日/);
+  assert.equal(
+    requestedUrls
+      .find((url) => url.pathname.includes("getTopicZTPool"))
+      ?.searchParams.get("date"),
+    "20260715"
+  );
+  assert.match(
+    requestedUrls
+      .find((url) => url.hostname === "datacenter-web.eastmoney.com")
+      ?.searchParams.get("filter") ?? "",
+    /2026-07-15/
+  );
+});

@@ -5179,7 +5179,7 @@ export function ChatPage(props: ChatPageProps) {
             <StockHubPage
               sidebarOpen={sidebarOpen}
               onOpenSidebar={handleOpenSidebar}
-              selectedModel={settings.selectedModel}
+              modelSettings={settings}
             />
           ) : (
             <>

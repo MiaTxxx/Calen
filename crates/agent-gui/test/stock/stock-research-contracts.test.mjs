@@ -17,6 +17,7 @@ import {
   parseFiniteNumber,
   sanitizeCsvFileName,
   toSidecarBacktestRequest,
+  toSidecarMarketBriefRequest,
   toSidecarResolveRequest,
   toSidecarSnapshotRequest,
 } from "../../src/lib/stock-research/contracts.ts";
@@ -206,6 +207,7 @@ test("AI stock tools normalize instruments and backtest fields to the sidecar wi
     endDate: "2026-01-01",
     parameters: { shortWindow: 5, longWindow: 20, initialCash: 100_000 },
     feeRate: 0.001,
+    evaluationRatio: 0.4,
   });
   assert.equal(backtest.start, "2025-01-01");
   assert.equal(backtest.end, "2026-01-01");
@@ -216,6 +218,7 @@ test("AI stock tools normalize instruments and backtest fields to the sidecar wi
   });
   assert.equal(backtest.initialCash, 100_000);
   assert.equal(backtest.feeRate, 0.001);
+  assert.equal(backtest.evaluationRatio, 0.4);
   const fused = toStockSidecarToolPayload("backtest", {
     instrument,
     strategy: "fused",
@@ -223,6 +226,41 @@ test("AI stock tools normalize instruments and backtest fields to the sidecar wi
     endDate: "2026-01-01",
   });
   assert.deepEqual(fused.strategy, { id: "fused" });
+});
+
+test("market brief requests preserve session, trade date, and selected sections", () => {
+  assert.deepEqual(
+    toSidecarMarketBriefRequest({
+      market: "CN",
+      session: "pre_open",
+      tradeDate: "2026-07-15",
+      sections: ["movers", "hotSectors", "dragonTiger"],
+      limit: 8,
+    }),
+    {
+      market: "CN",
+      session: "pre_market",
+      tradeDate: "2026-07-15",
+      sections: ["movers", "hotSectors", "dragonTiger"],
+      limit: 8,
+    }
+  );
+
+  assert.deepEqual(
+    toStockSidecarToolPayload("marketBrief", {
+      session: "preMarket",
+      tradeDate: "2026-07-15",
+      sections: ["limitUp", "sentiment"],
+      deadlineMs: 30_000,
+    }),
+    {
+      market: "CN",
+      session: "pre_market",
+      tradeDate: "2026-07-15",
+      sections: ["limitUp", "sentiment"],
+      deadlineMs: 30_000,
+    }
+  );
 });
 
 test("sidecar snapshot envelope maps quote and bounded history", () => {
@@ -274,6 +312,30 @@ test("sidecar snapshot envelope maps quote and bounded history", () => {
       includeProfile: true,
     }
   );
+});
+
+test("unknown source freshness is not replaced by a newer quote timestamp", () => {
+  const result = mapStockSnapshotResult({
+    status: "partial",
+    asOf: "2026-07-15T07:00:00.000Z",
+    retrievedAt: "2026-07-15T07:00:01.000Z",
+    sources: [
+      {
+        id: "tencent:quote",
+        name: "Tencent",
+        asOf: "2026-07-15T07:00:00.000Z",
+      },
+      {
+        id: "tencent:profile",
+        name: "Tencent profile",
+        asOf: "unknown",
+      },
+    ],
+    warnings: [],
+    data: { instrument: null, price: 1500 },
+  });
+  assert.equal(result.asOf, "unknown");
+  assert.equal(result.sources[1]?.asOf, "unknown");
 });
 
 test("research, market brief, backtest and status tolerate sidecar raw shapes", () => {
@@ -397,6 +459,9 @@ test("research, market brief, backtest and status tolerate sidecar raw shapes", 
     status: "partial",
     data: {
       market: "CN",
+      session: "pre_market",
+      tradeDate: "2026-07-15",
+      requestedSections: ["movers", "sentiment"],
       sections: { sentiment: { score: 0.6 } },
       movers: [
         { symbol: "600519", name: "贵州茅台", price: 1500, changePercent: 2.5 },
@@ -409,6 +474,9 @@ test("research, market brief, backtest and status tolerate sidecar raw shapes", 
     warnings: ["limitDown unavailable"],
   });
   assert.equal(brief.data?.highlights[0]?.title, "贵州茅台");
+  assert.equal(brief.data?.generatedFor, "pre_open");
+  assert.equal(brief.data?.tradeDate, "2026-07-15");
+  assert.deepEqual(brief.data?.requestedSections, ["movers", "sentiment"]);
   const backtest = mapStockBacktestResult({
     status: "ok",
     data: {
@@ -422,6 +490,18 @@ test("research, market brief, backtest and status tolerate sidecar raw shapes", 
         end: "2026-01-01",
         bars: 240,
         coverage: 1,
+        calibration: {
+          start: "2025-01-01",
+          end: "2025-10-01",
+          bars: 180,
+          coverage: 1,
+        },
+        evaluation: {
+          start: "2025-10-02",
+          end: "2026-01-01",
+          bars: 60,
+          coverage: 1,
+        },
       },
       benchmark: { name: "buy-and-hold", returnPercent: 8 },
       metrics: { returnPercent: 12, maxDrawdownPercent: 4 },
@@ -435,6 +515,10 @@ test("research, market brief, backtest and status tolerate sidecar raw shapes", 
           fee: 1,
         },
       ],
+      equityCurve: [
+        { time: "2025-10-02", equity: 100000 },
+        { time: "2026-01-01", equity: 112000 },
+      ],
       limitations: ["research only"],
     },
     sources: [],
@@ -444,7 +528,15 @@ test("research, market brief, backtest and status tolerate sidecar raw shapes", 
     warnings: [],
   });
   assert.equal(backtest.data?.sample.points, 240);
-  assert.equal(backtest.data?.trades[0]?.time, "2025-02-02");
+  assert.equal(backtest.data?.sample.calibration.points, 180);
+  assert.equal(backtest.data?.sample.evaluation.points, 60);
+  assert.equal(backtest.data?.trades[0]?.signalTime, "2025-02-01");
+  assert.equal(backtest.data?.trades[0]?.executionTime, "2025-02-02");
+  assert.equal(backtest.data?.trades[0]?.fee, 1);
+  assert.deepEqual(backtest.data?.equityCurve, [
+    { time: "2025-10-02", equity: 100000 },
+    { time: "2026-01-01", equity: 112000 },
+  ]);
   const status = mapStockServiceStatus({
     state: "unavailable",
     version: "0.1.0",
@@ -465,6 +557,7 @@ test("research, market brief, backtest and status tolerate sidecar raw shapes", 
     from: "2025-01-01",
     to: "2026-01-01",
     parameters: { shortWindow: 5, longWindow: 20, feeRate: 0.001 },
+    evaluationRatio: 0.4,
   });
   assert.deepEqual(backtestRequest.strategy, {
     id: "sma-cross",
@@ -472,11 +565,33 @@ test("research, market brief, backtest and status tolerate sidecar raw shapes", 
     longWindow: 20,
   });
   assert.equal(backtestRequest.feeRate, 0.001);
+  assert.equal(backtestRequest.evaluationRatio, 0.4);
+
+  const unavailableBacktest = mapStockBacktestResult({
+    status: "unavailable",
+    data: {
+      algorithm: { id: "calen.sma-cross", version: "2.0.0", parameters: {} },
+      metrics: { returnPercent: 0, finalEquity: 0 },
+      benchmark: { name: "buy-and-hold", returnPercent: 0 },
+      sample: { start: "", end: "", bars: 0, coverage: 0 },
+      equityCurve: [],
+    },
+    warnings: ["coverage unavailable"],
+  });
+  assert.equal(unavailableBacktest.status, "unavailable");
+  assert.equal(unavailableBacktest.data, null);
 });
 
 test("Tauri adapter exposes only the agreed high-level commands", async () => {
   const source = await readFile(
     new URL("../../src/lib/stock-research/tauri.ts", import.meta.url),
+    "utf8"
+  );
+  const backendSource = await readFile(
+    new URL(
+      "../../src-tauri/src/commands/integration/stock.rs",
+      import.meta.url
+    ),
     "utf8"
   );
   for (const command of [
@@ -495,6 +610,14 @@ test("Tauri adapter exposes only the agreed high-level commands", async () => {
     "ui_stock_portfolio_restore_encrypted_backup",
   ])
     assert.match(source, new RegExp(`"${command}"`));
+  assert.match(
+    backendSource,
+    /pub async fn stock_market_brief[\s\S]*?invoke_stock_method\(app, state, "marketBrief", payload\)/
+  );
+  assert.match(
+    backendSource,
+    /pub async fn stock_research_market_brief[\s\S]*?invoke_stock_method\(app, state, "marketBrief", request\)/
+  );
   assert.doesNotMatch(source, /http:\/\/|https:\/\//);
 });
 
@@ -537,6 +660,14 @@ test("stock hub keeps the five product views", async () => {
   assert.match(source, /financialPeriodDetail\(period\)/);
   assert.match(source, /算法与版本/);
   assert.match(source, /样本覆盖率/);
+  assert.match(source, /样本外评估比例/);
+  assert.match(source, /data\.sample\.calibration/);
+  assert.match(source, /data\.sample\.evaluation/);
+  assert.match(source, /trade\.signalTime/);
+  assert.match(source, /trade\.executionTime/);
+  assert.match(source, /trade\.fee/);
+  assert.match(source, /data\.equityCurve\.map/);
+  assert.match(source, /BacktestTrades/);
   assert.match(source, /基准/);
   assert.match(source, /限制说明/);
   assert.match(source, /calen-stock-pre-open/);
@@ -568,6 +699,8 @@ test("stock hub keeps the five product views", async () => {
   }
   assert.match(chartSource, /from "lightweight-charts"/);
   assert.match(chartSource, /CandlestickSeries/);
+  assert.match(chartSource, /LineSeries/);
+  assert.match(chartSource, /TimeSeriesChart/);
   assert.match(portfolioSource, /setExportPassword\(""\)/);
   assert.match(portfolioSource, /setRestorePassword\(""\)/);
   assert.doesNotMatch(
@@ -576,10 +709,16 @@ test("stock hub keeps the five product views", async () => {
   );
   assert.match(
     stockToolSource,
-    /name: "StockResearch"[\s\S]*?scopes: \["chat", "cron_auto_prompt"\],[\s\S]*?experimental: true,[\s\S]*?name: "StockMarketBrief"/
+    /name: "StockResearch"[\s\S]*?scopes: \["chat", "cron_auto_prompt"\],[\s\S]*?name: "StockMarketBrief"/
   );
   assert.match(
     stockToolSource,
-    /definition\.experimental === true \|\| evidence\.experimental === true/
+    /definition\.experimental === true \|\|\s*\(definition\.operation !== "research" && evidence\.experimental === true\)/
   );
+  const researchDefinition = stockToolSource.match(
+    /name: "StockResearch"[\s\S]*?name: "StockMarketBrief"/
+  )?.[0];
+  assert.ok(researchDefinition);
+  assert.doesNotMatch(researchDefinition, /experimental:\s*true/);
+  assert.match(stockToolSource, /experimentalCapabilities/);
 });

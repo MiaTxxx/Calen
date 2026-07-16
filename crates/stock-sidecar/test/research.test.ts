@@ -125,6 +125,11 @@ test("research combines facts with versioned technical score and evaluator outpu
     result.sources.map((source) => source.capability),
     ["snapshot", "history"]
   );
+  assert.equal(
+    result.asOf,
+    "2026-06-30T00:00:00.000Z",
+    "aggregate freshness must use the oldest included source boundary"
+  );
 });
 
 test("research marks every requested but unavailable capability as partial", async () => {
