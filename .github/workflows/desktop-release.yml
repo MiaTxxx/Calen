@@ -154,6 +154,17 @@ jobs:
           cp "$exe_path.sig" "dist/Calen-${LIVEAGENT_RELEASE_TAG}-Windows-x64-Setup.exe.sig"
           test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 4
 
+      - name: Verify Windows updater signatures against configured public key
+        shell: pwsh
+        env:
+          CALEN_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: |
+          cargo run `
+            --manifest-path crates/agent-gui/src-tauri/Cargo.toml `
+            --example verify-updater-signature `
+            -- "dist/Calen-$env:LIVEAGENT_RELEASE_TAG-Windows-x64-Setup.exe" `
+               "dist/Calen-$env:LIVEAGENT_RELEASE_TAG-Windows-x64.msi"
+
       - name: Validate Windows install, upgrade, sidecar, and uninstall lifecycle
         shell: pwsh
         env:

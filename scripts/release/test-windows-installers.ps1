@@ -312,7 +312,20 @@ function Invoke-MsiInstall {
     if ($RequestedRoot) { $arguments += "INSTALLDIR=$RequestedRoot" }
     $logPath = Join-Path $logsRoot $LogName
     $arguments += @("/L*v", $logPath)
-    Invoke-CheckedProcess -FilePath "$env:SystemRoot\System32\msiexec.exe" -Arguments $arguments -AllowedExitCodes @(0, 3010) | Out-Null
+    try {
+        Invoke-CheckedProcess `
+            -FilePath "$env:SystemRoot\System32\msiexec.exe" `
+            -Arguments $arguments `
+            -AllowedExitCodes @(0, 3010) `
+            -TimeoutSeconds 600 | Out-Null
+    } catch {
+        $logTail = if (Test-Path -LiteralPath $logPath -PathType Leaf) {
+            (Get-Content -LiteralPath $logPath -Tail 80 -ErrorAction SilentlyContinue) -join "`n"
+        } else {
+            "MSI log was not created."
+        }
+        throw "$($_.Exception.Message)`nMSI log: $logPath`n$logTail"
+    }
 
     $entries = Get-CalenUninstallEntries
     $entry = if ($ExpectedVersion) {
@@ -341,7 +354,11 @@ function Invoke-MsiUninstall {
 
     $productCode = [string](Get-OptionalProperty -InputObject $Entry -Name "PSChildName")
     $target = if ($productCode -match '^\{[0-9A-Fa-f-]+\}$') { $productCode } else { $FallbackPackage }
-    Invoke-CheckedProcess -FilePath "$env:SystemRoot\System32\msiexec.exe" -Arguments @("/x", $target, "/qn", "/norestart") -AllowedExitCodes @(0, 1605, 3010) | Out-Null
+    Invoke-CheckedProcess `
+        -FilePath "$env:SystemRoot\System32\msiexec.exe" `
+        -Arguments @("/x", $target, "/qn", "/norestart") `
+        -AllowedExitCodes @(0, 1605, 3010) `
+        -TimeoutSeconds 600 | Out-Null
 }
 
 function ConvertTo-CoreVersion {

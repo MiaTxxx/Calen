@@ -376,6 +376,10 @@ jobs:
               throw "Updater signature was not generated: $signature"
             }
           }
+          cargo run `
+            --manifest-path crates/agent-gui/src-tauri/Cargo.toml `
+            --example verify-updater-signature `
+            -- "$($setup.FullName)" "$($msi.FullName)"
           Write-Host "Calen installer smoke artifacts must not be uploaded; validating in place."
           & scripts/release/test-windows-installers.ps1 `
             -SetupPath $setup.FullName `

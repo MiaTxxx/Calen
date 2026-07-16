@@ -96,7 +96,7 @@ Provider 条款依据、上线边界和停止条件见 `docs/provider-compliance
 | ----------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Windows x64 | `windows-latest` | `Calen-vX.Y.Z-Windows-x64.msi`、`Calen-vX.Y.Z-Windows-x64-Setup.exe`、各自 `.sig`，以及只包含 Windows 平台的 `latest.json`。 |
 
-发布 job 会在上传 Windows 产物后生成并上传 Windows-only `latest.json`。桌面端「设置 -> 关于」会根据用户是否允许预发布，从 GitHub Releases 中筛选带 `latest.json` 的正式 / 预发布版本；未允许预发布时只检查正式 Release。首版不发布 portable、Linux 或 macOS 桌面包。
+发布 job 会先生成 Windows-only `latest.json`，再创建或切换为 draft Release、清理旧资产、上传四个安装器/签名文件和 manifest；只有全部上传成功后才公开 Release。桌面端「设置 -> 关于」会根据用户是否允许预发布，从 GitHub Releases 中筛选带 `latest.json` 的正式 / 预发布版本；未允许预发布时只检查正式 Release。首版不发布 portable、Linux 或 macOS 桌面包。
 
 Windows 构建在上传产物前必须运行 `scripts/release/test-windows-installers.ps1`：
 
@@ -106,7 +106,9 @@ Windows 构建在上传产物前必须运行 `scripts/release/test-windows-insta
 - 静默卸载后确认 sidecar 进程退出、安装目录不再被锁定并可删除；
 - 若 GitHub Releases 中存在低于当前版本的上一正式 MSI，则执行旧版安装、当前版升级、sidecar smoke 和卸载；首个版本没有上一 MSI 时会输出明确的 skip notice。
 
-该脚本发现安装、升级、资源路径、内置 Node 或卸载生命周期错误时会直接阻断 Release。它只在 Provider 条款和 updater 签名门禁均满足后运行，因此普通 PR CI 不能替代真实安装验收。
+该脚本发现安装、升级、资源路径、内置 Node 或卸载生命周期错误时会直接阻断 Release。正式发布使用仓库配置的 updater 密钥并受 Provider 条款门禁约束；PR CI 另外生成一次性 updater 密钥和合成的旧/新版本安装器执行同等生命周期 smoke，但临时安装器不会上传。
+
+安装器生成后，workflow 还会用构建时配置的 updater 公钥逐一验证 EXE/MSI 对应的 `.sig`。因此公私钥错配、签名损坏或签名指向错误文件都会在发布前失败。
 
 ## 桌面版本号来源
 

@@ -148,6 +148,7 @@ test("desktop release blocks on real Windows installer lifecycle validation", ()
     /Validate Windows install, upgrade, sidecar, and uninstall lifecycle/
   );
   assert.match(releaseWorkflow, /test-windows-installers\.ps1/);
+  assert.match(releaseWorkflow, /--example verify-updater-signature/);
   assert.match(
     windowsInstallerValidation,
     /throw "Upgrade validation could not determine whether previous stable Windows installers exist/
@@ -166,6 +167,8 @@ test("desktop release blocks on real Windows installer lifecycle validation", ()
     /-Arguments @\("\/S", "\/D=\$InstallRoot"\)/
   );
   assert.match(windowsInstallerValidation, /msiexec\.exe/);
+  assert.match(windowsInstallerValidation, /-TimeoutSeconds 600/);
+  assert.match(windowsInstallerValidation, /MSI log: \$logPath/);
   assert.match(
     windowsInstallerValidation,
     /\$startInfo\.Environment\["PATH"\] = ""/
@@ -200,6 +203,7 @@ test("pull request CI builds temporary-signed Windows installers and runs lifecy
   assert.match(ciWorkflow, /CALEN_CI_PREVIOUS_MSI/);
   assert.match(ciWorkflow, /CALEN_CI_PREVIOUS_SETUP/);
   assert.match(ciWorkflow, /test-windows-installers\.ps1/);
+  assert.match(ciWorkflow, /--example verify-updater-signature/);
   assert.match(ciWorkflow, /-PreviousMsiPath/);
   assert.match(ciWorkflow, /-PreviousSetupPath/);
   assert.match(
