@@ -502,6 +502,7 @@ function mapExperimentalAnalysis(capabilities: AnyRecord): ResearchExperimentalA
           section.data === null || section.data === undefined
             ? null
             : summarizeResearchData(section.data),
+        data: section.data ?? null,
         warnings: normalizeWarnings(section.warnings),
       },
     ];
@@ -620,6 +621,96 @@ export function mapStockResearchResult(raw: unknown): StockEvidenceResult<Resear
   return mapEnvelope(raw, data, data ? [] : ["research 缺少可展示的 instrument"]);
 }
 
+const marketSectionLabels: Record<MarketBriefSection, string> = {
+  movers: "涨跌幅榜",
+  limitUp: "涨停与连板",
+  limitDown: "跌停",
+  hotSectors: "热门板块",
+  moneyFlow: "板块资金流",
+  dragonTiger: "龙虎榜",
+  unusualMoves: "盘中异动",
+  sentiment: "市场情绪",
+};
+
+function marketDisplayValue(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value))
+    return value.toLocaleString("zh-CN", { maximumFractionDigits: 4 });
+  if (typeof value === "boolean") return value ? "是" : "否";
+  return null;
+}
+
+function marketFields(item: AnyRecord) {
+  return Object.entries(item).flatMap(([key, value]) => {
+    const direct = marketDisplayValue(value);
+    if (direct) return [{ label: key, value: direct }];
+    const nested = strictRecord(value);
+    if (!nested) return [];
+    return Object.entries(nested).flatMap(([nestedKey, nestedValue]) => {
+      const rendered = marketDisplayValue(nestedValue);
+      return rendered ? [{ label: `${key}.${nestedKey}`, value: rendered }] : [];
+    });
+  });
+}
+
+function mapMarketSection(
+  key: MarketBriefSection,
+  value: unknown,
+): MarketBrief["sections"][number] | null {
+  if (value === null || value === undefined) return null;
+  const root = asRecord(value);
+  const values = Array.isArray(value) ? value : Array.isArray(root.items) ? root.items : [value];
+  const items = values.flatMap((entry, index) => {
+    const item = strictRecord(entry);
+    if (!item) return [];
+    const title =
+      asString(
+        item.name ??
+          item.securityName ??
+          item.title ??
+          item.symbol ??
+          item.code ??
+          item.label ??
+          item.method,
+      ) ?? `${marketSectionLabels[key]} ${index + 1}`;
+    const changePercent = asNumber(item.changePercent);
+    const price = asNumber(item.price ?? item.closePrice);
+    const score = asNumber(item.score);
+    const primaryValue =
+      score !== null
+        ? `${score}/100`
+        : changePercent !== null
+          ? `${changePercent}%`
+          : price !== null
+            ? String(price)
+            : marketDisplayValue(item.mainNetInflow ?? item.netBuyAmount ?? item.amount);
+    const detail = asString(
+      item.message ??
+        item.reason ??
+        item.explanation ??
+        item.disclaimer ??
+        item.industry ??
+        item.time,
+    );
+    return [
+      {
+        title,
+        ...(primaryValue ? { value: primaryValue } : {}),
+        ...(detail ? { detail } : {}),
+        fields: marketFields(item),
+      },
+    ];
+  });
+  if (!items.length) return null;
+  const total = asNumber(root.total);
+  return {
+    key,
+    label: marketSectionLabels[key],
+    ...(total !== null ? { total } : {}),
+    items,
+  };
+}
+
 export function mapStockMarketBriefResult(
   raw: unknown,
   fallbackSession: MarketBrief["generatedFor"] = "on_demand",
@@ -644,6 +735,16 @@ export function mapStockMarketBriefResult(
     : [];
   const sections = asRecord(data.sections);
   const movers = Array.isArray(data.movers) ? data.movers : [];
+  const detailedSections = [
+    mapMarketSection("movers", movers),
+    mapMarketSection("limitUp", sections.limitUp),
+    mapMarketSection("limitDown", sections.limitDown),
+    mapMarketSection("hotSectors", sections.hotSectors),
+    mapMarketSection("moneyFlow", sections.moneyFlow),
+    mapMarketSection("dragonTiger", sections.dragonTiger),
+    mapMarketSection("unusualMoves", sections.unusualMoves),
+    mapMarketSection("sentiment", sections.sentiment),
+  ].filter((section): section is MarketBrief["sections"][number] => section !== null);
   const highlights = movers.flatMap((entry) => {
     const item = asRecord(entry);
     const title = asString(item.name ?? item.symbol);
@@ -703,6 +804,7 @@ export function mapStockMarketBriefResult(
     title: asString(data.title) ?? (market ? `${market} market brief` : "Market brief"),
     summary: asString(data.summary) ?? "",
     highlights,
+    sections: detailedSections,
     generatedFor:
       session === "pre_market" ? "pre_open" : session === "close" ? "close" : fallbackSession,
     ...(tradeDate ? { tradeDate } : {}),

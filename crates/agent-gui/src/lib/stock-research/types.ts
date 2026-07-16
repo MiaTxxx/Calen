@@ -91,6 +91,7 @@ export interface ResearchExperimentalAnalysis {
   capability: ResearchExperimentalCapability;
   status: StockResultStatus;
   summary: string | null;
+  data: unknown;
   warnings: string[];
 }
 
@@ -174,6 +175,17 @@ export interface MarketBrief {
     value?: string;
     detail: string;
     tone?: "up" | "down" | "neutral";
+  }>;
+  sections: Array<{
+    key: MarketBriefSection;
+    label: string;
+    total?: number;
+    items: Array<{
+      title: string;
+      value?: string;
+      detail?: string;
+      fields: Array<{ label: string; value: string }>;
+    }>;
   }>;
   generatedFor: "pre_open" | "close" | "on_demand";
   tradeDate?: string;

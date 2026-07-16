@@ -301,7 +301,7 @@ jobs:
       - name: Test stock portfolio ledger on Windows
         env:
           CARGO_TERM_COLOR: always
-        run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml stock_portfolio::tests --lib
+        run: cargo test --manifest-path crates/stock-portfolio-core-tests/Cargo.toml
 
       - name: Generate ephemeral updater signing key
         shell: pwsh

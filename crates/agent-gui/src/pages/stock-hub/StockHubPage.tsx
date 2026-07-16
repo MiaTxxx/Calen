@@ -160,6 +160,7 @@ function ResearchView({ modelSettings }: { modelSettings: StockResearchModelSett
   const inspectSequence = useRef(0);
   const researchSequence = useRef(0);
   const [query, setQuery] = useState("");
+  const [searchMarket, setSearchMarket] = useState<StockSettings["defaultMarket"]>("CN");
   const [matches, setMatches] = useState<AsyncResource<InstrumentSearchResult>>({ state: "idle" });
   const [selected, setSelected] = useState<InstrumentRef | null>(null);
   const [snapshot, setSnapshot] = useState<AsyncResource<StockEvidenceResult<QuoteSnapshot>>>({
@@ -170,13 +171,24 @@ function ResearchView({ modelSettings }: { modelSettings: StockResearchModelSett
   });
   const [aiBrief, setAiBrief] = useState<AsyncResource<StockAiResearchBrief>>({ state: "idle" });
 
+  useEffect(() => {
+    void stockResearch
+      .settingsGet()
+      .then((settings) => setSearchMarket(settings.defaultMarket))
+      .catch(() => undefined);
+  }, []);
+
   async function search(event: FormEvent) {
     event.preventDefault();
     if (!query.trim()) return;
     const sequence = ++searchSequence.current;
     setMatches({ state: "loading" });
     try {
-      const data = await stockResearch.resolve({ query: query.trim(), limit: 8 });
+      const data = await stockResearch.resolve({
+        query: query.trim(),
+        markets: [searchMarket],
+        limit: 8,
+      });
       if (sequence !== searchSequence.current) return;
       setMatches({ state: "ready", data });
     } catch (error) {
@@ -261,6 +273,18 @@ function ResearchView({ modelSettings }: { modelSettings: StockResearchModelSett
             placeholder="代码、公司名或 ETF"
             aria-label="股票搜索"
           />
+          <select
+            value={searchMarket}
+            onChange={(event) =>
+              setSearchMarket(event.target.value as StockSettings["defaultMarket"])
+            }
+            aria-label="搜索市场"
+            className="h-9 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          >
+            <option value="CN">A 股</option>
+            <option value="HK">港股</option>
+            <option value="US">美股</option>
+          </select>
           <Button type="submit" size="icon" disabled={matches.state === "loading"}>
             {matches.state === "loading" ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -574,6 +598,39 @@ function sectionRows(
   });
 }
 
+function quantAnalysisRows(data: unknown): EvidenceRow[] {
+  const root = evidenceRecord(data);
+  const collection = evidenceItems(
+    root.factors ?? root.dimensions ?? root.signals ?? root.registry ?? root.items,
+  );
+  if (collection.length) {
+    return collection.slice(0, 12).map((item, index) => {
+      const title =
+        evidenceValue(item.name ?? item.id ?? item.strategyId ?? item.label) ??
+        `第 ${index + 1} 项`;
+      const detail = Object.entries(item)
+        .flatMap(([key, value]) => {
+          const rendered = evidenceValue(value);
+          return rendered && key !== "name" && key !== "id" ? [`${key}: ${rendered}`] : [];
+        })
+        .join(" · ");
+      return { title, detail: detail || "已返回结构化实验结果" };
+    });
+  }
+  return Object.entries(root).flatMap(([key, value]) => {
+    const direct = evidenceValue(value);
+    if (direct) return [{ title: key, detail: direct }];
+    const nested = evidenceRecord(value);
+    const detail = Object.entries(nested)
+      .flatMap(([nestedKey, nestedValue]) => {
+        const rendered = evidenceValue(nestedValue);
+        return rendered ? [`${nestedKey}: ${rendered}`] : [];
+      })
+      .join(" · ");
+    return detail ? [{ title: key, detail }] : [];
+  });
+}
+
 function ResearchEvidenceSections({ data }: { data: ResearchBundle }) {
   const labels = {
     profile: "公司资料",
@@ -726,11 +783,34 @@ function ExperimentalResearchSection({ data }: { data: ResearchBundle }) {
               <p className="mt-2 break-words text-[10.5px] leading-5 text-muted-foreground">
                 {analysis.summary ?? "当前样本未返回可展示结果。"}
               </p>
+              {quantAnalysisRows(analysis.data).length ? (
+                <div className="mt-2 space-y-1.5">
+                  {quantAnalysisRows(analysis.data).map((row) => (
+                    <div
+                      key={`${analysis.capability}-${row.title}`}
+                      className="rounded-lg bg-muted/30 px-2 py-1.5"
+                    >
+                      <div className="text-[10px] font-medium">{row.title}</div>
+                      <div className="mt-0.5 text-[9.5px] leading-4 text-muted-foreground">
+                        {row.detail}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {analysis.warnings.length ? (
                 <p className="mt-2 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
                   {analysis.warnings.join("；")}
                 </p>
               ) : null}
+              <details className="mt-2 rounded-lg border border-violet-500/15 px-2 py-1.5">
+                <summary className="cursor-pointer text-[10px] text-muted-foreground">
+                  原始实验数据
+                </summary>
+                <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[9px] leading-4 text-muted-foreground">
+                  {JSON.stringify(analysis.data, null, 2)}
+                </pre>
+              </details>
             </div>
           ))}
         </div>
@@ -895,11 +975,77 @@ function MarketView({
               </div>
             ))}
           </div>
+          <MarketBriefSections sections={brief.data.data.sections} />
           <Disclaimer />
         </GlassPanel>
       ) : null}
       {brief.state === "ready" && !brief.data.data ? <UnavailableCard result={brief.data} /> : null}
     </div>
+  );
+}
+
+function MarketBriefSections({ sections }: { sections: MarketBrief["sections"] }) {
+  if (!sections.length) return null;
+  return (
+    <section className="mt-5 space-y-3">
+      <div>
+        <h3 className="text-xs font-semibold">市场专题明细</h3>
+        <p className="mt-1 text-[10.5px] text-muted-foreground">
+          涨跌停、板块、资金流、龙虎榜与异动均展示真实返回条目；缺失分项不会补造。
+        </p>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {sections.map((section) => (
+          <div
+            key={section.key}
+            className="rounded-2xl border border-border/40 bg-background/50 p-4"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-xs font-semibold">{section.label}</h4>
+              <span className="text-[10px] text-muted-foreground">
+                {section.total !== undefined
+                  ? `共 ${section.total} 条`
+                  : `${section.items.length} 条`}
+              </span>
+            </div>
+            <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pr-1">
+              {section.items.map((item, index) => (
+                <div
+                  key={`${section.key}-${item.title}-${index}`}
+                  className="rounded-xl bg-muted/30 px-3 py-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-[10.5px] font-medium">{item.title}</span>
+                    {item.value ? (
+                      <span className="shrink-0 text-[10.5px] font-semibold tabular-nums">
+                        {item.value}
+                      </span>
+                    ) : null}
+                  </div>
+                  {item.detail ? (
+                    <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                      {item.detail}
+                    </p>
+                  ) : null}
+                  {item.fields.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {item.fields.slice(0, 10).map((field) => (
+                        <span
+                          key={`${field.label}-${field.value}`}
+                          className="rounded-md bg-background/65 px-1.5 py-1 text-[9px] text-muted-foreground"
+                        >
+                          {field.label}: {field.value}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -916,6 +1062,40 @@ function LabView() {
   const [result, setResult] = useState<AsyncResource<StockEvidenceResult<BacktestResult>>>({
     state: "idle",
   });
+  const [analysis, setAnalysis] = useState<AsyncResource<StockEvidenceResult<ResearchBundle>>>({
+    state: "idle",
+  });
+
+  async function resolveLabInstrument() {
+    const matches = await stockResearch.resolve({
+      query: symbol.trim(),
+      limit: 1,
+    });
+    const instrument = matches.instruments[0];
+    if (!instrument) throw new Error("Lab instrument was not found");
+    return instrument;
+  }
+
+  async function runAnalysis() {
+    if (!symbol.trim()) return;
+    setAnalysis({ state: "loading" });
+    try {
+      const instrument = await resolveLabInstrument();
+      const selectedStrategy =
+        strategy === "fused" || strategy === "sma-cross" ? undefined : [strategy];
+      setAnalysis({
+        state: "ready",
+        data: await stockResearch.research({
+          instrument,
+          capabilities: ["history", "technical", "score", "strategy", "evaluator"],
+          ...(selectedStrategy ? { strategyIds: selectedStrategy } : {}),
+        }),
+      });
+    } catch (error) {
+      setAnalysis({ state: "error", message: formatStockError(error) });
+    }
+  }
+
   async function run(event: FormEvent) {
     event.preventDefault();
     const parsedPeriod = parseFiniteNumber(period);
@@ -932,12 +1112,7 @@ function LabView() {
       return;
     setResult({ state: "loading" });
     try {
-      const matches = await stockResearch.resolve({
-        query: symbol.trim(),
-        limit: 1,
-      });
-      const instrument = matches.instruments[0];
-      if (!instrument) throw new Error("未找到回测标的");
+      const instrument = await resolveLabInstrument();
       setResult({
         state: "ready",
         data: await stockResearch.backtest({
@@ -1016,6 +1191,18 @@ function LabView() {
             {result.state === "loading" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             运行回测
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => void runAnalysis()}
+            disabled={analysis.state === "loading"}
+          >
+            {analysis.state === "loading" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
+            运行指标、评分与 Evaluator
+          </Button>
         </form>
         <Disclaimer />
       </GlassPanel>
@@ -1034,6 +1221,16 @@ function LabView() {
         ) : null}
         {result.state === "ready" && !result.data.data ? (
           <UnavailableCard result={result.data} />
+        ) : null}
+        {analysis.state === "loading" ? (
+          <LoadingCard text="正在计算技术指标、评分卡、策略信号和 Evaluator…" />
+        ) : null}
+        <ResourceError resource={analysis} panel />
+        {analysis.state === "ready" && analysis.data.data ? (
+          <ExperimentalResearchSection data={analysis.data.data} />
+        ) : null}
+        {analysis.state === "ready" && !analysis.data.data ? (
+          <UnavailableCard result={analysis.data} />
         ) : null}
       </div>
     </div>
@@ -1307,6 +1504,7 @@ function SourcesView({
               </div>
             </div>
           </GlassPanel>
+          <StockCapabilityMatrix />
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {resource.data.providers.map((provider) => (
               <GlassPanel key={provider.id}>
@@ -1348,6 +1546,13 @@ function SourcesView({
                     </span>
                   ))}
                 </div>
+                <p className="mt-3 text-[10px] text-muted-foreground">
+                  {provider.lastSuccessAt
+                    ? `最近成功：${provider.lastSuccessAt}`
+                    : provider.state === "unknown"
+                      ? "尚未执行真实上游请求；运行一次查询后更新状态。"
+                      : "暂无成功请求时间。"}
+                </p>
                 {provider.message ? (
                   <p className="mt-3 text-[11px] text-muted-foreground">{provider.message}</p>
                 ) : null}
@@ -1357,6 +1562,68 @@ function SourcesView({
         </>
       ) : null}
     </div>
+  );
+}
+
+const stockCapabilityMatrix = [
+  {
+    market: "A 股",
+    basic: "搜索、实时行情、日 K、公司资料",
+    research: "财务三表、股东、分红、资金流、新闻、公告正文",
+    experimental: "技术指标、评分、策略、Evaluator、回测",
+  },
+  {
+    market: "港股",
+    basic: "搜索、行情、日 K、有限公司资料",
+    research: "首版不保证深度财务、股东与公告正文",
+    experimental: "依赖历史 K 线覆盖率，可能为 partial",
+  },
+  {
+    market: "美股",
+    basic: "搜索、行情、日 K、有限资料与收入分部",
+    research: "首版不保证深度财务、股东与公告正文",
+    experimental: "依赖历史 K 线覆盖率，可能为 partial",
+  },
+  {
+    market: "ETF",
+    basic: "统一标的、行情与日 K",
+    research: "Provider 支持时展示净值、溢价和主要持仓",
+    experimental: "可运行指标与回测，结果始终标记实验性",
+  },
+] as const;
+
+function StockCapabilityMatrix() {
+  return (
+    <GlassPanel>
+      <div>
+        <h2 className="text-sm font-semibold">市场能力矩阵</h2>
+        <p className="mt-1 text-[10.5px] text-muted-foreground">
+          能力边界按首版真实实现展示；Provider 不支持时返回 partial 或 unavailable。
+        </p>
+      </div>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[720px] text-left text-[10px]">
+          <thead className="text-muted-foreground">
+            <tr className="border-b border-border/40">
+              <th className="px-2 py-2 font-medium">市场</th>
+              <th className="px-2 py-2 font-medium">基础能力</th>
+              <th className="px-2 py-2 font-medium">研究能力</th>
+              <th className="px-2 py-2 font-medium">实验能力</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stockCapabilityMatrix.map((row) => (
+              <tr key={row.market} className="border-b border-border/25 align-top last:border-0">
+                <td className="px-2 py-2 font-semibold">{row.market}</td>
+                <td className="px-2 py-2 text-muted-foreground">{row.basic}</td>
+                <td className="px-2 py-2 text-muted-foreground">{row.research}</td>
+                <td className="px-2 py-2 text-muted-foreground">{row.experimental}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </GlassPanel>
   );
 }
 

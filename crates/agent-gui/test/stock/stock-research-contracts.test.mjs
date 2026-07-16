@@ -412,6 +412,10 @@ test("research, market brief, backtest and status tolerate sidecar raw shapes", 
     ["technical", "score", "strategy", "evaluator"]
   );
   assert.equal(research.data?.experimentalAnalysis[2]?.status, "partial");
+  assert.deepEqual(research.data?.experimentalAnalysis[0]?.data, {
+    trend: "bullish",
+    rsi14: 64,
+  });
   assert.deepEqual(research.data?.experimentalAnalysis[2]?.warnings, [
     "仅覆盖当前样本",
   ]);
@@ -477,6 +481,9 @@ test("research, market brief, backtest and status tolerate sidecar raw shapes", 
   assert.equal(brief.data?.generatedFor, "pre_open");
   assert.equal(brief.data?.tradeDate, "2026-07-15");
   assert.deepEqual(brief.data?.requestedSections, ["movers", "sentiment"]);
+  assert.equal(brief.data?.sections[0]?.key, "movers");
+  assert.equal(brief.data?.sections[0]?.items[0]?.title, "贵州茅台");
+  assert.equal(brief.data?.sections.at(-1)?.key, "sentiment");
   const backtest = mapStockBacktestResult({
     status: "ok",
     data: {
@@ -655,6 +662,14 @@ test("stock hub keeps the five product views", async () => {
   assert.match(source, /实验性量化分析/);
   assert.match(source, /data\.analysisMetadata/);
   assert.match(source, /data\.experimentalAnalysis\.map/);
+  assert.match(source, /MarketBriefSections/);
+  assert.match(source, /StockCapabilityMatrix/);
+  assert.match(source, /runAnalysis/);
+  assert.match(
+    source,
+    /capabilities: \["history", "technical", "score", "strategy", "evaluator"\]/
+  );
+  assert.match(source, /原始实验数据/);
   assert.match(source, /evidenceItems\(root\.periods\)\.slice\(0, 4\)/);
   assert.match(source, /报告期覆盖/);
   assert.match(source, /financialPeriodDetail\(period\)/);

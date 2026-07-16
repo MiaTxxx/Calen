@@ -84,6 +84,11 @@ jobs:
         with:
           workspaces: crates/agent-gui/src-tauri
 
+      - name: Test stock portfolio ledger without desktop runtime DLLs
+        env:
+          CARGO_TERM_COLOR: always
+        run: cargo test --manifest-path crates/stock-portfolio-core-tests/Cargo.toml
+
       - name: Install frontend dependencies
         working-directory: crates/agent-gui
         run: pnpm install --frozen-lockfile
@@ -210,18 +215,18 @@ jobs:
           node scripts/release/create-ai-release-notes.mjs "$RELEASE_TAG" "$notes_path" "$github_notes_path"
           test -s "$notes_path" || printf 'Calen %s\n' "$RELEASE_TAG" > "$notes_path"
 
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            args=(--title "Calen $RELEASE_TAG" --notes-file "$notes_path")
-            if [ "$LIVEAGENT_IS_PRERELEASE" = true ]; then args+=(--prerelease); else args+=(--prerelease=false --latest); fi
-            gh release edit "$RELEASE_TAG" "${args[@]}"
-          else
-            args=(--verify-tag --title "Calen $RELEASE_TAG" --notes-file "$notes_path")
-            if [ "$LIVEAGENT_IS_PRERELEASE" = true ]; then args+=(--prerelease); fi
-            gh release create "$RELEASE_TAG" "${args[@]}"
-          fi
-
           node scripts/release/create-tauri-updater-manifest.mjs release-artifacts release-artifacts/latest.json "$notes_path"
           node -e 'const m=require("./release-artifacts/latest.json"); if(Object.keys(m.platforms).some(k=>!k.startsWith("windows-"))) process.exit(1)'
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --draft --title "Calen $RELEASE_TAG" --notes-file "$notes_path"
+            while IFS= read -r asset; do
+              [ -z "$asset" ] || gh release delete-asset "$RELEASE_TAG" "$asset" --yes
+            done < <(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Calen $RELEASE_TAG" --notes-file "$notes_path"
+          fi
+
           gh release upload "$RELEASE_TAG" \
             release-artifacts/Calen-*-Windows-x64-Setup.exe \
             release-artifacts/Calen-*-Windows-x64-Setup.exe.sig \
@@ -229,3 +234,11 @@ jobs:
             release-artifacts/Calen-*-Windows-x64.msi.sig \
             release-artifacts/latest.json \
             --clobber
+
+          publish_args=(--draft=false --title "Calen $RELEASE_TAG" --notes-file "$notes_path")
+          if [ "$LIVEAGENT_IS_PRERELEASE" = true ]; then
+            publish_args+=(--prerelease)
+          else
+            publish_args+=(--prerelease=false --latest)
+          fi
+          gh release edit "$RELEASE_TAG" "${publish_args[@]}"

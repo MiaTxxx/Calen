@@ -60,5 +60,9 @@
 
 - Sidecar：102 项测试，覆盖回退、缓存、节流、熔断、403/429、离线、取消、自动汇率、ETF 溢价、公告 PDF、市场报告会话/交易日、港美公司资料、量化确定性、时间切分与防未来函数。
 - GUI 股票/结果卡：资产授权、Gateway 脱敏、五页 Hub、Tauri adapter、组合工作区、结构化研究和结果卡测试。
-- Windows CI：bundle 隔离验证、Tauri backend check、股票 Rust 测试，以及使用临时 updater 密钥构建两个版本的 MSI/NSIS，在中文与空格路径执行安装、sidecar 启动、升级和卸载 smoke；临时安装器不上传。
+- Windows CI：bundle 隔离验证、Tauri backend check、股票 Rust 测试，以及使用临时 updater 密钥构建两个版本的 MSI/NSIS，在中文与空格路径执行安装、sidecar 启动、升级和卸载 smoke；临时安装器不上传。portfolio 测试使用独立 `crates/stock-portfolio-core-tests` harness，复用桌面端同一组 Rust ledger 源文件但不加载 Tauri/WebView2 DLL。
+- 实验室可独立运行技术指标、评分卡、策略信号和 Evaluator；GUI 保留结构化量化数据并提供原始实验数据折叠查看，回测仍独立展示时间切分结果。
+- 市场页保留并展示涨跌停、热门板块、资金流、龙虎榜、异动和情绪分项的真实条目；缺失分项继续显示 `partial/unavailable`，不再用摘要数量替代明细。
+- 数据源页增加 A 股、港股、美股和 ETF 能力矩阵，并显示 Provider 最近成功请求时间；未探测 Provider 仍明确显示 `unknown/待探测`。
+- 发布 workflow 先生成 manifest、创建 draft Release、清理旧非 Windows 资产、上传四个安装器/签名和 `latest.json`，全部成功后才将 Release 公开。
 - 发布 workflow 的安装器生命周期 smoke 只会在满足合规和签名门禁的正式 Windows 构建中执行。
