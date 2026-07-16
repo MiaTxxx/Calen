@@ -250,6 +250,18 @@ test("pull request CI builds temporary-signed Windows installers and runs lifecy
 test("Windows updater verification avoids stack overflow and fails workflows fast", () => {
   assert.match(updaterSignatureVerifier, /vec!\[0_u8; 64 \* 1024\]/);
   assert.doesNotMatch(updaterSignatureVerifier, /\[0_u8; 1024 \* 1024\]/);
+  assert.match(updaterSignatureVerifier, /STANDARD\.decode/);
+  assert.match(updaterSignatureVerifier, /PublicKey::decode/);
+  assert.match(updaterSignatureVerifier, /Signature::decode/);
+  assert.doesNotMatch(updaterSignatureVerifier, /Signature::from_file/);
+  assert.match(
+    releaseWorkflow,
+    /cargo run --release --locked[\s\S]*?--target x86_64-pc-windows-msvc[\s\S]*?--example verify-updater-signature/
+  );
+  assert.match(
+    ciWorkflow,
+    /cargo run --release --locked[\s\S]*?--target x86_64-pc-windows-msvc[\s\S]*?--example verify-updater-signature/
+  );
   assert.match(releaseWorkflow, /test-msiexec-argument-quoting\.ps1/);
   assert.match(releaseWorkflow, /if \(\$LASTEXITCODE -ne 0\)/);
 });

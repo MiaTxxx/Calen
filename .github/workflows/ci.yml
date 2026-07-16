@@ -382,6 +382,7 @@ jobs:
           }
           cargo run --release --locked `
             --manifest-path crates/agent-gui/src-tauri/Cargo.toml `
+            --target x86_64-pc-windows-msvc `
             --example verify-updater-signature `
             -- "$($setup.FullName)" "$($msi.FullName)"
           if ($LASTEXITCODE -ne 0) {

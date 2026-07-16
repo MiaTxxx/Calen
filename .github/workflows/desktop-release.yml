@@ -165,6 +165,7 @@ jobs:
         run: |
           cargo run --release --locked `
             --manifest-path crates/agent-gui/src-tauri/Cargo.toml `
+            --target x86_64-pc-windows-msvc `
             --example verify-updater-signature `
             -- "dist/Calen-$env:LIVEAGENT_RELEASE_TAG-Windows-x64-Setup.exe" `
                "dist/Calen-$env:LIVEAGENT_RELEASE_TAG-Windows-x64.msi"
