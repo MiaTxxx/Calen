@@ -37,6 +37,8 @@ $nsisInstallRoot = Join-Path $testRoot "NSIS 中文 安装目录"
 $nsisUpgradeRoot = Join-Path $testRoot "NSIS 中文 升级目录"
 $msiRequestedRoot = Join-Path $testRoot "MSI 中文 安装目录"
 $logsRoot = Join-Path ([System.IO.Path]::GetTempPath()) "calen-msi-logs-$PID"
+$attemptedMsiProductCodes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+[int]$msiUninstallAttemptNumber = 0
 New-Item -ItemType Directory -Force -Path $testRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $logsRoot | Out-Null
 
@@ -52,6 +54,21 @@ function Get-OptionalProperty {
     $property = $InputObject.PSObject.Properties[$Name]
     if ($null -eq $property -or $null -eq $property.Value) { return $null }
     return $property.Value
+}
+
+function Test-MsiProductCode {
+    param([string]$Value)
+
+    return $Value -match '^\{[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}\}$'
+}
+
+function Reset-MsiUninstallAttempt {
+    param([Parameter(Mandatory = $true)]$Entry)
+
+    $productCode = [string](Get-OptionalProperty -InputObject $Entry -Name "PSChildName")
+    if (Test-MsiProductCode -Value $productCode) {
+        $attemptedMsiProductCodes.Remove($productCode) | Out-Null
+    }
 }
 
 function Invoke-CheckedProcess {
@@ -181,6 +198,81 @@ function Get-CalenUninstallEntries {
     )
 }
 
+function Get-MsiUninstallEntriesByProductCode {
+    param([Parameter(Mandatory = $true)][string]$ProductCode)
+
+    if (-not (Test-MsiProductCode -Value $ProductCode)) {
+        throw "Invalid MSI ProductCode: $ProductCode"
+    }
+    $roots = @(
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+    return @(
+        foreach ($root in $roots) {
+            $path = Join-Path $root $ProductCode
+            Get-ItemProperty -LiteralPath $path -ErrorAction SilentlyContinue
+        }
+    )
+}
+
+function Wait-MsiUninstallEntryRemoved {
+    param([Parameter(Mandatory = $true)][string]$ProductCode)
+
+    for ($attempt = 1; $attempt -le 30; $attempt++) {
+        $remainingEntries = @(Get-MsiUninstallEntriesByProductCode -ProductCode $ProductCode)
+        if ($remainingEntries.Count -eq 0) {
+            Write-Host "MSI uninstall entry was removed: $ProductCode"
+            return
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    throw "MSI uninstall entry remained registered after uninstall: $ProductCode"
+}
+
+function Get-MsiUninstallDiagnostics {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProductCode,
+        [Parameter(Mandatory = $true)][string]$LogPath
+    )
+
+    $logTail = if (Test-Path -LiteralPath $LogPath -PathType Leaf) {
+        (Get-Content -LiteralPath $LogPath -Tail 80 -ErrorAction SilentlyContinue) -join "`n"
+    } else {
+        "MSI log was not created."
+    }
+    $processes = @(
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -in @("msiexec.exe", "Calen.exe") } |
+            Select-Object ProcessId, ParentProcessId, Name
+    )
+    $processText = if ($processes.Count -gt 0) {
+        ($processes | Format-Table -AutoSize | Out-String).Trim()
+    } else {
+        "No related processes were found."
+    }
+    $entries = @(
+        Get-CalenUninstallEntries |
+            Select-Object PSChildName, DisplayName, DisplayVersion
+    )
+    $entryText = if ($entries.Count -gt 0) {
+        ($entries | Format-List | Out-String).Trim()
+    } else {
+        "No Calen uninstall entries remain."
+    }
+
+    return @(
+        "MSI product code: $ProductCode",
+        "MSI log: $LogPath",
+        $logTail,
+        "Related processes:",
+        $processText,
+        "Registered Calen entries:",
+        $entryText
+    ) -join "`n"
+}
+
 function Get-InstallRootFromEntry {
     param(
         [Parameter(Mandatory = $true)]$Entry,
@@ -280,7 +372,7 @@ function Invoke-NsisInstall {
     }
     $entry = Get-CalenUninstallEntries |
         Where-Object {
-            [string](Get-OptionalProperty -InputObject $_ -Name "PSChildName") -notmatch '^\{[0-9A-Fa-f-]+\}$' -and
+            -not (Test-MsiProductCode -Value ([string](Get-OptionalProperty -InputObject $_ -Name "PSChildName"))) -and
             (-not $ExpectedVersion -or
                 [string](Get-OptionalProperty -InputObject $_ -Name "DisplayVersion") -eq $ExpectedVersion)
         } |
@@ -335,34 +427,56 @@ function Invoke-MsiInstall {
     $entry = if ($ExpectedVersion) {
         $entries |
             Where-Object {
-                [string](Get-OptionalProperty -InputObject $_ -Name "PSChildName") -match '^\{[0-9A-Fa-f-]+\}$' -and
+                (Test-MsiProductCode -Value ([string](Get-OptionalProperty -InputObject $_ -Name "PSChildName"))) -and
                 [string](Get-OptionalProperty -InputObject $_ -Name "DisplayVersion") -eq $ExpectedVersion
             } |
             Select-Object -First 1
     } else {
         $entries |
-            Where-Object { [string](Get-OptionalProperty -InputObject $_ -Name "PSChildName") -match '^\{[0-9A-Fa-f-]+\}$' } |
+            Where-Object {
+                Test-MsiProductCode -Value ([string](Get-OptionalProperty -InputObject $_ -Name "PSChildName"))
+            } |
             Select-Object -First 1
     }
     if ($null -eq $entry) {
         throw "MSI completed but no matching Calen uninstall entry was registered. Log: $logPath"
     }
+    Reset-MsiUninstallAttempt -Entry $entry
     return $entry
 }
 
 function Invoke-MsiUninstall {
-    param(
-        [Parameter(Mandatory = $true)]$Entry,
-        [string]$FallbackPackage
-    )
+    param([Parameter(Mandatory = $true)]$Entry)
 
     $productCode = [string](Get-OptionalProperty -InputObject $Entry -Name "PSChildName")
-    $target = if ($productCode -match '^\{[0-9A-Fa-f-]+\}$') { $productCode } else { $FallbackPackage }
-    Invoke-CheckedProcess `
-        -FilePath "$env:SystemRoot\System32\msiexec.exe" `
-        -Arguments @("/x", $target, "/qn", "/norestart") `
-        -AllowedExitCodes @(0, 1605, 3010) `
-        -TimeoutSeconds 600 | Out-Null
+    if (-not (Test-MsiProductCode -Value $productCode)) {
+        throw "Refusing to route a non-MSI uninstall entry through msiexec: $productCode"
+    }
+    if (-not $attemptedMsiProductCodes.Add($productCode)) {
+        Write-Host "Skipping repeated MSI uninstall attempt for the same installed instance: $productCode"
+        return
+    }
+
+    $script:msiUninstallAttemptNumber += 1
+    $logName = "{0:D2}-uninstall-{1}.log" -f `
+        $script:msiUninstallAttemptNumber, `
+        $productCode.Trim('{}').ToLowerInvariant()
+    $logPath = Join-Path $logsRoot $logName
+    $quotedLogPath = ConvertTo-MsiQuotedPath -PathValue $logPath
+    $rawArguments = "/L*v $quotedLogPath /x $productCode /qn /norestart MSIRESTARTMANAGERCONTROL=Disable REBOOT=ReallySuppress"
+    Write-Host "Uninstalling MSI product $productCode. Log: $logPath"
+
+    try {
+        Invoke-CheckedProcess `
+            -FilePath "$env:SystemRoot\System32\msiexec.exe" `
+            -RawArguments $rawArguments `
+            -AllowedExitCodes @(0, 1605, 3010) `
+            -TimeoutSeconds 180 | Out-Null
+        Wait-MsiUninstallEntryRemoved -ProductCode $productCode
+    } catch {
+        $diagnostics = Get-MsiUninstallDiagnostics -ProductCode $productCode -LogPath $logPath
+        throw "$($_.Exception.Message)`n$diagnostics"
+    }
 }
 
 function ConvertTo-CoreVersion {
@@ -465,7 +579,7 @@ try {
     }
     Write-Host "MSI honored the Chinese and space-containing INSTALLDIR: $msiInstallRoot"
     Invoke-SidecarSmoke -InstallRoot $msiInstallRoot | Out-Null
-    Invoke-MsiUninstall -Entry $msiEntry -FallbackPackage $MsiPath
+    Invoke-MsiUninstall -Entry $msiEntry
     Wait-InstallRootReleased -InstallRoot $msiInstallRoot
 
     Write-Step "Installing NSIS silently into a Chinese and space-containing path"
@@ -488,7 +602,7 @@ try {
                 -ExpectedVersion $CurrentVersion `
                 -PreserveExisting
             $nsisEntriesAfterUpgrade = @(Get-CalenUninstallEntries | Where-Object {
-                [string](Get-OptionalProperty -InputObject $_ -Name "PSChildName") -notmatch '^\{[0-9A-Fa-f-]+\}$'
+                -not (Test-MsiProductCode -Value ([string](Get-OptionalProperty -InputObject $_ -Name "PSChildName")))
             })
             if ($nsisEntriesAfterUpgrade | Where-Object {
                 [string](Get-OptionalProperty -InputObject $_ -Name "DisplayVersion") -eq $previous.Version
@@ -543,14 +657,17 @@ try {
             $upgradeRoot = Get-InstallRootFromEntry -Entry $currentEntry
             $upgradeRoots.Add($upgradeRoot)
             Invoke-SidecarSmoke -InstallRoot $upgradeRoot | Out-Null
-            Invoke-MsiUninstall -Entry $currentEntry -FallbackPackage $MsiPath
+            Invoke-MsiUninstall -Entry $currentEntry
+            Wait-InstallRootReleased -InstallRoot $upgradeRoot
         } finally {
-            foreach ($entry in @(Get-CalenUninstallEntries)) {
-                Invoke-MsiUninstall -Entry $entry -FallbackPackage $MsiPath
+            foreach ($entry in @(Get-CalenUninstallEntries | Where-Object {
+                Test-MsiProductCode -Value ([string](Get-OptionalProperty -InputObject $_ -Name "PSChildName"))
+            })) {
+                try { Invoke-MsiUninstall -Entry $entry } catch { Write-Warning $_ }
             }
             foreach ($root in ($upgradeRoots | Select-Object -Unique)) {
                 if ($root -and (Test-Path -LiteralPath $root)) {
-                    Wait-InstallRootReleased -InstallRoot $root
+                    try { Wait-InstallRootReleased -InstallRoot $root } catch { Write-Warning $_ }
                 }
             }
         }
@@ -574,8 +691,8 @@ try {
             Write-Warning "Could not resolve cleanup root for installed Calen entry: $_"
         }
         $productCode = [string](Get-OptionalProperty -InputObject $entry -Name "PSChildName")
-        if ($productCode -match '^\{[0-9A-Fa-f-]+\}$') {
-            try { Invoke-MsiUninstall -Entry $entry -FallbackPackage $MsiPath } catch { Write-Warning $_ }
+        if (Test-MsiProductCode -Value $productCode) {
+            try { Invoke-MsiUninstall -Entry $entry } catch { Write-Warning $_ }
         }
     }
     foreach ($root in ($cleanupRoots | Select-Object -Unique)) {
