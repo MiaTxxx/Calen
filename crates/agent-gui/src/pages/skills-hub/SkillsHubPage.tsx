@@ -10,6 +10,7 @@ import {
   ExternalLink,
   FileText,
   Folder,
+  Languages,
   Loader2,
   Lock,
   MessageSquare,
@@ -26,6 +27,7 @@ import { Button } from "../../components/ui/button";
 import { ConfirmDeletePopover } from "../../components/ui/confirm-action-popover";
 import { useLocale } from "../../i18n";
 import { type AppSettings, updateSkills } from "../../lib/settings";
+import { stopClickWhenTextSelected } from "../../lib/shared/selection";
 import { cn } from "../../lib/shared/utils";
 import {
   cancelSkillInstallJob,
@@ -52,6 +54,7 @@ import {
   listClawHubSkills,
   searchClawHubSkills,
 } from "../../lib/skills/clawHub";
+import { type TranslationSettings, translateText } from "../../lib/translation";
 
 type SkillsHubView = "installed" | "store" | "import";
 
@@ -1220,7 +1223,10 @@ export function SkillsHubPage(props: SkillsHubPageProps) {
                                       {skill.name}
                                     </div>
                                     {skill.description ? (
-                                      <p className="mt-1 line-clamp-2 text-[11.5px] leading-[1.4] text-muted-foreground">
+                                      <p
+                                        className="mt-1 line-clamp-2 select-text cursor-text text-[11.5px] leading-[1.4] text-muted-foreground"
+                                        onClick={stopClickWhenTextSelected}
+                                      >
                                         {skill.description}
                                       </p>
                                     ) : null}
@@ -1340,6 +1346,7 @@ export function SkillsHubPage(props: SkillsHubPageProps) {
                       installedSlugs={installedStoreSlugs}
                       installingBySlug={installingBySlug}
                       installJobs={installJobs}
+                      translationSettings={settings}
                       onSortChange={setStoreSort}
                       onLoadMore={() => void loadMoreStore()}
                       onInstall={(skill) => void installStoreSkill(skill)}
@@ -1648,7 +1655,10 @@ function SkillsImportView(props: {
                                 </span>
                               ) : null}
                             </span>
-                            <span className="mt-0.5 line-clamp-2 block text-[11px] leading-relaxed text-muted-foreground">
+                            <span
+                              className="mt-0.5 line-clamp-2 block select-text cursor-text text-[11px] leading-relaxed text-muted-foreground"
+                              onClick={stopClickWhenTextSelected}
+                            >
                               {skill.description}
                             </span>
                           </span>
@@ -1762,7 +1772,7 @@ function InstalledSkillPreviewDrawer(props: {
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 select-text overflow-y-auto px-5 py-4">
           <div className="flex flex-col gap-4">
             <div className="grid gap-3">
               <div className="rounded-2xl border border-border/40 bg-background/70 p-3.5 shadow-[0_1px_0_rgba(255,255,255,0.55)_inset] dark:border-white/[0.07] dark:bg-white/[0.05] dark:shadow-[0_1px_0_rgba(255,255,255,0.05)_inset]">
@@ -1914,6 +1924,133 @@ function InstalledPreviewSkeleton() {
   );
 }
 
+type StoreTranslationEntry = {
+  loading: boolean;
+  text: string | null;
+  error: string | null;
+  visible: boolean;
+  requestKey: string;
+};
+
+// 商店描述翻译：按「字段:slug」缓存于会话内，重复点击只在原文/译文之间切换，不重复调用模型。
+function useStoreTranslations(settings: TranslationSettings) {
+  const { locale } = useLocale();
+  const [entries, setEntries] = useState<Record<string, StoreTranslationEntry>>({});
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
+
+  useEffect(() => {
+    setEntries({});
+  }, [locale]);
+
+  const toggle = useCallback(
+    (key: string, text: string) => {
+      const entry = entriesRef.current[key];
+      const requestKey = `${locale}\u0000${text}`;
+      if ((entry?.loading && entry.requestKey === requestKey) || !text.trim()) return;
+      if (entry?.text && entry.requestKey === requestKey) {
+        setEntries((state) => ({ ...state, [key]: { ...entry, visible: !entry.visible } }));
+        return;
+      }
+      setEntries((state) => ({
+        ...state,
+        [key]: { loading: true, text: null, error: null, visible: false, requestKey },
+      }));
+      void translateText({ settings, text, targetLocale: locale })
+        .then((translated) => {
+          setEntries((state) =>
+            state[key]?.requestKey === requestKey
+              ? {
+                  ...state,
+                  [key]: {
+                    loading: false,
+                    text: translated,
+                    error: null,
+                    visible: true,
+                    requestKey,
+                  },
+                }
+              : state,
+          );
+        })
+        .catch((error) => {
+          setEntries((state) =>
+            state[key]?.requestKey === requestKey
+              ? {
+                  ...state,
+                  [key]: {
+                    loading: false,
+                    text: null,
+                    error: error instanceof Error ? error.message : String(error),
+                    visible: false,
+                    requestKey,
+                  },
+                }
+              : state,
+          );
+        });
+    },
+    [locale, settings],
+  );
+
+  return { entries, toggle };
+}
+
+function storeSummaryTranslationKey(slug: string) {
+  return `summary:${slug}`;
+}
+
+function storeChangelogTranslationKey(slug: string) {
+  return `changelog:${slug}`;
+}
+
+function translationDisplayText(entry: StoreTranslationEntry | undefined, original: string) {
+  return entry?.visible && entry.text ? entry.text : original;
+}
+
+function TranslateIconButton(props: {
+  entry: StoreTranslationEntry | undefined;
+  className?: string;
+  onToggle: () => void;
+}) {
+  const { entry, className, onToggle } = props;
+  const { t } = useLocale();
+  const title = entry?.error
+    ? `${t("settings.skillsStoreTranslateFailed")}: ${entry.error}`
+    : entry?.loading
+      ? t("settings.skillsStoreTranslating")
+      : entry?.visible
+        ? t("settings.skillsStoreShowOriginal")
+        : t("settings.skillsStoreTranslate");
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+      onKeyDown={(event) => event.stopPropagation()}
+      title={title}
+      aria-label={title}
+      className={cn(
+        "shrink-0 transition-colors",
+        entry?.error
+          ? "text-destructive hover:text-destructive"
+          : entry?.visible
+            ? "text-foreground"
+            : "text-muted-foreground hover:text-foreground",
+        className,
+      )}
+    >
+      {entry?.loading ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <Languages className="h-3.5 w-3.5" />
+      )}
+    </button>
+  );
+}
+
 function SkillsStoreView(props: {
   items: ClawHubSkillCard[];
   query: string;
@@ -1925,6 +2062,7 @@ function SkillsStoreView(props: {
   installedSlugs: Set<string>;
   installingBySlug: Record<string, string>;
   installJobs: Record<string, SkillInstallJobSnapshot>;
+  translationSettings: TranslationSettings;
   onSortChange: (value: ClawHubSort) => void;
   onLoadMore: () => void;
   onInstall: (skill: ClawHubSkillCard) => void;
@@ -1940,6 +2078,7 @@ function SkillsStoreView(props: {
     installedSlugs,
     installingBySlug,
     installJobs,
+    translationSettings,
     onSortChange,
     onLoadMore,
     onInstall,
@@ -1951,6 +2090,8 @@ function SkillsStoreView(props: {
   const [previewDetail, setPreviewDetail] = useState<ClawHubSkillDetail | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const { entries: translations, toggle: toggleTranslation } =
+    useStoreTranslations(translationSettings);
 
   useEffect(() => {
     if (!previewSkill) {
@@ -2113,6 +2254,7 @@ function SkillsStoreView(props: {
               {items.map((skill) => {
                 const { done, installing, terminalJob, job, progress } = getInstallState(skill);
                 const link = buildClawHubSkillUrl(skill);
+                const summaryTranslation = translations[storeSummaryTranslationKey(skill.slug)];
 
                 return (
                   // biome-ignore lint/a11y/useSemanticElements: The card contains nested controls and cannot be a native button.
@@ -2152,6 +2294,17 @@ function SkillsStoreView(props: {
                             <span className="truncate text-[13px] font-semibold leading-tight text-foreground">
                               {skill.displayName}
                             </span>
+                            {skill.summary ? (
+                              <TranslateIconButton
+                                entry={summaryTranslation}
+                                onToggle={() =>
+                                  toggleTranslation(
+                                    storeSummaryTranslationKey(skill.slug),
+                                    skill.summary,
+                                  )
+                                }
+                              />
+                            ) : null}
                             {link ? (
                               <a
                                 href={link}
@@ -2173,8 +2326,11 @@ function SkillsStoreView(props: {
                       </div>
 
                       {skill.summary ? (
-                        <p className="line-clamp-3 text-[11.5px] leading-[1.45] text-muted-foreground">
-                          {skill.summary}
+                        <p
+                          className="line-clamp-3 select-text cursor-text text-[11.5px] leading-[1.45] text-muted-foreground"
+                          onClick={stopClickWhenTextSelected}
+                        >
+                          {translationDisplayText(summaryTranslation, skill.summary)}
                         </p>
                       ) : null}
 
@@ -2308,6 +2464,8 @@ function SkillsStoreView(props: {
           loading={previewLoading}
           error={previewError}
           installState={getInstallState(previewSkill)}
+          translations={translations}
+          onToggleTranslation={toggleTranslation}
           onClose={() => setPreviewSkill(null)}
           onInstall={() => onInstall(previewSkill)}
         />
@@ -2322,10 +2480,22 @@ function SkillsStorePreviewDrawer(props: {
   loading: boolean;
   error: string | null;
   installState: StoreSkillInstallState;
+  translations: Record<string, StoreTranslationEntry>;
+  onToggleTranslation: (key: string, text: string) => void;
   onClose: () => void;
   onInstall: () => void;
 }) {
-  const { skill, detail, loading, error, installState, onClose, onInstall } = props;
+  const {
+    skill,
+    detail,
+    loading,
+    error,
+    installState,
+    translations,
+    onToggleTranslation,
+    onClose,
+    onInstall,
+  } = props;
   const { t } = useLocale();
   const data = detail ?? skill;
   const link = data.webUrl ?? buildClawHubSkillUrl(data);
@@ -2333,6 +2503,8 @@ function SkillsStorePreviewDrawer(props: {
   const owner = detail?.ownerDisplayName ?? data.ownerHandle;
   const supportedOs = detail?.supportedOs ?? [];
   const supportedSystems = detail?.supportedSystems ?? [];
+  const summaryTranslation = translations[storeSummaryTranslationKey(skill.slug)];
+  const changelogTranslation = translations[storeChangelogTranslationKey(skill.slug)];
   const actionLabel = installState.installing
     ? installPhaseLabel(installState.job, t)
     : installState.done
@@ -2415,10 +2587,21 @@ function SkillsStorePreviewDrawer(props: {
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 select-text overflow-y-auto px-5 py-4">
           <div className="flex flex-col gap-4">
             {data.summary ? (
-              <p className="text-[13px] leading-6 text-muted-foreground">{data.summary}</p>
+              <div className="flex items-start gap-2">
+                <p className="min-w-0 flex-1 text-[13px] leading-6 text-muted-foreground">
+                  {translationDisplayText(summaryTranslation, data.summary)}
+                </p>
+                <TranslateIconButton
+                  entry={summaryTranslation}
+                  className="mt-1.5"
+                  onToggle={() =>
+                    onToggleTranslation(storeSummaryTranslationKey(skill.slug), data.summary)
+                  }
+                />
+              </div>
             ) : null}
 
             <div className="grid grid-cols-3 gap-2">
@@ -2528,11 +2711,22 @@ function SkillsStorePreviewDrawer(props: {
 
                 {detail?.latestVersionChangelog ? (
                   <div className="rounded-2xl border border-border/40 bg-background/60 p-3">
-                    <div className="mb-2 text-[12px] font-semibold text-foreground">
-                      {t("settings.skillsStorePreviewChangelog")}
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-[12px] font-semibold text-foreground">
+                        {t("settings.skillsStorePreviewChangelog")}
+                      </div>
+                      <TranslateIconButton
+                        entry={changelogTranslation}
+                        onToggle={() =>
+                          onToggleTranslation(
+                            storeChangelogTranslationKey(skill.slug),
+                            detail.latestVersionChangelog ?? "",
+                          )
+                        }
+                      />
                     </div>
                     <p className="whitespace-pre-wrap text-[12px] leading-5 text-muted-foreground">
-                      {detail.latestVersionChangelog}
+                      {translationDisplayText(changelogTranslation, detail.latestVersionChangelog)}
                     </p>
                   </div>
                 ) : null}

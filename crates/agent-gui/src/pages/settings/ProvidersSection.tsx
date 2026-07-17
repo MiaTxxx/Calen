@@ -102,6 +102,7 @@ type CcsProvidersResponse = {
 
 const PROVIDER_TABS: ProviderId[] = ["claude_code", "codex", "gemini"];
 const TITLE_MODEL_FOLLOW_CURRENT_VALUE = "__conversation_title_follow_current__";
+const TRANSLATION_MODEL_FOLLOW_CURRENT_VALUE = "__translation_follow_current__";
 const PROVIDER_LABELS: Record<ProviderId, string> = {
   claude_code: "Anthropic",
   codex: "OpenAI",
@@ -637,6 +638,18 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
       ? `${selectedOption.providerName} / ${selectedOption.label}`
       : conversationTitleModel.model
     : t("settings.conversationTitleModelFollowCurrent");
+  const translationModel = settings.customSettings.translationModel;
+  const translationSelectedValue = translationModel
+    ? toModelValue(translationModel.customProviderId, translationModel.model)
+    : TRANSLATION_MODEL_FOLLOW_CURRENT_VALUE;
+  const translationSelectedOption = modelOptions.find(
+    (option) => option.value === translationSelectedValue,
+  );
+  const translationSelectedLabel = translationModel
+    ? translationSelectedOption
+      ? `${translationSelectedOption.providerName} / ${translationSelectedOption.label}`
+      : translationModel.model
+    : t("settings.translationModelFollowCurrent");
 
   useEffect(
     () => () => {
@@ -660,6 +673,17 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
       updateCustomSettings(prev, {
         conversationTitleModel:
           value === TITLE_MODEL_FOLLOW_CURRENT_VALUE
+            ? undefined
+            : (parseModelValue(value) ?? undefined),
+      }),
+    );
+  }
+
+  function handleTranslationModelChange(value: string) {
+    setSettings((prev) =>
+      updateCustomSettings(prev, {
+        translationModel:
+          value === TRANSLATION_MODEL_FOLLOW_CURRENT_VALUE
             ? undefined
             : (parseModelValue(value) ?? undefined),
       }),
@@ -747,6 +771,35 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
                     {t("settings.customSettingsModelEmpty")}
                   </div>
                 ) : null}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-foreground/[0.06] bg-white/60 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-xl dark:border-foreground/[0.08] dark:bg-foreground/[0.03] dark:shadow-none">
+              <div className="space-y-2">
+                <Label className="text-[12.5px] font-medium text-foreground/85">
+                  {t("settings.translationModel")}
+                </Label>
+                <Select
+                  value={translationSelectedValue}
+                  onValueChange={handleTranslationModelChange}
+                >
+                  <SelectTrigger className="h-9 rounded-lg border-foreground/10 bg-white/70 shadow-sm dark:bg-background/40">
+                    <SelectValue>{translationSelectedLabel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    <SelectItem value={TRANSLATION_MODEL_FOLLOW_CURRENT_VALUE}>
+                      {t("settings.translationModelFollowCurrent")}
+                    </SelectItem>
+                    {modelOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.providerName} / {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11.5px] leading-relaxed text-muted-foreground/85">
+                  {t("settings.translationModelHint")}
+                </p>
               </div>
             </div>
           </section>

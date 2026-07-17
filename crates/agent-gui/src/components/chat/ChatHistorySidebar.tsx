@@ -16,6 +16,7 @@ import type {
 import {
   ChevronRight,
   Edit3,
+  EyeOff,
   Folder,
   FolderOpen,
   FolderTree,
@@ -90,6 +91,8 @@ type ChatHistorySidebarProps = {
   onCancelProjectRename?: () => void;
   onSetProjectPinned?: (project: WorkspaceProject, isPinned: boolean) => void;
   onRemoveProject?: (project: WorkspaceProject) => void;
+  onHideDefaultProject?: () => void;
+  canHideDefaultProject?: boolean;
   onNewConversation: () => void;
   onSelectConversation: (id: string) => void;
   onStartRenaming: (item: SidebarConversation) => void;
@@ -449,6 +452,8 @@ const ProjectRow = memo(function ProjectRow(props: {
   onCancelProjectRename: () => void;
   onSetProjectPinned: (project: WorkspaceProject, isPinned: boolean) => void;
   onRemoveProject: (project: WorkspaceProject) => void;
+  onHideDefaultProject?: () => void;
+  canHideDefaultProject?: boolean;
   onSetPendingRemove: (projectId: string | null) => void;
 }) {
   const {
@@ -469,6 +474,8 @@ const ProjectRow = memo(function ProjectRow(props: {
     onCancelProjectRename,
     onSetProjectPinned,
     onRemoveProject,
+    onHideDefaultProject,
+    canHideDefaultProject,
     onSetPendingRemove,
   } = props;
   const { t } = useLocale();
@@ -753,6 +760,23 @@ const ProjectRow = memo(function ProjectRow(props: {
                         {t("chat.workspaceRemove")}
                       </DropdownMenuItem>
                     </>
+                  ) : onHideDefaultProject ? (
+                    canHideDefaultProject === true ? (
+                      <DropdownMenuItem onSelect={() => onHideDefaultProject()} className="gap-2">
+                        <EyeOff className="h-3.5 w-3.5" />
+                        {t("chat.workspaceHideDefault")}
+                      </DropdownMenuItem>
+                    ) : (
+                      <>
+                        <DropdownMenuItem disabled className="gap-2">
+                          <EyeOff className="h-3.5 w-3.5" />
+                          {t("chat.workspaceHideDefault")}
+                        </DropdownMenuItem>
+                        <div className="px-2 pb-1 text-[10px] leading-4 text-muted-foreground">
+                          {t("chat.workspaceHideDefaultDisabledHint")}
+                        </div>
+                      </>
+                    )
                   ) : null}
                   {onBrowseProjectInFileTree ? (
                     <DropdownMenuItem onSelect={handleBrowseInFileTree} className="gap-2">
@@ -898,6 +922,8 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
     onCancelProjectRename,
     onSetProjectPinned,
     onRemoveProject,
+    onHideDefaultProject,
+    canHideDefaultProject,
     onNewConversation,
     onSelectConversation,
     onStartRenaming,
@@ -980,6 +1006,9 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
   });
   const handleRemoveProject = useStableEvent((project: WorkspaceProject) => {
     onRemoveProject?.(project);
+  });
+  const handleHideDefaultProject = useStableEvent(() => {
+    onHideDefaultProject?.();
   });
   // Projects arrive pre-sorted from the container; the view only caps the
   // rendered count until the user expands the list.
@@ -1547,6 +1576,10 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
                         onCancelProjectRename={handleCancelProjectRename}
                         onSetProjectPinned={handleSetProjectPinned}
                         onRemoveProject={handleRemoveProject}
+                        onHideDefaultProject={
+                          onHideDefaultProject ? handleHideDefaultProject : undefined
+                        }
+                        canHideDefaultProject={canHideDefaultProject}
                         onSetPendingRemove={setPendingProjectRemoveId}
                       />
                     );

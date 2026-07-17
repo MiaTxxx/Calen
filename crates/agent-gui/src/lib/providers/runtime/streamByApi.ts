@@ -44,6 +44,14 @@ function resolveDeepSeekAnthropicThinkingRuntime(
   };
 }
 
+// tool_choice 只有在请求携带 tools 时才是合法字段；无 tools 时下发会被严格校验的
+// 端点（官方新版校验及 sub2api 等中转）拒绝："A tool_choice was set on the request
+// but no tools were specified"。Provider 原生托管工具（web search 等）在 payload
+// 中间件里追加，不经过 context.tools，此时省略 tool_choice 等价于默认 auto。
+function hasContextTools(context: Context) {
+  return (context.tools?.length ?? 0) > 0;
+}
+
 function mapToolChoiceToOpenAI(
   toolChoice: ToolChoice | undefined,
 ): OpenAICompletionsOptions["toolChoice"] | undefined {
@@ -125,7 +133,9 @@ export function streamSimpleByApi(model: Model<any>, context: Context, options: 
             ...(anthropicThinking.thinkingBudgetTokens !== undefined
               ? { thinkingBudgetTokens: anthropicThinking.thinkingBudgetTokens }
               : {}),
-            toolChoice: anthropicOptions.toolChoice ?? "none",
+            ...(hasContextTools(anthropicContext)
+              ? { toolChoice: anthropicOptions.toolChoice ?? "none" }
+              : {}),
           });
           return isDeepSeekAnthropic || anthropicOptions.deepSeekDsmlToolCallRepair
             ? wrapDeepSeekDsmlToolCallStream(stream)
@@ -151,7 +161,9 @@ export function streamSimpleByApi(model: Model<any>, context: Context, options: 
       const openAIOptions: OpenAICompletionsOptions = {
         ...buildOpenAIBaseOptions(model, openAICompletionsOptions),
         reasoningEffort: clampOpenAIReasoningEffort(model, openAICompletionsOptions.reasoning),
-        toolChoice: mapToolChoiceToOpenAI(openAICompletionsOptions.toolChoice),
+        toolChoice: hasContextTools(openAICompletionsContext)
+          ? mapToolChoiceToOpenAI(openAICompletionsOptions.toolChoice)
+          : undefined,
       };
       return withStreamRetry(
         () => streamOpenAICompletions(model as any, openAICompletionsContext, openAIOptions),
@@ -179,7 +191,9 @@ export function streamSimpleByApi(model: Model<any>, context: Context, options: 
         maxRetryDelayMs: options.maxRetryDelayMs,
         metadata: options.metadata,
         thinking: resolveGeminiThinkingRuntime(model, options.reasoning),
-        toolChoice: mapToolChoiceToGoogle(options.toolChoice) ?? "none",
+        toolChoice: hasContextTools(context)
+          ? (mapToolChoiceToGoogle(options.toolChoice) ?? "none")
+          : undefined,
       };
       return withStreamRetry(() => streamGoogle(model as any, context, googleOptions), {
         signal: options.signal,

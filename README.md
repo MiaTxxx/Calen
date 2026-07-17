@@ -71,12 +71,12 @@ Every evidence result carries source information, an as-of time, retrieval time,
 
 ## Download for Windows
 
-The current public desktop release is [Calen v1.1.0](https://github.com/MiaTxxx/Calen/releases/tag/v1.1.0) for Windows x64.
+The current public desktop release is [Calen v1.1.1](https://github.com/MiaTxxx/Calen/releases/tag/v1.1.1) for Windows x64.
 
 | Package                              | Recommended use                               |
 | ------------------------------------ | --------------------------------------------- |
-| `Calen-v1.1.0-Windows-x64-Setup.exe` | Standard interactive installation.            |
-| `Calen-v1.1.0-Windows-x64.msi`       | Managed deployment or MSI-based installation. |
+| `Calen-v1.1.1-Windows-x64-Setup.exe` | Standard interactive installation.            |
+| `Calen-v1.1.1-Windows-x64.msi`       | Managed deployment or MSI-based installation. |
 
 Windows 10/11 with WebView2 is required. The current binaries do not have an Authenticode publisher signature, so Windows may show an “Unknown publisher” warning. Application updates are independently verified with the Tauri updater signature.
 

@@ -279,6 +279,14 @@ fn system_value_with_defaults(raw: Option<Value>, default_workdir: &str) -> Valu
             system.get(SYSTEM_MISSING_WORKSPACE_PROJECT_PATHS_KEY),
         ),
     );
+    let hide_default_project = system
+        .get(SYSTEM_HIDE_DEFAULT_WORKSPACE_PROJECT_KEY)
+        .and_then(Value::as_bool)
+        == Some(true);
+    system.insert(
+        SYSTEM_HIDE_DEFAULT_WORKSPACE_PROJECT_KEY.to_string(),
+        Value::Bool(hide_default_project),
+    );
 
     Value::Object(system)
 }
@@ -324,6 +332,7 @@ fn save_system_with_default_workdir(
         SYSTEM_ACTIVE_WORKSPACE_PROJECT_ID_KEY,
         SYSTEM_HIDDEN_WORKSPACE_PROJECT_PATHS_KEY,
         SYSTEM_MISSING_WORKSPACE_PROJECT_PATHS_KEY,
+        SYSTEM_HIDE_DEFAULT_WORKSPACE_PROJECT_KEY,
     ] {
         let value = system.get(key).cloned().unwrap_or(Value::Null);
         tx.execute(

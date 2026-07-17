@@ -122,6 +122,8 @@ export type FontScaleSettings = {
 
 export type CustomSettings = {
   conversationTitleModel?: SelectedModel;
+  // 技能商店等处的描述翻译模型；未设置时回退到当前对话模型。
+  translationModel?: SelectedModel;
   chatSidebar: ChatSidebarSettings;
   rightDock: RightDockSettings;
   fontScale: FontScaleSettings;
@@ -139,6 +141,8 @@ export type SystemSettings = {
   activeWorkspaceProjectId?: string;
   hiddenWorkspaceProjectPaths: string[];
   missingWorkspaceProjectPaths: string[];
+  // 仅隐藏侧边栏里的 Default Project 行；兜底工作目录本身不受影响。
+  hideDefaultWorkspaceProject: boolean;
 };
 
 export type WorkspaceProjectKind = "managed" | "folder" | "history";
@@ -1258,6 +1262,7 @@ export function normalizeSystemSettings(input: unknown): SystemSettings {
     missingWorkspaceProjectPaths: normalizeMissingWorkspaceProjectPaths(
       obj.missingWorkspaceProjectPaths,
     ),
+    hideDefaultWorkspaceProject: obj.hideDefaultWorkspaceProject === true,
   };
 }
 
@@ -1735,6 +1740,10 @@ export function normalizeCustomSettings(
       normalizeSelectedModel(obj.conversationTitleModel),
       customProviders,
     ),
+    translationModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.translationModel),
+      customProviders,
+    ),
     chatSidebar: {
       projectsCollapsed: chatSidebar.projectsCollapsed === true,
       recentCollapsed: chatSidebar.recentCollapsed === true,
@@ -1762,6 +1771,7 @@ export function getDefaultSettings(): AppSettings {
       activeWorkspaceProjectId: undefined,
       hiddenWorkspaceProjectPaths: [],
       missingWorkspaceProjectPaths: [],
+      hideDefaultWorkspaceProject: false,
     },
     customProviders,
     mcp: {

@@ -44,6 +44,7 @@ import {
 } from "../../lib/mcpRegistry";
 import { type AppSettings, type McpServerConfig, updateMcp } from "../../lib/settings";
 import { useModalMotion } from "../../lib/shared/modalMotion";
+import { stopClickWhenTextSelected } from "../../lib/shared/selection";
 import { cn } from "../../lib/shared/utils";
 
 const STORE_PAGE_LIMIT = 18;
@@ -831,7 +832,10 @@ function RegistryCard(props: {
         </div>
       </div>
 
-      <p className="mt-3 line-clamp-3 min-h-[48px] text-[11.5px] leading-[1.45] text-muted-foreground">
+      <p
+        className="mt-3 line-clamp-3 min-h-[48px] select-text cursor-text text-[11.5px] leading-[1.45] text-muted-foreground"
+        onClick={stopClickWhenTextSelected}
+      >
         {card.description || t("mcpHub.storeNoDescription")}
       </p>
 
@@ -1027,7 +1031,7 @@ function McpRegistryPreviewDrawer(props: {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 select-text overflow-y-auto px-5 py-4">
           <div className="flex flex-col gap-4">
             <p className="text-[13px] leading-6 text-muted-foreground">
               {data.description || t("mcpHub.storeNoDescription")}

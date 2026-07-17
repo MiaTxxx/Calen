@@ -77,6 +77,7 @@ function readLocalUiSettings(): {
     ) as Record<string, unknown>;
     return {
       conversationTitleModel: normalizeSelectedModel(obj.conversationTitleModel),
+      translationModel: normalizeSelectedModel(obj.translationModel),
       chatSidebar: {
         projectsCollapsed: chatSidebar.projectsCollapsed === true,
         recentCollapsed: chatSidebar.recentCollapsed === true,

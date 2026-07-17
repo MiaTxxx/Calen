@@ -71,12 +71,12 @@ Calen 支持 Claude、OpenAI/Codex 与 Gemini 风格的 Provider 流程，也支
 
 ## Windows 下载
 
-当前公开桌面版本为 [Calen v1.1.0](https://github.com/MiaTxxx/Calen/releases/tag/v1.1.0)，支持 Windows x64。
+当前公开桌面版本为 [Calen v1.1.1](https://github.com/MiaTxxx/Calen/releases/tag/v1.1.1)，支持 Windows x64。
 
 | 安装包                               | 适用场景                    |
 | ------------------------------------ | --------------------------- |
-| `Calen-v1.1.0-Windows-x64-Setup.exe` | 普通用户交互式安装。        |
-| `Calen-v1.1.0-Windows-x64.msi`       | 企业分发或基于 MSI 的安装。 |
+| `Calen-v1.1.1-Windows-x64-Setup.exe` | 普通用户交互式安装。        |
+| `Calen-v1.1.1-Windows-x64.msi`       | 企业分发或基于 MSI 的安装。 |
 
 系统需要 Windows 10/11 与 WebView2。当前安装包没有 Authenticode 发布者签名，因此 Windows 可能提示“未知发布者”；应用更新会单独校验 Tauri updater 签名。
 

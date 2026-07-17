@@ -1,6 +1,7 @@
 import {
   CheckCircle2,
   Cpu,
+  Folder,
   MessageSquare,
   MonitorSmartphone,
   Moon,
@@ -12,6 +13,7 @@ import {
 
 import { SUPPORTED_LOCALES, useLocale } from "../../i18n";
 import {
+  DEFAULT_WORKSPACE_PROJECT_ID,
   type ExecutionMode,
   type FontScaleSettings,
   THEME_OPTIONS,
@@ -19,6 +21,7 @@ import {
   updateCustomSettings,
   updateSystem,
 } from "../../lib/settings";
+import { AgentActivationSwitch } from "./shared";
 import type { SettingsSectionProps } from "./types";
 
 const FONT_SCALE_OPTIONS = [0.9, 1, 1.1, 1.2] as const;
@@ -30,6 +33,11 @@ export function SystemSettingsForm(props: SettingsSectionProps) {
   const executionMode = settings.system.executionMode;
   const isClassicAgentMode = executionMode === "tools";
   const isAgentDevMode = executionMode === "agent-dev";
+  const canHideDefaultWorkspaceProject = settings.system.workspaceProjects.some(
+    (project) => project.id !== DEFAULT_WORKSPACE_PROJECT_ID,
+  );
+  const hideDefaultWorkspaceProjectDisabled =
+    !settings.system.hideDefaultWorkspaceProject && !canHideDefaultWorkspaceProject;
   const appearanceIcon =
     settings.theme === "system" ? (
       <MonitorSmartphone className="h-4 w-4 text-muted-foreground" />
@@ -339,6 +347,45 @@ export function SystemSettingsForm(props: SettingsSectionProps) {
               </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="space-y-3 rounded-2xl border border-border/60 bg-card p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <Folder className="h-4 w-4 text-muted-foreground" />
+              {t("settings.showDefaultWorkspaceProject")}
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {t("settings.showDefaultWorkspaceProjectDesc")}
+              {hideDefaultWorkspaceProjectDisabled ? (
+                <span className="mt-1 block text-amber-600 dark:text-amber-400">
+                  {t("chat.workspaceHideDefaultDisabledHint")}
+                </span>
+              ) : null}
+            </p>
+          </div>
+          <span
+            title={
+              hideDefaultWorkspaceProjectDisabled
+                ? t("chat.workspaceHideDefaultDisabledHint")
+                : undefined
+            }
+          >
+            <AgentActivationSwitch
+              checked={!settings.system.hideDefaultWorkspaceProject}
+              title={t("settings.showDefaultWorkspaceProject")}
+              disabled={hideDefaultWorkspaceProjectDisabled}
+              onToggle={() =>
+                setSettings((prev) =>
+                  updateSystem(prev, {
+                    hideDefaultWorkspaceProject: !prev.system.hideDefaultWorkspaceProject,
+                  }),
+                )
+              }
+            />
+          </span>
         </div>
       </section>
     </div>

@@ -686,6 +686,18 @@ export function ChatPage(props: ChatPageProps) {
     () => mergeWorkspaceProjectsWithHistory(settings.system, sidebarWorkdirs),
     [sidebarWorkdirs, settings.system],
   );
+  // Default Project 是唯一工作空间时忽略隐藏设置，避免侧边栏出现空列表。
+  const visibleWorkspaceProjects = useMemo(() => {
+    if (!settings.system.hideDefaultWorkspaceProject) return workspaceProjects;
+    const visible = workspaceProjects.filter(
+      (project) => project.id !== DEFAULT_WORKSPACE_PROJECT_ID,
+    );
+    return visible.length > 0 ? visible : workspaceProjects;
+  }, [settings.system.hideDefaultWorkspaceProject, workspaceProjects]);
+  const canHideDefaultWorkspaceProject = useMemo(
+    () => workspaceProjects.some((project) => project.id !== DEFAULT_WORKSPACE_PROJECT_ID),
+    [workspaceProjects],
+  );
   const [activeWorkspaceProjectId, setActiveWorkspaceProjectId] = useState<string>(
     () => settings.system.activeWorkspaceProjectId?.trim() || DEFAULT_WORKSPACE_PROJECT_ID,
   );
@@ -962,6 +974,37 @@ export function ChatPage(props: ChatPageProps) {
     },
     [setSettings, workspaceProjects, activeWorkspaceProjectId, settings.system],
   );
+
+  const handleHideDefaultWorkspaceProject = useCallback(() => {
+    const fallback = workspaceProjects.find(
+      (project) => project.id !== DEFAULT_WORKSPACE_PROJECT_ID,
+    );
+    if (!fallback) return;
+    if (activeWorkspaceProjectId === DEFAULT_WORKSPACE_PROJECT_ID) {
+      activateWorkspaceProject(fallback);
+    }
+    setSettings((prev) => ({
+      ...prev,
+      system: { ...prev.system, hideDefaultWorkspaceProject: true },
+    }));
+  }, [activateWorkspaceProject, activeWorkspaceProjectId, setSettings, workspaceProjects]);
+
+  // 隐藏状态下默认项目不应保持激活（例如刚移除了当时激活的工作空间），自动落到第一个可见项。
+  useEffect(() => {
+    if (!settings.system.hideDefaultWorkspaceProject) return;
+    if (activeWorkspaceProjectId !== DEFAULT_WORKSPACE_PROJECT_ID) return;
+    const fallback = workspaceProjects.find(
+      (project) => project.id !== DEFAULT_WORKSPACE_PROJECT_ID,
+    );
+    if (fallback) {
+      activateWorkspaceProject(fallback);
+    }
+  }, [
+    activateWorkspaceProject,
+    activeWorkspaceProjectId,
+    settings.system.hideDefaultWorkspaceProject,
+    workspaceProjects,
+  ]);
 
   const handleSelectWorkspaceProject = useCallback(
     async (project: WorkspaceProject) => {
@@ -5076,7 +5119,7 @@ export function ChatPage(props: ChatPageProps) {
           fontScale={settings.customSettings.fontScale.sidebar}
           activeView={activeView}
           showProjects={isAgentMode}
-          projects={workspaceProjects}
+          projects={visibleWorkspaceProjects}
           activeProjectId={activeWorkspaceProject?.id}
           missingProjectPathKeys={missingWorkspaceProjectPathKeys}
           projectRenamingId={projectRenamingId}
@@ -5096,6 +5139,8 @@ export function ChatPage(props: ChatPageProps) {
           onCancelProjectRename={handleCancelWorkspaceProjectRename}
           onSetProjectPinned={handleSetWorkspaceProjectPinned}
           onRemoveProject={handleRemoveWorkspaceProject}
+          onHideDefaultProject={handleHideDefaultWorkspaceProject}
+          canHideDefaultProject={canHideDefaultWorkspaceProject}
           onNewConversation={() => {
             setActiveView("chat");
             if (activeView !== "chat" && isDraftConversation) {

@@ -50,6 +50,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     "chat.workspaceUnpin": "取消置顶",
     "chat.workspaceRename": "修改标题",
     "chat.workspaceRemove": "移除工作空间",
+    "chat.workspaceHideDefault": "从列表隐藏",
+    "chat.workspaceHideDefaultDisabledHint": "没有其他工作空间时无法隐藏",
     "chat.workspaceBrowseInFileTree": "在文件树浏览",
     "chat.workspaceBrowseInSystemFileManager": "在资源管理器浏览",
     "chat.workspaceRemoveConfirm": "移除「{name}」？",
@@ -1055,6 +1057,9 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.fontSizeLarge": "大",
     "settings.fontSizeXLarge": "特大",
     "settings.fontSizeReset": "重置",
+    "settings.showDefaultWorkspaceProject": "在侧边栏显示 Default Project",
+    "settings.showDefaultWorkspaceProjectDesc":
+      "Default Project 是新对话的兜底工作目录。关闭后它不再出现在侧边栏工作空间列表，也可以在它的「…」菜单里直接隐藏；此开关随时可恢复显示。",
     "settings.executionMode": "执行模式",
     "settings.executionModeDesc":
       "选择当前对话的运行方式。Chat 模式仅输出文本，Agent 模式允许模型调用工具执行操作。",
@@ -1247,6 +1252,9 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.conversationTitleModel": "标题生成模型",
     "settings.conversationTitleModelFollowCurrent": "使用当前对话模型",
     "settings.conversationTitleModelHint": "未选择时，标题生成会使用当前对话使用的模型。",
+    "settings.translationModel": "翻译模型",
+    "settings.translationModelFollowCurrent": "使用当前对话模型",
+    "settings.translationModelHint": "用于技能商店等处的描述翻译；未选择时使用当前对话模型。",
     "settings.customSettingsModelEmpty": "当前 Provider 未配置模型。",
 
     /* ── Settings Prompt ── */
@@ -1661,6 +1669,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.skillsStoreEmptyTitle": "没有找到匹配的技能",
     "settings.skillsStoreEmptyDesc": "换一个关键词或排序方式再试一次",
     "settings.skillsStoreOpenInClawHub": "在 ClawHub 打开",
+    "settings.skillsStoreTranslate": "翻译描述",
+    "settings.skillsStoreShowOriginal": "显示原文",
+    "settings.skillsStoreTranslating": "翻译中…",
+    "settings.skillsStoreTranslateFailed": "翻译失败",
     "settings.skillsStoreDownloads": "{count} 下载",
     "settings.skillsStoreStars": "{count} 星标",
     "settings.skillsStoreInstalls": "{count} 安装",
@@ -1800,6 +1812,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     "chat.workspaceUnpin": "Unpin",
     "chat.workspaceRename": "Rename",
     "chat.workspaceRemove": "Remove workspace",
+    "chat.workspaceHideDefault": "Hide from list",
+    "chat.workspaceHideDefaultDisabledHint": "Add another workspace before hiding this one",
     "chat.workspaceBrowseInFileTree": "Browse in File Tree",
     "chat.workspaceBrowseInSystemFileManager": "Browse in System File Manager",
     "chat.workspaceRemoveConfirm": 'Remove "{name}"?',
@@ -2852,6 +2866,9 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.fontSizeLarge": "Large",
     "settings.fontSizeXLarge": "Extra Large",
     "settings.fontSizeReset": "Reset",
+    "settings.showDefaultWorkspaceProject": "Show Default Project in sidebar",
+    "settings.showDefaultWorkspaceProjectDesc":
+      'Default Project is the fallback working directory for new conversations. Turn this off to remove it from the sidebar workspace list; you can also hide it from its "…" menu. Re-enable here anytime.',
     "settings.executionMode": "Execution Mode",
     "settings.executionModeDesc":
       "Choose how the current conversation runs. Chat mode outputs text only; Agent mode allows the model to call tools.",
@@ -3049,6 +3066,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.conversationTitleModelFollowCurrent": "Use current chat model",
     "settings.conversationTitleModelHint":
       "When unselected, title generation uses the model from the current chat.",
+    "settings.translationModel": "Translation model",
+    "settings.translationModelFollowCurrent": "Use current chat model",
+    "settings.translationModelHint":
+      "Used to translate descriptions in places like the skills store; falls back to the current chat model when unselected.",
     "settings.customSettingsModelEmpty":
       "No active models are configured for the current providers.",
 
@@ -3483,6 +3504,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.skillsStoreEmptyTitle": "No matching Skill found",
     "settings.skillsStoreEmptyDesc": "Try another keyword or sort order",
     "settings.skillsStoreOpenInClawHub": "Open in ClawHub",
+    "settings.skillsStoreTranslate": "Translate description",
+    "settings.skillsStoreShowOriginal": "Show original",
+    "settings.skillsStoreTranslating": "Translating…",
+    "settings.skillsStoreTranslateFailed": "Translation failed",
     "settings.skillsStoreDownloads": "{count} downloads",
     "settings.skillsStoreStars": "{count} stars",
     "settings.skillsStoreInstalls": "{count} installs",

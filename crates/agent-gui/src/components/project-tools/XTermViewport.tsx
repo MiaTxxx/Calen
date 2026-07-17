@@ -172,6 +172,40 @@ export function XTermViewport({
       theme: terminalTheme(themeRef.current),
     });
     termRef.current = term;
+    // xterm 不内置复制/粘贴快捷键：Ctrl+C 要保留给 SIGINT，所以按终端惯例
+    // 用 Ctrl+Shift+C 复制选中内容、Ctrl+Shift+V 粘贴，由宿主实现。
+    term.attachCustomKeyEventHandler((event) => {
+      if (
+        event.type !== "keydown" ||
+        !event.ctrlKey ||
+        !event.shiftKey ||
+        event.altKey ||
+        event.metaKey
+      ) {
+        return true;
+      }
+      if (event.code === "KeyC") {
+        const selection = term.getSelection();
+        if (selection) {
+          void navigator.clipboard?.writeText(selection).catch(() => undefined);
+        }
+        event.preventDefault();
+        return false;
+      }
+      if (event.code === "KeyV") {
+        void navigator.clipboard
+          ?.readText()
+          .then((text) => {
+            if (text) {
+              term.paste(text);
+            }
+          })
+          .catch(() => undefined);
+        event.preventDefault();
+        return false;
+      }
+      return true;
+    });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(container);

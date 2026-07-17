@@ -17,7 +17,13 @@ function createMockAssistantStream() {
         api: "anthropic-messages",
         provider: "anthropic",
         model: "deepseek-v4-flash",
-        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+        },
         stopReason: "stop",
         timestamp: 1,
       };
@@ -85,45 +91,70 @@ test("llm facade preserves provider runtime exports", () => {
   ];
 
   for (const exportName of expectedFunctionExports) {
-    assert.equal(typeof providers[exportName], "function", `${exportName} should be exported`);
+    assert.equal(
+      typeof providers[exportName],
+      "function",
+      `${exportName} should be exported`
+    );
   }
 });
 
 test("proxy base URL builder validates upstream URLs and carries origin separately", () => {
   assert.deepEqual(
-    proxy.buildProxyBaseUrl("codex", "https://api.openai.com/v1/responses", "http://127.0.0.1:18080/"),
+    proxy.buildProxyBaseUrl(
+      "codex",
+      "https://api.openai.com/v1/responses",
+      "http://127.0.0.1:18080/"
+    ),
     {
       baseUrl: "http://127.0.0.1:18080/proxy/codex/v1/responses",
       upstreamOrigin: "https://api.openai.com",
-    },
+    }
   );
 
   assert.throws(
-    () => proxy.buildProxyBaseUrl("codex", "https://user:pass@example.com/v1", "http://proxy"),
-    /embedded username or password/,
+    () =>
+      proxy.buildProxyBaseUrl(
+        "codex",
+        "https://user:pass@example.com/v1",
+        "http://proxy"
+      ),
+    /embedded username or password/
   );
   assert.throws(
-    () => proxy.buildProxyBaseUrl("codex", "https://example.com/v1?x=1", "http://proxy"),
-    /query parameters or fragments/,
+    () =>
+      proxy.buildProxyBaseUrl(
+        "codex",
+        "https://example.com/v1?x=1",
+        "http://proxy"
+      ),
+    /query parameters or fragments/
   );
   assert.throws(
     () => proxy.buildProxyBaseUrl("codex", "not-a-url", "http://proxy"),
-    /absolute URL/,
+    /absolute URL/
   );
 });
 
 test("image proxy URL builder encodes the source URL", () => {
   assert.equal(
-    proxy.buildImageProxyUrl("https://example.com/path/photo.png?size=large#view", "http://127.0.0.1:18080/"),
-    "http://127.0.0.1:18080/image-proxy?url=https%3A%2F%2Fexample.com%2Fpath%2Fphoto.png%3Fsize%3Dlarge%23view",
+    proxy.buildImageProxyUrl(
+      "https://example.com/path/photo.png?size=large#view",
+      "http://127.0.0.1:18080/"
+    ),
+    "http://127.0.0.1:18080/image-proxy?url=https%3A%2F%2Fexample.com%2Fpath%2Fphoto.png%3Fsize%3Dlarge%23view"
   );
   assert.throws(
     () => proxy.buildImageProxyUrl("file:///tmp/photo.png", "http://proxy"),
-    /http:\/\/ or https:\/\//,
+    /http:\/\/ or https:\/\//
   );
   assert.throws(
-    () => proxy.buildImageProxyUrl("https://user:pass@example.com/photo.png", "http://proxy"),
-    /embedded username or password/,
+    () =>
+      proxy.buildImageProxyUrl(
+        "https://user:pass@example.com/photo.png",
+        "http://proxy"
+      ),
+    /embedded username or password/
   );
 });
 
@@ -145,56 +176,73 @@ test("provider request helpers normalize auth, metadata, errors, and model value
   assert.equal(providers.toSimpleStreamReasoning("off"), undefined);
   assert.equal(providers.toSimpleStreamReasoning("high"), "high");
   assert.equal(providers.toSimpleStreamReasoning("max"), "max");
-  assert.deepEqual(providers.buildProviderRequestMetadata("claude_code", " session-1 "), {
-    user_id: "session-1",
-  });
-  assert.equal(providers.buildProviderRequestMetadata("codex", "session-1"), undefined);
-  assert.equal(
-    providers.providerSupportsNativeWebSearch("codex", "openai-responses"),
-    true,
+  assert.deepEqual(
+    providers.buildProviderRequestMetadata("claude_code", " session-1 "),
+    {
+      user_id: "session-1",
+    }
   );
   assert.equal(
-    providers.providerSupportsNativeWebSearch("claude_code", "anthropic-messages"),
-    true,
+    providers.buildProviderRequestMetadata("codex", "session-1"),
+    undefined
+  );
+  assert.equal(
+    providers.providerSupportsNativeWebSearch("codex", "openai-responses"),
+    true
+  );
+  assert.equal(
+    providers.providerSupportsNativeWebSearch(
+      "claude_code",
+      "anthropic-messages"
+    ),
+    true
   );
   assert.equal(
     providers.providerSupportsNativeWebSearch("gemini", "google-generative-ai"),
-    true,
+    true
   );
   assert.equal(
     providers.providerSupportsNativeWebSearch("codex", "openai-completions"),
-    false,
+    false
   );
   assert.equal(
     providers.providerSupportsNativeWebSearch("codex", "openai-completions", {
       baseUrl: "https://api.openai.com/v1",
       modelId: "gpt-4o-search-preview",
     }),
-    true,
+    true
   );
   assert.equal(
     providers.providerSupportsNativeWebSearch("codex", "openai-completions", {
       baseUrl: "https://api.example.test/v1",
       modelId: "gpt-4o-search-preview",
     }),
-    true,
+    true
   );
   assert.equal(
     providers.providerSupportsNativeWebSearch("codex", "openai-completions", {
       baseUrl: "https://api.openai.com/v1",
       modelId: "gpt-4o",
     }),
-    false,
+    false
   );
-  assert.equal(providers.toModelValue("provider", "model::with::separator"), "provider::model::with::separator");
-  assert.deepEqual(providers.parseModelValue("provider::model::with::separator"), {
-    customProviderId: "provider",
-    model: "model::with::separator",
-  });
+  assert.equal(
+    providers.toModelValue("provider", "model::with::separator"),
+    "provider::model::with::separator"
+  );
+  assert.deepEqual(
+    providers.parseModelValue("provider::model::with::separator"),
+    {
+      customProviderId: "provider",
+      model: "model::with::separator",
+    }
+  );
   assert.equal(providers.parseModelValue("bad"), null);
   assert.equal(
-    providers.normalizeErrorMessage('prefix {"error":{"message":"nested failure"}}'),
-    "nested failure",
+    providers.normalizeErrorMessage(
+      'prefix {"error":{"message":"nested failure"}}'
+    ),
+    "nested failure"
   );
 });
 
@@ -204,7 +252,7 @@ test("gemini models use native google api metadata", () => {
     "gemini-3.5-flash",
     "http://127.0.0.1:18080/proxy/gemini",
     undefined,
-    { id: "gemini-3.5-flash", contextWindow: 123_456, maxOutputToken: 7_890 },
+    { id: "gemini-3.5-flash", contextWindow: 123_456, maxOutputToken: 7_890 }
   );
 
   assert.equal(model.api, "google-generative-ai");
@@ -220,7 +268,7 @@ test("custom Codex Responses models prefer native image-capable input metadata",
     "codex",
     "custom-responses-model",
     "https://api.openai.com/v1",
-    "openai-responses",
+    "openai-responses"
   );
 
   assert.equal(model.api, "openai-responses");
@@ -232,13 +280,13 @@ test("custom Codex models append v1 to bare and prefixed base URLs", () => {
     "codex",
     "custom-responses-model",
     "https://api.openai.com",
-    "openai-responses",
+    "openai-responses"
   );
   const prefixed = providers.createModelFromConfig(
     "codex",
     "custom-responses-model",
     "https://openrouter.ai/api",
-    "openai-responses",
+    "openai-responses"
   );
   const proxied = providers.createModelFromConfig(
     "codex",
@@ -246,7 +294,7 @@ test("custom Codex models append v1 to bare and prefixed base URLs", () => {
     "http://127.0.0.1:18080/proxy/codex",
     "openai-completions",
     undefined,
-    "https://api.openai.com",
+    "https://api.openai.com"
   );
 
   assert.equal(bare.baseUrl, "https://api.openai.com/v1");
@@ -259,7 +307,7 @@ test("custom Codex Chat Completions models keep text-only input metadata", () =>
     "codex",
     "custom-chat-model",
     "https://api.openai.com/v1",
-    "openai-completions",
+    "openai-completions"
   );
 
   assert.equal(model.api, "openai-completions");
@@ -271,7 +319,7 @@ test("custom Codex Chat Completions GPT vision models infer image input metadata
     "codex",
     "gpt-5.5",
     "https://api.openai.com/v1",
-    "openai-completions",
+    "openai-completions"
   );
 
   assert.equal(model.api, "openai-completions");
@@ -283,7 +331,7 @@ test("custom Codex Chat Completions search preview models stay text-only", () =>
     "codex",
     "gpt-4o-search-preview",
     "https://api.openai.com/v1",
-    "openai-completions",
+    "openai-completions"
   );
 
   assert.equal(model.api, "openai-completions");
@@ -295,7 +343,7 @@ test("custom Codex Chat Completions models infer reasoning-capable IDs", () => {
     "codex",
     "deepseek-v4-flash",
     "https://api.example.test/v1",
-    "openai-completions",
+    "openai-completions"
   );
 
   assert.equal(model.api, "openai-completions");
@@ -311,7 +359,7 @@ test("custom Codex Chat Completions models behind proxy use upstream compat dete
     "http://127.0.0.1:18080/proxy/codex/v1",
     "openai-completions",
     undefined,
-    "https://www.packyapi.com/v1",
+    "https://www.packyapi.com/v1"
   );
 
   assert.equal(model.api, "openai-completions");
@@ -326,7 +374,7 @@ test("official OpenAI Chat Completions models behind proxy keep native compat", 
     "http://127.0.0.1:18080/proxy/codex/v1",
     "openai-completions",
     undefined,
-    "https://api.openai.com/v1",
+    "https://api.openai.com/v1"
   );
 
   assert.equal(model.api, "openai-completions");
@@ -350,13 +398,13 @@ test("Codex Chat Completions streams forward reasoning effort", async () => {
     "codex",
     "deepseek-v4-flash",
     "https://api.example.test/v1",
-    "openai-completions",
+    "openai-completions"
   );
 
   const result = localProviders.streamSimpleByApi(
     model,
-    { messages: [] },
-    { reasoning: "high", toolChoice: "auto" },
+    { messages: [], tools: [{ name: "echo" }] },
+    { reasoning: "high", toolChoice: "auto" }
   );
 
   assert.equal(typeof result.result, "function");
@@ -365,12 +413,76 @@ test("Codex Chat Completions streams forward reasoning effort", async () => {
   assert.equal(captured.options.toolChoice, "auto");
 });
 
+// tool_choice 只在请求携带 tools 时合法；无 tools 下发会被严格校验端点拒绝。
+test("Codex Chat Completions omits tool_choice when the context has no tools", async () => {
+  let captured;
+  const localLoader = createTsModuleLoader({
+    mocks: {
+      "@earendil-works/pi-ai/api/openai-completions": {
+        stream(model, context, options) {
+          captured = { model, context, options };
+          return createMockAssistantStream();
+        },
+      },
+    },
+  });
+  const localProviders = localLoader.loadModule("src/lib/providers/llm.ts");
+  const model = localProviders.createModelFromConfig(
+    "codex",
+    "deepseek-v4-flash",
+    "https://api.example.test/v1",
+    "openai-completions"
+  );
+
+  const result = localProviders.streamSimpleByApi(
+    model,
+    { messages: [] },
+    { toolChoice: "none" }
+  );
+  await result.result();
+  assert.equal(captured.options.toolChoice, undefined);
+});
+
+test("Anthropic stream omits tool_choice when the context has no tools", async () => {
+  const { localProviders, state } = loadProvidersWithCapturedAnthropicStream();
+  const model = localProviders.createModelFromConfig(
+    "claude_code",
+    "claude-custom-relay-model",
+    "https://relay.example.test"
+  );
+
+  const result = localProviders.streamSimpleByApi(
+    model,
+    { messages: [] },
+    { toolChoice: "none" }
+  );
+  await result.result();
+  assert.equal("toolChoice" in state.captured.options, false);
+});
+
+test("Anthropic stream keeps explicit tool_choice when tools are present", async () => {
+  const { localProviders, state } = loadProvidersWithCapturedAnthropicStream();
+  const model = localProviders.createModelFromConfig(
+    "claude_code",
+    "claude-custom-relay-model",
+    "https://relay.example.test"
+  );
+
+  const result = localProviders.streamSimpleByApi(
+    model,
+    { messages: [], tools: [{ name: "echo" }] },
+    { toolChoice: "none" }
+  );
+  await result.result();
+  assert.equal(state.captured.options.toolChoice, "none");
+});
+
 test("DeepSeek Codex models force Chat Completions compat", () => {
   const model = providers.createModelFromConfig(
     "codex",
     "deepseek-v4-pro",
     "https://api.deepseek.com",
-    "openai-responses",
+    "openai-responses"
   );
 
   assert.equal(model.api, "openai-completions");
@@ -400,13 +512,13 @@ test("DeepSeek OpenAI payload adapter injects thinking and reasoning_content", a
     "codex",
     "deepseek-v4-pro",
     "https://api.deepseek.com",
-    "openai-responses",
+    "openai-responses"
   );
 
   const result = localProviders.streamSimpleByApi(
     model,
     { messages: [] },
-    { reasoning: "minimal", toolChoice: "auto" },
+    { reasoning: "minimal", toolChoice: "auto" }
   );
   assert.equal(typeof result.result, "function");
   assert.equal(typeof captured.options.onPayload, "function");
@@ -427,7 +539,7 @@ test("DeepSeek OpenAI payload adapter injects thinking and reasoning_content", a
         },
       ],
     },
-    model,
+    model
   );
 
   assert.deepEqual(adapted.thinking, { type: "enabled" });
@@ -456,19 +568,25 @@ test("DeepSeek Anthropic streamSimpleByApi strips aborted tool calls before conv
           provider: "anthropic",
           model: "deepseek-v4-flash",
           content: [{ type: "text", text: "Searching" }, call],
-          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+          },
           stopReason: "aborted",
           timestamp: 2,
         },
       ],
     },
-    {},
+    {}
   );
 
   assert.equal(typeof result.result, "function");
   assert.deepEqual(
     state.captured.context.messages[1].content.map((block) => block.type),
-    ["text"],
+    ["text"]
   );
   assert.equal(state.captured.context.messages[1].stopReason, "stop");
 });
@@ -500,16 +618,19 @@ test("DeepSeek Anthropic streamSimpleByApi preserves structured tool payload blo
         { role: "user", content: "continue" },
       ],
     },
-    model,
+    model
   );
 
   assert.deepEqual(
     repaired.messages[1].content.map((block) => block.type),
-    ["thinking", "text", "tool_use"],
+    ["thinking", "text", "tool_use"]
   );
   assert.deepEqual(repaired.thinking, { type: "disabled" });
   assert.equal(repaired.messages[1].content[0].signature, "");
-  assert.equal(repaired.messages[1].content[2].id, "call_00_uZnge7Q4VzkEWduraWXP2609");
+  assert.equal(
+    repaired.messages[1].content[2].id,
+    "call_00_uZnge7Q4VzkEWduraWXP2609"
+  );
   assert.deepEqual(repaired.messages[2], {
     role: "user",
     content: "continue",
@@ -517,10 +638,10 @@ test("DeepSeek Anthropic streamSimpleByApi preserves structured tool payload blo
   assert.equal(
     repaired.messages.some((message) =>
       message.content?.some?.(
-        (block) => block.type === "tool_use" || block.type === "tool_result",
-      ),
+        (block) => block.type === "tool_use" || block.type === "tool_result"
+      )
     ),
-    true,
+    true
   );
 });
 
@@ -551,12 +672,22 @@ test("DeepSeek Anthropic streamSimpleByApi preserves completed multi-tool histor
           provider: "anthropic",
           model: "deepseek-v4-flash",
           content: [
-            { type: "thinking", thinking: "Need more data", thinkingSignature: "sig-a" },
+            {
+              type: "thinking",
+              thinking: "Need more data",
+              thinkingSignature: "sig-a",
+            },
             { type: "text", text: "I will fetch more files." },
             bashA,
             bashB,
           ],
-          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+          },
           stopReason: "toolUse",
           timestamp: 2,
         },
@@ -579,21 +710,23 @@ test("DeepSeek Anthropic streamSimpleByApi preserves completed multi-tool histor
         { role: "user", content: "continue", timestamp: 5 },
       ],
     },
-    {},
+    {}
   );
 
   assert.equal(typeof result.result, "function");
   assert.equal(
-    state.captured.context.messages.some((message) => message.role === "toolResult"),
-    true,
+    state.captured.context.messages.some(
+      (message) => message.role === "toolResult"
+    ),
+    true
   );
   assert.equal(
     state.captured.context.messages.some(
       (message) =>
         message.role === "assistant" &&
-        message.content.some((block) => block.type === "toolCall"),
+        message.content.some((block) => block.type === "toolCall")
     ),
-    true,
+    true
   );
   assert.equal(state.captured.context.messages[1].stopReason, "toolUse");
   assert.equal(state.captured.context.messages[2].toolCallId, bashA.id);
@@ -604,10 +737,13 @@ test("gemini model base URL normalizes full generate endpoints", () => {
   const model = providers.createModelFromConfig(
     "gemini",
     "gemini-2.5-pro",
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent"
   );
 
-  assert.equal(model.baseUrl, "https://generativelanguage.googleapis.com/v1beta");
+  assert.equal(
+    model.baseUrl,
+    "https://generativelanguage.googleapis.com/v1beta"
+  );
 });
 
 test("gemini model list normalization uses models array metadata", () => {
@@ -628,7 +764,7 @@ test("gemini model list normalization uses models array metadata", () => {
         supportedGenerationMethods: ["generateContent"],
       },
     ],
-    "gemini",
+    "gemini"
   );
 
   assert.deepEqual(models, [
@@ -676,11 +812,11 @@ test("payload middleware composer preserves previous-hook-first order", async ()
       providerId: "codex",
       baseUrl: "https://api.openai.com/v1",
       options: {},
-    },
+    }
   );
   const payload = await options.onPayload(
     { input: "hello" },
-    { api: "openai-responses", provider: "openai", id: "gpt-5" },
+    { api: "openai-responses", provider: "openai", id: "gpt-5" }
   );
 
   assert.deepEqual(payload.trace, ["base", "first", "second"]);
@@ -697,7 +833,7 @@ test("codex responses payloads always opt into upstream storage after previous p
 
   const nextPayload = await options.onPayload(
     { input: "hello" },
-    { api: "openai-responses", provider: "openai", id: "gpt-5" },
+    { api: "openai-responses", provider: "openai", id: "gpt-5" }
   );
 
   assert.deepEqual(nextPayload, {
@@ -715,7 +851,7 @@ test("provider native web search injection is opt-in", async () => {
   });
   const codexPayload = await codexOptions.onPayload(
     { input: "hello" },
-    { api: "openai-responses", provider: "openai", id: "gpt-5" },
+    { api: "openai-responses", provider: "openai", id: "gpt-5" }
   );
   assert.equal(codexPayload.store, true);
   assert.equal(codexPayload.tools, undefined);
@@ -755,7 +891,7 @@ test("provider payload finalization enables native web search for hosted search 
   });
   const codexPayload = await codexOptions.onPayload(
     { input: "hello" },
-    { api: "openai-responses", provider: "openai", id: "gpt-5" },
+    { api: "openai-responses", provider: "openai", id: "gpt-5" }
   );
   assert.equal(codexPayload.store, true);
   assert.deepEqual(codexPayload.tools, [{ type: "web_search" }]);
@@ -768,7 +904,11 @@ test("provider payload finalization enables native web search for hosted search 
   });
   const codexChatPayload = await codexChatOptions.onPayload(
     { messages: [{ role: "user", content: "hello" }] },
-    { api: "openai-completions", provider: "openai", id: "gpt-4o-search-preview" },
+    {
+      api: "openai-completions",
+      provider: "openai",
+      id: "gpt-4o-search-preview",
+    }
   );
   assert.deepEqual(codexChatPayload.web_search_options, {
     search_context_size: "medium",
@@ -777,7 +917,7 @@ test("provider payload finalization enables native web search for hosted search 
 
   const codexChatCompatiblePayload = await codexChatOptions.onPayload(
     { messages: [{ role: "user", content: "hello" }] },
-    { api: "openai-completions", provider: "openai", id: "deepseek-v4-flash" },
+    { api: "openai-completions", provider: "openai", id: "deepseek-v4-flash" }
   );
   assert.equal(codexChatCompatiblePayload.web_search_options, undefined);
 
@@ -789,14 +929,15 @@ test("provider payload finalization enables native web search for hosted search 
   });
   const compatibleCodexChatPayload = await compatibleCodexChatOptions.onPayload(
     { messages: [{ role: "user", content: "hello" }] },
-    { api: "openai-completions", provider: "openai", id: "deepseek-v4-flash" },
+    { api: "openai-completions", provider: "openai", id: "deepseek-v4-flash" }
   );
   assert.deepEqual(compatibleCodexChatPayload.tools, [
     {
       type: "function",
       function: {
         name: "web_search",
-        description: "Search the web for current information when the answer needs recent or external context.",
+        description:
+          "Search the web for current information when the answer needs recent or external context.",
         parameters: {
           type: "object",
           properties: {
@@ -821,7 +962,7 @@ test("provider payload finalization enables native web search for hosted search 
   });
   const anthropicPayload = await anthropicOptions.onPayload(
     { messages: [{ role: "user", content: "hello" }] },
-    { api: "anthropic-messages", provider: "anthropic", id: "claude-sonnet" },
+    { api: "anthropic-messages", provider: "anthropic", id: "claude-sonnet" }
   );
   assert.deepEqual(anthropicPayload.tools, [
     { type: "web_search_20250305", name: "web_search" },
@@ -835,7 +976,7 @@ test("provider payload finalization enables native web search for hosted search 
   });
   const geminiPayload = await geminiOptions.onPayload(
     { contents: [], config: {} },
-    { api: "google-generative-ai", provider: "google", id: "gemini-3.5-pro" },
+    { api: "google-generative-ai", provider: "google", id: "gemini-3.5-pro" }
   );
   assert.deepEqual(geminiPayload.config.tools, [{ googleSearch: {} }]);
 });
@@ -853,7 +994,10 @@ test("DeepSeek Anthropic endpoint enables DSML tool-call stream repair", () => {
   });
   assert.equal(deepseekOptions.deepSeekDsmlToolCallRepair, true);
   assert.equal(deepseekOptions.deepSeekProviderAdapter, true);
-  assert.equal(deepseekOptions.deepSeekAnthropicPayloadToolBlockFlattening, undefined);
+  assert.equal(
+    deepseekOptions.deepSeekAnthropicPayloadToolBlockFlattening,
+    undefined
+  );
 
   const anthropicOptions = providers.finalizeProviderStreamOptions({
     providerId: "claude_code",
@@ -896,22 +1040,29 @@ test("DeepSeek Anthropic payload adapter attaches from base URL even before mode
         { role: "user", content: "continue" },
       ],
     },
-    { api: "anthropic-messages", provider: "anthropic", id: "deepseek-v4-flash" },
+    {
+      api: "anthropic-messages",
+      provider: "anthropic",
+      id: "deepseek-v4-flash",
+    }
   );
 
   assert.deepEqual(
     adapted.messages[1].content.map((block) => block.type),
-    ["thinking", "text", "tool_use"],
+    ["thinking", "text", "tool_use"]
   );
   assert.deepEqual(adapted.thinking, { type: "disabled" });
-  assert.equal(adapted.messages[1].content[2].id, "call_00_nLOhBvpTvol41FPkbuXA2605");
+  assert.equal(
+    adapted.messages[1].content[2].id,
+    "call_00_nLOhBvpTvol41FPkbuXA2605"
+  );
   assert.equal(
     adapted.messages.some((message) =>
       message.content?.some?.(
-        (block) => block.type === "tool_use" || block.type === "tool_result",
-      ),
+        (block) => block.type === "tool_use" || block.type === "tool_result"
+      )
     ),
-    true,
+    true
   );
 });
 
@@ -967,26 +1118,26 @@ test("DeepSeek Anthropic payload adapter preserves mixed tool_use and tool_resul
         },
       ],
     },
-    { api: "anthropic-messages", provider: "anthropic", id: "deepseek-chat" },
+    { api: "anthropic-messages", provider: "anthropic", id: "deepseek-chat" }
   );
 
   assert.deepEqual(
     adapted.messages[1].content.map((block) => block.type),
-    ["thinking", "text", "tool_use", "tool_use"],
+    ["thinking", "text", "tool_use", "tool_use"]
   );
   assert.equal(adapted.messages[1].content[2].id, "dsml-tool-call-023b41c5");
   assert.deepEqual(
     adapted.messages[2].content.map((block) => block.type),
-    ["text", "tool_result", "tool_result"],
+    ["text", "tool_result", "tool_result"]
   );
   assert.equal(adapted.messages[2].content[2].content, "read result");
   assert.equal(
     adapted.messages.some((message) =>
       message.content?.some?.(
-        (block) => block.type === "tool_use" || block.type === "tool_result",
-      ),
+        (block) => block.type === "tool_use" || block.type === "tool_result"
+      )
     ),
-    true,
+    true
   );
 });
 
@@ -999,14 +1150,14 @@ test("provider native web search avoids unsupported OpenAI minimal reasoning", a
   });
   const payload = await options.onPayload(
     { input: "hello", reasoning: { effort: "minimal" } },
-    { api: "openai-responses", provider: "openai", id: "gpt-5" },
+    { api: "openai-responses", provider: "openai", id: "gpt-5" }
   );
   assert.deepEqual(payload.reasoning, { effort: "low" });
   assert.deepEqual(payload.tools, [{ type: "web_search" }]);
 
   const newerModelPayload = await options.onPayload(
     { input: "hello", reasoning: { effort: "minimal" } },
-    { api: "openai-responses", provider: "openai", id: "gpt-5.5" },
+    { api: "openai-responses", provider: "openai", id: "gpt-5.5" }
   );
   assert.deepEqual(newerModelPayload.reasoning, { effort: "minimal" });
   assert.deepEqual(newerModelPayload.tools, [{ type: "web_search" }]);
@@ -1021,7 +1172,7 @@ test("provider native web search injection preserves existing search tools", asy
   });
   const codexPayload = await codexOptions.onPayload(
     { tools: [{ type: "web_search_2025_08_26" }] },
-    { api: "openai-responses", provider: "openai", id: "gpt-5" },
+    { api: "openai-responses", provider: "openai", id: "gpt-5" }
   );
   assert.deepEqual(codexPayload.tools, [{ type: "web_search_2025_08_26" }]);
 
@@ -1033,7 +1184,7 @@ test("provider native web search injection preserves existing search tools", asy
   });
   const compatibleCodexChatPayload = await compatibleCodexChatOptions.onPayload(
     { tools: [{ type: "function", function: { name: "web_search" } }] },
-    { api: "openai-completions", provider: "openai", id: "deepseek-v4-flash" },
+    { api: "openai-completions", provider: "openai", id: "deepseek-v4-flash" }
   );
   assert.deepEqual(compatibleCodexChatPayload.tools, [
     { type: "function", function: { name: "web_search" } },
@@ -1046,8 +1197,10 @@ test("provider native web search injection preserves existing search tools", asy
     options: {},
   });
   const anthropicPayload = await anthropicOptions.onPayload(
-    { tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 2 }] },
-    { api: "anthropic-messages", provider: "anthropic", id: "claude-sonnet" },
+    {
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 2 }],
+    },
+    { api: "anthropic-messages", provider: "anthropic", id: "claude-sonnet" }
   );
   assert.deepEqual(anthropicPayload.tools, [
     { type: "web_search_20260209", name: "web_search", max_uses: 2 },
@@ -1061,7 +1214,7 @@ test("provider native web search injection preserves existing search tools", asy
   });
   const geminiPayload = await geminiOptions.onPayload(
     { config: { tools: [{ googleSearch: { searchTypes: ["WEB_SEARCH"] } }] } },
-    { api: "google-generative-ai", provider: "google", id: "gemini-3.5-pro" },
+    { api: "google-generative-ai", provider: "google", id: "gemini-3.5-pro" }
   );
   assert.deepEqual(geminiPayload.config.tools, [
     { googleSearch: { searchTypes: ["WEB_SEARCH"] } },
@@ -1081,7 +1234,7 @@ test("anthropic automatic caching uses top-level cache control for Anthropic ori
     {
       messages: [{ role: "user", content: "hello" }],
     },
-    { api: "anthropic-messages", provider: "anthropic", id: "claude-sonnet" },
+    { api: "anthropic-messages", provider: "anthropic", id: "claude-sonnet" }
   );
 
   assert.deepEqual(payload.cache_control, { type: "ephemeral", ttl: "1h" });
@@ -1105,25 +1258,34 @@ test("anthropic-compatible proxies get an explicit cache breakpoint on the last 
         {
           role: "assistant",
           content: [
-            { type: "thinking", thinking: "private", cache_control: { type: "old" } },
+            {
+              type: "thinking",
+              thinking: "private",
+              cache_control: { type: "old" },
+            },
             { type: "text", text: "visible" },
           ],
         },
       ],
     },
-    { api: "anthropic-messages", provider: "anthropic", id: "claude-sonnet" },
+    { api: "anthropic-messages", provider: "anthropic", id: "claude-sonnet" }
   );
 
   assert.equal(payload.cache_control, undefined);
   assert.equal(payload.messages[0].content[0].cache_control, undefined);
-  assert.deepEqual(payload.messages[0].content[1].cache_control, { type: "ephemeral" });
+  assert.deepEqual(payload.messages[0].content[1].cache_control, {
+    type: "ephemeral",
+  });
 });
 
 test("streaming text reconciler emits only missing final text suffixes", () => {
   const reconciler = providers.createStreamingTextReconciler();
   assert.equal(reconciler.appendDelta("round-1", "hel"), "hel");
   assert.equal(reconciler.appendDelta("round-1", "lo"), "lo");
-  assert.equal(reconciler.reconcileFinalText("round-1", "hello world"), " world");
+  assert.equal(
+    reconciler.reconcileFinalText("round-1", "hello world"),
+    " world"
+  );
   assert.equal(reconciler.reconcileFinalText("round-1", "different"), "");
   assert.equal(reconciler.reconcileFinalText("round-2", "new"), "new");
 });

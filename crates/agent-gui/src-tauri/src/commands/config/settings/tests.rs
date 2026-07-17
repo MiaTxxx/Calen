@@ -898,6 +898,7 @@ mod tests {
             &mut conn,
             json!({
                 "executionMode": "tools",
+                "hideDefaultWorkspaceProject": true,
                 "workdir": "E:/Code/test_directory/003",
                 "selectedSystemTools": ["http_get_test"]
             }),
@@ -922,12 +923,13 @@ mod tests {
         };
         let loaded = load_system(&conn).expect("load system");
 
-        assert_eq!(row_count, 7);
+        assert_eq!(row_count, 8);
         assert_eq!(
             keys,
             vec![
                 SYSTEM_ACTIVE_WORKSPACE_PROJECT_ID_KEY.to_string(),
                 SYSTEM_EXECUTION_MODE_KEY.to_string(),
+                SYSTEM_HIDE_DEFAULT_WORKSPACE_PROJECT_KEY.to_string(),
                 SYSTEM_HIDDEN_WORKSPACE_PROJECT_PATHS_KEY.to_string(),
                 SYSTEM_MISSING_WORKSPACE_PROJECT_PATHS_KEY.to_string(),
                 SYSTEM_SELECTED_TOOLS_KEY.to_string(),
@@ -940,6 +942,7 @@ mod tests {
             Some(json!({
                 "activeWorkspaceProjectId": DEFAULT_WORKSPACE_PROJECT_ID,
                 "executionMode": "tools",
+                "hideDefaultWorkspaceProject": true,
                 "hiddenWorkspaceProjectPaths": [],
                 "missingWorkspaceProjectPaths": [],
                 "workdir": default_workdir.clone(),
@@ -978,6 +981,7 @@ mod tests {
             Some(json!({
                 "activeWorkspaceProjectId": DEFAULT_WORKSPACE_PROJECT_ID,
                 "executionMode": "tools",
+                "hideDefaultWorkspaceProject": false,
                 "hiddenWorkspaceProjectPaths": [],
                 "missingWorkspaceProjectPaths": [],
                 "workdir": "/tmp/liveagent-default-project",
@@ -1028,6 +1032,7 @@ mod tests {
             Some(json!({
                 "activeWorkspaceProjectId": DEFAULT_WORKSPACE_PROJECT_ID,
                 "executionMode": "tools",
+                "hideDefaultWorkspaceProject": false,
                 "hiddenWorkspaceProjectPaths": [],
                 "missingWorkspaceProjectPaths": [],
                 "workdir": "/tmp/liveagent-default-project",
@@ -1059,6 +1064,7 @@ mod tests {
             json!({
                 "activeWorkspaceProjectId": DEFAULT_WORKSPACE_PROJECT_ID,
                 "executionMode": "tools",
+                "hideDefaultWorkspaceProject": false,
                 "hiddenWorkspaceProjectPaths": [],
                 "missingWorkspaceProjectPaths": [],
                 "workdir": "/tmp/liveagent-default-project",
