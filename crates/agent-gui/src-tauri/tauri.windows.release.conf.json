@@ -16,7 +16,8 @@
   "bundle": {
     "createUpdaterArtifacts": true,
     "resources": {
-      "resources/stock-sidecar/": "stock-sidecar/"
+      "resources/stock-sidecar/": "stock-sidecar/",
+      "icons/icon-windows.ico": "calen-icon.ico"
     },
     "targets": ["nsis", "msi"],
     "icon": [
@@ -27,8 +28,17 @@
       "icons/icon-windows.ico"
     ],
     "windows": {
+      "wix": {
+        "language": "zh-CN",
+        "dialogImagePath": "icons/wix-dialog.bmp"
+      },
       "nsis": {
-        "installerIcon": "icons/icon-windows.ico"
+        "installerIcon": "icons/icon-windows.ico",
+        "uninstallerIcon": "icons/icon-windows.ico",
+        "sidebarImage": "icons/nsis-sidebar.bmp",
+        "languages": ["SimpChinese"],
+        "displayLanguageSelector": false,
+        "installerHooks": "windows/nsis-hooks.nsh"
       }
     }
   }

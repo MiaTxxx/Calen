@@ -71,6 +71,56 @@ test("base Tauri config embeds the Calen updater public key", () => {
   assert.deepEqual(config.plugins.updater.endpoints, []);
 });
 
+test("Windows installers use Calen branding and Simplified Chinese", () => {
+  const configPaths = [
+    "src-tauri/tauri.windows.conf.json",
+    "src-tauri/tauri.windows.release.conf.json",
+  ];
+
+  for (const configPath of configPaths) {
+    const config = JSON.parse(
+      readFileSync(path.join(guiRoot, configPath), "utf8")
+    );
+    const windows = config.bundle.windows;
+
+    assert.equal(windows.nsis.installerIcon, "icons/icon-windows.ico");
+    assert.equal(windows.nsis.uninstallerIcon, "icons/icon-windows.ico");
+    assert.equal(windows.nsis.sidebarImage, "icons/nsis-sidebar.bmp");
+    assert.deepEqual(windows.nsis.languages, ["SimpChinese"]);
+    assert.equal(windows.nsis.displayLanguageSelector, false);
+    assert.equal(windows.nsis.installerHooks, "windows/nsis-hooks.nsh");
+    assert.equal(windows.wix.language, "zh-CN");
+    assert.equal(windows.wix.dialogImagePath, "icons/wix-dialog.bmp");
+    assert.equal(
+      config.bundle.resources["icons/icon-windows.ico"],
+      "calen-icon.ico"
+    );
+  }
+
+  const nsisSidebar = readFileSync(
+    path.join(guiRoot, "src-tauri/icons/nsis-sidebar.bmp")
+  );
+  assert.equal(nsisSidebar.subarray(0, 2).toString("ascii"), "BM");
+  assert.equal(nsisSidebar.readInt32LE(18), 164);
+  assert.equal(nsisSidebar.readInt32LE(22), 314);
+
+  const wixDialog = readFileSync(
+    path.join(guiRoot, "src-tauri/icons/wix-dialog.bmp")
+  );
+  assert.equal(wixDialog.subarray(0, 2).toString("ascii"), "BM");
+  assert.equal(wixDialog.readInt32LE(18), 493);
+  assert.equal(wixDialog.readInt32LE(22), 312);
+
+  const nsisHooks = readFileSync(
+    path.join(guiRoot, "src-tauri/windows/nsis-hooks.nsh"),
+    "utf8"
+  );
+  assert.match(nsisHooks, /calen-icon\.ico/);
+  assert.match(nsisHooks, /FileExists/);
+  assert.match(nsisHooks, /CreateShortcut/);
+  assert.match(nsisHooks, /SHChangeNotify/);
+});
+
 test("release validation requires explicit updater signing keys", () => {
   const missingPublicKey = runValidation({
     TAURI_SIGNING_PRIVATE_KEY: "private-key",
@@ -170,6 +220,15 @@ test("desktop release blocks on real Windows installer lifecycle validation", ()
     /Upgrade validation skipped: GitHub release lookup failed/
   );
   assert.match(windowsInstallerValidation, /function Invoke-NsisInstall/);
+  assert.match(windowsInstallerValidation, /function Assert-CalenShortcutIcon/);
+  assert.match(
+    windowsInstallerValidation,
+    /Calen desktop shortcut still relies on the executable icon cache/
+  );
+  assert.match(
+    windowsInstallerValidation,
+    /Assert-CalenShortcutIcon -InstallRoot \$currentNsisRoot/
+  );
   assert.match(
     windowsInstallerValidation,
     /-RawArguments "\/S \/D=\$absoluteInstallRoot"/

@@ -383,6 +383,46 @@ function Invoke-NsisInstall {
     return $entry
 }
 
+function Assert-CalenShortcutIcon {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+
+    $shortcutPath = Join-Path ([Environment]::GetFolderPath("Desktop")) "Calen.lnk"
+    if (-not (Test-Path -LiteralPath $shortcutPath -PathType Leaf)) {
+        throw "NSIS did not create the expected desktop shortcut: $shortcutPath"
+    }
+
+    $expectedIconPath = [System.IO.Path]::GetFullPath((Join-Path $InstallRoot "calen-icon.ico"))
+    if (-not (Test-Path -LiteralPath $expectedIconPath -PathType Leaf)) {
+        throw "NSIS did not install the dedicated Calen shortcut icon: $expectedIconPath"
+    }
+
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $null
+    try {
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $iconLocation = [string]$shortcut.IconLocation
+    } finally {
+        if ($null -ne $shortcut) {
+            [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut)
+        }
+        if ($null -ne $shell) {
+            [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)
+        }
+    }
+
+    $actualIconPath = ($iconLocation -split ',', 2)[0].Trim().Trim('"')
+    if (-not $actualIconPath) {
+        throw "Calen desktop shortcut still relies on the executable icon cache: $shortcutPath"
+    }
+    if (
+        [System.IO.Path]::GetFullPath($actualIconPath).TrimEnd('\') -ne
+        $expectedIconPath.TrimEnd('\')
+    ) {
+        throw "Calen desktop shortcut uses the wrong icon: expected=$expectedIconPath actual=$actualIconPath"
+    }
+    Write-Host "Calen desktop shortcut uses the dedicated icon: $expectedIconPath"
+}
+
 function Invoke-NsisUninstall {
     param([Parameter(Mandatory = $true)][string]$InstallRoot)
 
@@ -584,6 +624,7 @@ try {
 
     Write-Step "Installing NSIS silently into a Chinese and space-containing path"
     Invoke-NsisInstall -PackagePath $SetupPath -InstallRoot $nsisInstallRoot -ExpectedVersion $CurrentVersion | Out-Null
+    Assert-CalenShortcutIcon -InstallRoot $nsisInstallRoot
     Invoke-SidecarSmoke -InstallRoot $nsisInstallRoot | Out-Null
     Invoke-NsisUninstall -InstallRoot $nsisInstallRoot
 
@@ -621,6 +662,7 @@ try {
             ) {
                 throw "NSIS upgrade did not reuse the previous install root: old=$oldNsisRoot current=$currentNsisRoot"
             }
+            Assert-CalenShortcutIcon -InstallRoot $currentNsisRoot
             Invoke-SidecarSmoke -InstallRoot $nsisUpgradeRoot | Out-Null
             Invoke-NsisUninstall -InstallRoot $nsisUpgradeRoot
         } finally {
