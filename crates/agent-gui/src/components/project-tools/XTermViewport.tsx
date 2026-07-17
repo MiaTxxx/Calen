@@ -347,8 +347,12 @@ export function XTermViewport({
     };
 
     container.addEventListener("pointerdown", handlePointerDown);
-    container.addEventListener("touchstart", handleTouchStart, { passive: true });
-    container.addEventListener("touchmove", handleTouchMove, { passive: false });
+    container.addEventListener("touchstart", handleTouchStart, {
+      passive: true,
+    });
+    container.addEventListener("touchmove", handleTouchMove, {
+      passive: false,
+    });
     container.addEventListener("touchend", handleTouchEnd);
     container.addEventListener("touchcancel", handleTouchCancel);
 
