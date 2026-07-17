@@ -1,382 +1,200 @@
+<p align="center">
+  <img src="docs/images/calen-icon.png" alt="Calen" width="168" />
+</p>
+
 <h1 align="center">Calen</h1>
 
 <p align="center">
-  <strong>Your Local-First AI Agent Desktop</strong><br/>
-  Multi-model access · Local tool execution · MCP & Skills ecosystem · Remote Gateway
+  A local-first desktop agent for real work, extensible tools, and evidence-based stock research.
 </p>
 
 <p align="center">
-  English | <a href="README.zh-CN.md">简体中文</a>
+  English · <a href="README.zh-CN.md">简体中文</a>
 </p>
 
 <p align="center">
-  <img alt="Release Platform" src="https://img.shields.io/badge/release-Windows%20x64-blueviolet" />
-  <img alt="Tauri" src="https://img.shields.io/badge/built%20with-Tauri%202-FFC131?logo=tauri&logoColor=white" />
-  <img alt="React" src="https://img.shields.io/badge/React-19-087EA4?logo=react&logoColor=white" />
-  <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-B7410E?logo=rust&logoColor=white" />
-  <img alt="Go" src="https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white" />
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-green" />
+  <a href="https://github.com/MiaTxxx/Calen/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/MiaTxxx/Calen?display_name=tag&style=flat-square" /></a>
+  <img alt="Windows x64" src="https://img.shields.io/badge/desktop-Windows%20x64-2563EB?style=flat-square" />
+  <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8D8?style=flat-square" />
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-16A34A?style=flat-square" /></a>
 </p>
 
 <p align="center">
-  <a href="#core-features">Core Features</a> •
-  <a href="#download--deployment">Download & Deployment</a> •
-  <a href="#faq">FAQ</a> •
-  <a href="docs/">Docs</a>
+  <a href="https://github.com/MiaTxxx/Calen/releases/latest">Download</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="https://github.com/MiaTxxx/Calen/issues">Issues</a>
 </p>
 
 ---
 
-## 🌟 Special Thanks
+## What Calen is
 
-<p align="center">
-  <a href="https://linux.do">
-    <img src="docs/images/linuxdo.png" alt="LINUX DO" width="420" />
-  </a>
-</p>
-<p align="center"><b>学AI，上L站！祝小破站越来越好～</b></p>
+Calen brings an AI agent into a desktop workspace where it can do more than answer questions. It can work with local files, run commands, use MCP servers and Skills, keep durable context, manage scheduled tasks, and coordinate longer workflows.
 
----
+The desktop app is the primary product and the local source of truth. The optional Gateway adds browser access while tool execution and durable storage stay on the desktop; authenticated chat, history, settings, and upload traffic is relayed through the Gateway when those remote features are used.
 
-## ❤️ Sponsor
+Calen also includes a dedicated stock-research domain. Market data, company information, filings, portfolio records, and experimental quantitative results are presented with source and freshness metadata instead of being treated as model-generated facts.
 
-<table>
-<tr>
-<td width="200" align="center" valign="middle"><a href="https://www.packyapi.com/register"><img src="docs/images/partners/packycode.png" alt="PackyCode" width="160"></a></td>
-<td valign="middle">PackyCode is a reliable, efficient, and professional API relay service provider, offering relay services for Claude Code, Codex, Gemini, Chinese domestic models, and more — a long-established, top-tier relay. <b>The vast majority of the model resources used to develop this software were provided by PackyCode — thank you, Laonong!</b> Register <a href="https://www.packyapi.com/register">here</a> to get started!</td>
-</tr>
-<tr>
-<td width="200" align="center" valign="middle"><a href="https://www.right.codes/register"><img src="docs/images/partners/rightcode.jpg" alt="RightCode" width="160"></a></td>
-<td valign="middle">Right Code provides stable relay services for Claude Code, Codex, Gemini, Chinese domestic models, and more. Invoices are available upon top-up, and enterprise and team users receive dedicated one-on-one support. <b>The remaining model resources used to develop this software were provided by RightCode — thanks to the RC site owner and the support team!</b> Register <a href="https://www.right.codes/register">here</a> to get started!</td>
-</tr>
-</table>
+## Core experience
 
----
+| Area            | What it provides                                                                                                           |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Agent workspace | Streaming conversations, multi-turn execution, model switching, long-context compaction, code and document previews.       |
+| Local tools     | File operations, search, shell commands, managed processes, uploads, scheduled tasks, and controlled sub-agent delegation. |
+| MCP and Skills  | Connect external MCP servers and load task-specific Skills without expanding the core application into one monolith.       |
+| Memory          | Local Markdown and SQLite-backed retrieval for durable project and cross-session context.                                  |
+| Stock research  | Research, market briefs, watchlists, portfolios, transaction ledgers, indicators, strategies, and reproducible backtests.  |
+| Remote access   | An optional Go Gateway and browser WebUI for reaching a running desktop agent from another device.                         |
 
-## Why Calen?
+### Models and compatible endpoints
 
-Calen is a **local-first** AI agent desktop client. It deeply integrates large language model reasoning with local system tools, so the AI can genuinely operate your file system, run commands, and manage scheduled tasks — while the Gateway enables remote access and collaboration.
+Calen supports Claude, OpenAI/Codex, and Gemini-style provider flows, including configurable base URLs for compatible services. Provider credentials are persisted by the desktop application, and model requests are sent to the endpoint the user chooses.
 
-- **An agent that actually gets things done** — beyond chat: read and write files, make precise edits, run Bash, and supervise long-running processes
-- **A fully open ecosystem** — bridge any external tool via the MCP protocol, and load Skills packages on demand
-- **Local and remote, both** — the desktop app works fully standalone; deploy the Gateway and control it from any browser
+### Tools that stay under your control
 
----
+Local capabilities are executed by the desktop runtime. Remote browser sessions use a restricted tool profile and do not automatically inherit unrestricted file-system, shell, memory, MCP, Skills, cron, SSH, tunnel, or sub-agent access.
 
-## Core Features
+## Stock research
 
-### 🧠 Multi-Model & Chat
+The stock workspace is designed as research infrastructure, not as an automated trading terminal.
 
-- **Multi-model routing** — Claude (Anthropic), Codex (OpenAI), and Gemini protocols, with custom Base URL support for third-party compatible services
-- **Rich rendering** — streaming Markdown with built-in KaTeX math, Mermaid diagrams, and Monaco code preview
-- **History compaction** — dual-layer Segment + Summary Checkpoint persistence keeps long conversations from losing context
-- **Internationalization** — built-in i18n multi-language framework
+- Search and normalized instruments for A-shares, Hong Kong stocks, US stocks, and ETFs, subject to provider coverage.
+- Quotes, daily charts, company profiles, financial statements, shareholders, dividends, money flow, news, and notices when supported.
+- Market briefs for active themes, market breadth, capital flow, unusual movement, and other provider-backed sections.
+- Local watchlists, portfolios, transaction history, CSV import/export, multi-currency summaries, and encrypted backups.
+- Experimental indicators, scorecards, strategy signals, evaluators, and causal backtests with benchmark, fees, drawdown, coverage, and limitations.
+- Provider routing, bounded caching, throttling, health checks, circuit breaking, and fallback without inventing missing data.
 
-### 🔧 Local Tool Execution
+Every evidence result carries source information, an as-of time, retrieval time, cache state, and warnings. Unsupported or failed capabilities return partial or unavailable results.
 
-- **Full file-system capabilities** — precise `Read` / `Write` / `Edit` / `Delete`, plus `Glob` / `Grep` pattern and regex search
-- **Bash & long-running processes** — non-interactive command execution (cwd / timeout), with `ManagedProcess` supervising dev servers and other resident tasks
-- **Sub-agent delegation** — independent sub-agents execute in parallel with worktree isolation and automatic merging
-- **Tunnel exposure** — `TunnelManager` exposes local services to the public internet in one click
+> Market information can be delayed, incomplete, or incorrect. Calen does not place trades, guarantee returns, or provide investment advice.
 
-### 🧩 MCP & Skills Ecosystem
+## Download for Windows
 
-- **MCP protocol bridging** — the Tauri side natively bridges any stdio / http MCP server for unlimited tool extension
-- **Skills packages** — progressive disclosure and on-demand loading, with install / create / package support and the ClawHub ecosystem
+The current public desktop release is [Calen v1.1.0](https://github.com/MiaTxxx/Calen/releases/tag/v1.1.0) for Windows x64.
 
-### 💾 Memory & Automation
+| Package                              | Recommended use                               |
+| ------------------------------------ | --------------------------------------------- |
+| `Calen-v1.1.0-Windows-x64-Setup.exe` | Standard interactive installation.            |
+| `Calen-v1.1.0-Windows-x64.msi`       | Managed deployment or MSI-based installation. |
 
-- **Persistent memory** — Markdown + SQLite FTS full-text search for cross-session knowledge management
-- **Scheduled tasks** — bash / http / prompt cron job types, executed automatically in the background
+Windows 10/11 with WebView2 is required. The current binaries do not have an Authenticode publisher signature, so Windows may show an “Unknown publisher” warning. Application updates are independently verified with the Tauri updater signature.
 
-### 📈 Stock Research
+No portable, Linux, or macOS installer is published for this release.
 
-- **Native Calen stock hub** — five workspaces for research, markets, watchlists and portfolios, experiments, and data sources
-- **Evidence-first research** — quotes, charts, financials, filings, news, and market briefs show their sources, as-of time, and missing-data warnings
-- **Local portfolio ledger** — complete transactions, portfolio analysis, multi-currency summaries, CSV import/export, and encrypted backups
-- **Experimental quant tools** — indicators, scorecards, strategy signals, evaluators, and reproducible backtests with coverage and limitation disclosures
+## First run
 
-### 🌐 Remote Gateway
+1. Install Calen from [GitHub Releases](https://github.com/MiaTxxx/Calen/releases/latest).
+2. Add a model provider and test the configured endpoint.
+3. Choose a workspace before allowing the agent to operate on project files.
+4. Connect MCP servers or install Skills only when you need them.
+5. Open **Stock Research** to search a security, inspect data-source status, or create a local portfolio.
 
-- **Access from any browser** — Go + gRPC gateway with a WebUI for remotely controlling the local agent
-- **Disconnect recovery** — a bounded seq window replays short outages, with desktop-side persistence as the safety net
+Free stock providers can cover part of the first-run experience without a key. Optional providers have their own credentials, quotas, usage terms, and market coverage. Configure only services you are authorized to use.
 
----
+## Architecture at a glance
 
-## Download & Deployment
+```mermaid
+flowchart LR
+    Browser["Browser WebUI"] <--> Gateway["Optional Go Gateway"]
+    Gateway <--> Desktop["Calen Desktop"]
+    Desktop --> Runtime["Agent Runtime"]
+    Runtime --> Tools["Local Tools · MCP · Skills · Memory"]
+    Runtime --> Stock["Managed Stock Sidecar"]
+    Desktop --> Storage["Local SQLite and Markdown"]
+```
 
-The first release containing the stock integration is Windows x64 only. Installers are built by GitHub Actions and signed for the Tauri updater; once the provider-terms and signing gates are satisfied, published builds will appear on [**GitHub Releases**](https://github.com/MiaTxxx/Calen/releases/latest).
+- **Desktop UI:** React 19, TypeScript 7, Vite 8, Tailwind CSS 4.
+- **Desktop backend:** Tauri 2, Rust, Tokio, SQLite, gRPC.
+- **Stock service:** a managed JSON-RPC stdio sidecar with normalized provider evidence.
+- **Gateway:** Go 1.25, gRPC, HTTP, WebSocket, and an embedded React WebUI.
 
-### System Requirements
+Read the [architecture overview](docs/architecture/overview.md) for process boundaries and data flows.
 
-| Platform | Requirements                                                 |
-| -------- | ------------------------------------------------------------ |
-| Windows  | x64; requires the WebView2 runtime (bundled with Windows 11) |
+## Run from source
 
-### Windows
+### Requirements
 
-Pick an installation method from [Releases](https://github.com/MiaTxxx/Calen/releases/latest):
+- Node.js 24 and pnpm 10.32.1.
+- Rust stable with the platform toolchain. Windows development requires MSVC Build Tools and the Windows SDK.
+- Go 1.25.12 when building the Gateway.
+- `make` for the repository shortcuts, or the equivalent package commands documented in each manifest.
 
-| Method       | File                                    | Best for                                 |
-| ------------ | --------------------------------------- | ---------------------------------------- |
-| Setup wizard | `Calen-<version>-Windows-x64-Setup.exe` | Most users                               |
-| MSI package  | `Calen-<version>-Windows-x64.msi`       | Enterprise distribution / silent install |
-
-> The first release does not include portable, Linux, or macOS installers. It also has no Authenticode code signature, so Windows may display an “Unknown publisher” warning. In-app updates still require a valid Tauri updater signature.
-
-### Need Remote Access? Deploy the Gateway
-
-The desktop app works out of the box and depends on no server. Deploy the Gateway only if you want to **control your local agent from a browser**.
-
-**Note: when deployed behind an Nginx reverse proxy, set the Gateway address on the Settings → Remote page to the HTTPS URL and use port 443.**
+### Desktop development
 
 ```bash
-# Pull the image (built by GitHub Actions, multi-arch: amd64 / arm64)
+git clone https://github.com/MiaTxxx/Calen.git
+cd Calen
+pnpm install
+pnpm --dir crates/stock-sidecar install
+pnpm --dir crates/agent-gui install
+pnpm --dir crates/agent-gateway/web install
+make dev
+```
+
+### Verification
+
+```bash
+pnpm typecheck
+pnpm test
+git diff --check
+```
+
+See the [development guide](docs/operations/development.md) for component-specific commands and the [stock integration plan](docs/stock-integration-plan.md) for the stock-domain boundary.
+
+## Optional Gateway
+
+The desktop application works without a server. Deploy the Gateway only when you want browser-based remote access to a desktop agent that is already running.
+
+```bash
 docker pull ghcr.io/miatxxx/calen-gateway:latest
 
-# Run in the background (gRPC → host 50051 | HTTP/WebSocket → host 50052)
 docker run -d \
   --name calen-gateway \
   --restart unless-stopped \
   -p 50051:50051 \
   -p 50052:8080 \
-  -e LIVEAGENT_GATEWAY_TOKEN=your-token \
+  -e LIVEAGENT_GATEWAY_TOKEN=replace-with-a-strong-token \
   ghcr.io/miatxxx/calen-gateway:latest
 ```
 
-<details>
-<summary><b>Nginx reverse proxy configuration</b> — reference for custom domains / TLS</summary>
+`LIVEAGENT_GATEWAY_TOKEN` is retained as a compatibility variable. New Calen-specific configuration uses `CALEN_*` names where migration safety allows it.
 
-> The Gateway serves two kinds of traffic:
->
-> the desktop app's bidirectional gRPC stream (default 50051) and the browser's HTTP / WebSocket (default 50052).
->
-> When exposing through Nginx, proxy them separately. Both gRPC and WebSocket are long-lived connections, so raise the timeouts:
+## Privacy and security boundaries
 
-```nginx
-# GUI Remote: gRPC Authenticate + AgentConnect
-location /liveagent.gateway.v1.AgentGateway/ {
-    grpc_pass grpc://127.0.0.1:50051;
+- Model and stock-provider credentials persist on the desktop and are redacted from ordinary Gateway settings snapshots.
+- If a provider key is explicitly changed from the WebUI, the secret is relayed through the authenticated Gateway session to the desktop. Model and market-data requests also send the required credential to the configured provider endpoint.
+- The Gateway does not directly browse the desktop file system or become the durable data source. Remote uploads and selected chat, history, and settings data do pass through the relay; persistent workspace, memory, portfolio, and transaction state remains on the desktop.
+- Portfolio data is read by AI tools only for an explicit portfolio-analysis request; the AI tool surface does not receive asset write permissions.
+- Stock failures and missing fields are surfaced as warnings instead of being filled by the model.
+- Remote access should be protected with a strong token, TLS, and least-privilege network exposure.
 
-    grpc_set_header Host $host;
-    grpc_set_header Authorization $http_authorization;
-    grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    grpc_set_header X-Forwarded-Proto $scheme;
+## Documentation
 
-    grpc_socket_keepalive on;
-    grpc_read_timeout 24h;
-    grpc_send_timeout 24h;
-}
-
-# WebUI WebSocket
-location = /ws {
-    proxy_pass http://127.0.0.1:50052;
-
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-
-    proxy_set_header Host $host;
-    proxy_set_header Authorization $http_authorization;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-
-    proxy_read_timeout 24h;
-    proxy_send_timeout 24h;
-    proxy_buffering off;
-}
-
-# WebUI SPA/static/API
-location / {
-    proxy_pass http://127.0.0.1:50052;
-
-    proxy_set_header Host $host;
-    proxy_set_header Authorization $http_authorization;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-
-    proxy_read_timeout 10m;
-    proxy_send_timeout 10m;
-}
-```
-
-> Upstream ports map one-to-one to the host ports from the `docker run` above: gRPC 50051, HTTP/WebSocket 50052 (inside the container, HTTP actually listens on `PORT=8080`). The gRPC proxy requires Nginx to accept the desktop connection over HTTP/2 (`listen 443 ssl; http2 on;`).
-
-</details>
-
-### Build from Source
-
-Expand the Development Guide below for the full set of Make commands.
-
-![](docs/images/architecture.webp)
-
-<details>
-<summary><b>Architecture Overview</b> — diagram & tech stack</summary>
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                        Browser WebUI                          │
-│              React + Vite + WebSocket + Gateway API           │
-└────────────────────────────┬─────────────────────────────────┘
-                             │ WebSocket / HTTP
-┌────────────────────────────▼─────────────────────────────────┐
-│                       Agent Gateway                           │
-│         Go · gRPC · HTTP · Session Manager · Event Store     │
-│               (Railway / Docker / self-hosted)                │
-└────────────────────────────┬─────────────────────────────────┘
-                             │ gRPC (bidirectional stream)
-┌────────────────────────────▼─────────────────────────────────┐
-│                        Agent GUI                              │
-│                   Tauri 2 · React 19 · Rust                  │
-├──────────┬────────────┬───────────┬────────────┬─────────────┤
-│ Models   │ Runtime    │ Tools     │ Skills     │ Memory/Cron │
-│ pi-ai    │ multi-turn │ FS/Bash/  │ progressive│ SQLite+MD   │
-│ + Codex  │ + SubAgent │ MCP bridge│ + Hub      │ FTS index   │
-└──────────┴────────────┴───────────┴────────────┴─────────────┘
-```
-
-**Tech Stack**
-
-| Component                 | Technology                                                   |
-| ------------------------- | ------------------------------------------------------------ |
-| **Agent GUI** · Framework | Tauri 2 + React 19 + TypeScript 6                            |
-| **Agent GUI** · Build     | Vite 8 + pnpm                                                |
-| **Agent GUI** · Styling   | Tailwind CSS 4 + Radix UI                                    |
-| **Agent GUI** · Rendering | streamdown + KaTeX + Mermaid + Monaco Editor                 |
-| **Agent GUI** · Backend   | Rust + Tokio + SQLite (rusqlite) + gRPC (tonic)              |
-| **Agent GUI** · LLM       | @earendil-works/pi-ai · @openai/codex-sdk · claude-agent-sdk |
-| **Gateway** · Language    | Go 1.25                                                      |
-| **Gateway** · Protocols   | gRPC + Protobuf + HTTP + WebSocket                           |
-| **Gateway** · Web UI      | React + Vite + Tailwind CSS (embedded)                       |
-| **Gateway** · Deployment  | Docker multi-stage · Railway CI/CD                           |
-
-</details>
-
-<details>
-<summary><b>Development Guide</b> — common Make commands (run <code>make help</code> for the full list)</summary>
-
-| Command                            | Description                             |
-| ---------------------------------- | --------------------------------------- |
-| `make dev`                         | Start the Tauri development environment |
-| `make build`                       | Build the desktop app                   |
-| `make dev-gateway`                 | Start the Gateway dev server            |
-| `make dev-webui`                   | Start the WebUI dev server              |
-| `make gateway-build`               | Build the Gateway binary                |
-| `make gateway-docker-build`        | Build the Docker image                  |
-| `make gateway-docker-smoke`        | Build + health check                    |
-| `make desktop-build-macos-release` | macOS signed release build              |
-| `make build-linux`                 | Linux amd64 gateway                     |
-| `make build-linux-arm`             | Linux arm64 gateway                     |
-| `make proto`                       | Regenerate Protobuf code                |
-| `make clean`                       | Clean build artifacts                   |
-
-</details>
-
-<details>
-<summary><b>Project Structure</b> — directory tree</summary>
-
-```
-Calen/
-├── crates/
-│   ├── agent-gui/                # Desktop client
-│   │   ├── src/                  # React frontend
-│   │   │   ├── components/       #   UI components
-│   │   │   ├── lib/              #   Core logic (chat, tools, skills, memory)
-│   │   │   ├── pages/            #   Pages (Chat, Settings)
-│   │   │   ├── i18n/             #   Internationalization
-│   │   │   └── prompt/           #   System prompt templates
-│   │   └── src-tauri/            # Rust backend (Tauri)
-│   │
-│   └── agent-gateway/            # Go gateway service
-│       ├── cmd/gateway/          #   Entry point
-│       ├── internal/             #   Core implementation
-│       ├── proto/v1/             #   Protobuf definitions
-│       └── web/                  #   Embedded WebUI
-│
-├── docs/                         # Project docs
-│   ├── architecture/             #   Architecture design
-│   ├── features/                 #   Feature guides
-│   └── operations/               #   Operations & deployment
-│
-├── scripts/release/              # Release automation
-├── .github/workflows/            # CI/CD (CI + Desktop Release + Gateway Docker)
-├── Dockerfile                    # Gateway container image
-├── Makefile                      # Build commands
-└── Cargo.toml                    # Rust workspace
-```
-
-</details>
-
----
-
-## FAQ
-
-<details>
-<summary><b>Does my API key ever leave my machine?</b></summary>
-
-No. Keys are stored locally on the desktop side only. The Gateway is a pure protocol relay — it never accesses the file system and never stores any credentials.
-
-</details>
-
-<details>
-<summary><b>Do I have to deploy the Gateway?</b></summary>
-
-No. The desktop client works standalone with all local capabilities; deploy the Gateway only when you need browser-based remote access to your local agent.
-
-</details>
-
-<details>
-<summary><b>Which models are supported?</b></summary>
-
-Claude (Anthropic), Codex (OpenAI), and Gemini protocols are built in, plus custom Base URL support for any compatible third-party service.
-
-</details>
-
-<details>
-<summary><b>Will long conversations / disconnects lose context?</b></summary>
-
-No. The desktop app persists the full history with Segment + Summary Checkpoints; the Gateway replays short disconnects through a bounded seq window and converges automatically after reconnecting.
-
-</details>
-
----
+- [Documentation index](docs/README.md)
+- [Architecture overview](docs/architecture/overview.md)
+- [Chat runtime](docs/features/chat-runtime.md)
+- [Tools](docs/features/tools.md)
+- [Skills and MCP](docs/features/skills-and-mcp.md)
+- [Protocols](docs/architecture/protocols.md)
+- [Stock integration plan](docs/stock-integration-plan.md)
+- [Provider compliance review](docs/provider-compliance-review.md)
+- [Development and operations](docs/operations/development.md)
 
 ## Contributing
 
-Issues and pull requests are welcome! See the [Development Guide](docs/operations/development.md) for setting up a dev environment.
+Issues and focused pull requests are welcome. Keep changes inside the relevant Calen module, add tests in proportion to risk, and preserve compatibility identifiers unless a migration path is included.
 
-Before submitting a PR, make sure all of the following checks pass (they match the CI gates):
+Before opening a pull request, run:
 
-**Desktop client · `crates/agent-gui`**
+```bash
+pnpm typecheck
+pnpm test
+git diff --check
+```
 
-1. Type check & build pass: `pnpm build`
-2. Lint passes: `pnpm lint`
-3. Frontend unit tests pass: `pnpm test:frontend` (also run `pnpm test:release` when touching release scripts)
-4. Rust backend check passes: `cargo check --manifest-path crates/agent-gui/src-tauri/Cargo.toml --tests` (run from the repo root)
+## License and third-party notices
 
-**Gateway · `crates/agent-gateway` (if changed)**
+Calen is released under the [MIT License](LICENSE), Copyright © 2026 Stack-Cairn.
 
-1. Go unit tests pass: `go test ./...`
-2. WebUI build / lint / tests pass: `pnpm build && pnpm lint && pnpm test` (run in `web/`)
-3. Regenerate and commit artifacts after proto changes: `make proto`
-
-**Cross-frontend consistency**
-
-- Mirrored files between GUI and WebUI must be byte-identical: `node scripts/check-mirror.mjs`
-- Keep the diff clean (no trailing whitespace): `git diff --check`
-
----
-
-## 👥 Contributors
-
-Thanks to everyone who has contributed to Calen!
-
-<a href="https://github.com/MiaTxxx/Calen/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=MiaTxxx/Calen" alt="Contributors" />
-</a>
-
----
-
-## License
-
-MIT © StackCairn
+Parts of the stock-research implementation are adapted from or informed by Opptrix under Apache-2.0. Required attribution and bundled dependency notices are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Open-source licenses do not grant rights to redistribute third-party market data.

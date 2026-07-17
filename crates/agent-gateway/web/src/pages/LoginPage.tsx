@@ -5,7 +5,6 @@ import {
   Key,
   Lock,
   MessageSquareText,
-  Shield,
   Timer,
 } from "../components/icons";
 import { Button } from "../components/ui/button";
@@ -41,22 +40,34 @@ const features = [
   },
 ];
 
-export function LoginPage({ token, error, isSubmitting, onTokenChange, onSubmit }: LoginPageProps) {
+export function LoginPage({
+  token,
+  error,
+  isSubmitting,
+  onTokenChange,
+  onSubmit,
+}: LoginPageProps) {
   const [isFocused, setIsFocused] = useState(false);
 
   return (
     <main className="login-shell">
       {/* Subtle mesh gradient backdrop */}
       <div className="login-backdrop" aria-hidden="true" />
-      <div className="login-backdrop-orb login-backdrop-orb--1" aria-hidden="true" />
-      <div className="login-backdrop-orb login-backdrop-orb--2" aria-hidden="true" />
+      <div
+        className="login-backdrop-orb login-backdrop-orb--1"
+        aria-hidden="true"
+      />
+      <div
+        className="login-backdrop-orb login-backdrop-orb--2"
+        aria-hidden="true"
+      />
 
       <div className="login-container login-entrance">
         {/* Left: branding + features */}
         <div className="login-hero login-entrance-d1">
           <div className="login-hero-title-row">
             <div className="login-logo-mark">
-              <Shield size={18} strokeWidth={2} />
+              <img src="/icon-simple.png" alt="" aria-hidden="true" />
             </div>
             <h1 className="login-hero-title">Calen Gateway</h1>
           </div>
@@ -89,10 +100,17 @@ export function LoginPage({ token, error, isSubmitting, onTokenChange, onSubmit 
                 </div>
                 <h2 className="login-form-title">连接控制台</h2>
               </div>
-              <p className="login-form-sub">输入 Gateway 服务端的 Access Token 以验证身份</p>
+              <p className="login-form-sub">
+                输入 Gateway 服务端的 Access Token 以验证身份
+              </p>
             </div>
 
-            <div className={cn("login-input-wrap", isFocused && "login-input-wrap--focus")}>
+            <div
+              className={cn(
+                "login-input-wrap",
+                isFocused && "login-input-wrap--focus"
+              )}
+            >
               <label htmlFor="access-token" className="login-input-label">
                 <Key size={12} strokeWidth={2.5} />
                 Access Token
@@ -131,7 +149,9 @@ export function LoginPage({ token, error, isSubmitting, onTokenChange, onSubmit 
               )}
             </Button>
 
-            <p className="login-form-footer">Token 验证通过后将本地保存，下次自动登录</p>
+            <p className="login-form-footer">
+              Token 验证通过后将本地保存，下次自动登录
+            </p>
           </div>
         </div>
       </div>

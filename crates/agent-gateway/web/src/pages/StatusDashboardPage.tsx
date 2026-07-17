@@ -29,7 +29,10 @@ import {
 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { useAutomation } from "@/lib/automation";
-import { normalizeGatewayAccessToken, verifyGatewayAccessToken } from "@/lib/gatewayAuth";
+import {
+  normalizeGatewayAccessToken,
+  verifyGatewayAccessToken,
+} from "@/lib/gatewayAuth";
 import {
   type GatewayWebSocketClientLike,
   getGatewayWebSocketClient,
@@ -150,7 +153,11 @@ function stripDashboardTokenFromUrl() {
   }
   url.searchParams.delete("token");
   url.searchParams.delete("access_token");
-  window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+  window.history.replaceState(
+    {},
+    document.title,
+    `${url.pathname}${url.search}${url.hash}`
+  );
 }
 
 function asErrorMessage(error: unknown, fallback: string) {
@@ -217,9 +224,10 @@ function formatDateTime(ms: number) {
 }
 
 function compactNumber(value: number) {
-  return new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 }).format(
-    Math.max(0, value),
-  );
+  return new Intl.NumberFormat("zh-CN", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(Math.max(0, value));
 }
 
 function percentage(value: number) {
@@ -262,7 +270,10 @@ function basename(path: string) {
   return normalized.split("/").filter(Boolean).pop() ?? normalized;
 }
 
-function getConversationTitle(conversation: ConversationSummary | undefined, fallback: string) {
+function getConversationTitle(
+  conversation: ConversationSummary | undefined,
+  fallback: string
+) {
   const title = conversation?.title?.trim();
   return title || fallback;
 }
@@ -277,9 +288,14 @@ function buildRunningConversations(history: HistoryList | null) {
     const conversation = byId.get(id);
     return {
       id,
-      title: getConversationTitle(conversation, `会话 ${truncateMiddle(id, 12)}`),
+      title: getConversationTitle(
+        conversation,
+        `会话 ${truncateMiddle(id, 12)}`
+      ),
       cwd: runtime?.cwd?.trim() || conversation?.cwd?.trim() || "",
-      updatedAt: normalizeEpochMs(runtime?.updated_at || conversation?.updated_at),
+      updatedAt: normalizeEpochMs(
+        runtime?.updated_at || conversation?.updated_at
+      ),
       messageCount: conversation?.message_count ?? 0,
       provider: conversation?.provider_id?.trim() || "",
       model: conversation?.model?.trim() || "",
@@ -287,12 +303,17 @@ function buildRunningConversations(history: HistoryList | null) {
   });
 }
 
-function updateHistoryListWithEvent(history: HistoryList | null, event: any): HistoryList | null {
+function updateHistoryListWithEvent(
+  history: HistoryList | null,
+  event: any
+): HistoryList | null {
   if (!history) {
     return history;
   }
   const conversationId =
-    typeof event.conversation_id === "string" ? event.conversation_id.trim() : "";
+    typeof event.conversation_id === "string"
+      ? event.conversation_id.trim()
+      : "";
   if (!conversationId) {
     return history;
   }
@@ -301,9 +322,11 @@ function updateHistoryListWithEvent(history: HistoryList | null, event: any): Hi
     return {
       ...history,
       total_count: Math.max(0, history.total_count - 1),
-      conversations: history.conversations.filter((item) => item.id !== conversationId),
+      conversations: history.conversations.filter(
+        (item) => item.id !== conversationId
+      ),
       running_conversations: (history.running_conversations ?? []).filter(
-        (item) => item.conversation_id !== conversationId,
+        (item) => item.conversation_id !== conversationId
       ),
     };
   }
@@ -313,7 +336,9 @@ function updateHistoryListWithEvent(history: HistoryList | null, event: any): Hi
     return history;
   }
 
-  const without = history.conversations.filter((item) => item.id !== conversation.id);
+  const without = history.conversations.filter(
+    (item) => item.id !== conversation.id
+  );
   const conversations = [conversation, ...without]
     .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0))
     .slice(0, HISTORY_PAGE_SIZE);
@@ -337,7 +362,10 @@ function classifyChatEvent(event: ChatEvent) {
       return { tone: "amber" as const, title: "工具参数" };
     case "tool_result": {
       const isError = "isError" in event && event.isError === true;
-      return { tone: isError ? ("rose" as const) : ("emerald" as const), title: "工具回传" };
+      return {
+        tone: isError ? ("rose" as const) : ("emerald" as const),
+        title: "工具回传",
+      };
     }
     case "hosted_search":
       return { tone: "cyan" as const, title: "联网检索" };
@@ -381,8 +409,13 @@ function summarizeChatEvent(event: ChatEvent): DashboardEvent | null {
   if (type === "token") {
     detail = "模型正在输出 token chunk。";
   } else if (type === "thinking") {
-    const text = "text" in event && typeof event.text === "string" ? event.text.trim() : "";
-    detail = text ? truncateMiddle(text.replace(/\s+/g, " "), 80) : "模型正在整理推理上下文。";
+    const text =
+      "text" in event && typeof event.text === "string"
+        ? event.text.trim()
+        : "";
+    detail = text
+      ? truncateMiddle(text.replace(/\s+/g, " "), 80)
+      : "模型正在整理推理上下文。";
   } else if (type === "tool_call") {
     detail = `${getToolName(event)} 已发起调用。`;
   } else if (type === "tool_call_delta") {
@@ -391,18 +424,29 @@ function summarizeChatEvent(event: ChatEvent): DashboardEvent | null {
     const isError = "isError" in event && event.isError === true;
     detail = `${getToolName(event)} ${isError ? "返回异常" : "返回结果"}。`;
   } else if (type === "hosted_search") {
-    const queries = "queries" in event && Array.isArray(event.queries) ? event.queries : [];
-    detail = queries.length ? truncateMiddle(queries.join(" / "), 80) : "联网检索通道产生事件。";
+    const queries =
+      "queries" in event && Array.isArray(event.queries) ? event.queries : [];
+    detail = queries.length
+      ? truncateMiddle(queries.join(" / "), 80)
+      : "联网检索通道产生事件。";
   } else if (type === "tool_status") {
     const statusText =
-      "status" in event && typeof event.status === "string" ? event.status.trim() : "";
+      "status" in event && typeof event.status === "string"
+        ? event.status.trim()
+        : "";
     detail = statusText || "工具链状态更新。";
   } else if (type === "error" || type === "failed") {
     detail =
-      "message" in event && typeof event.message === "string" ? event.message : "执行出现异常。";
+      "message" in event && typeof event.message === "string"
+        ? event.message
+        : "执行出现异常。";
   } else if (type === "done" || type === "completed") {
     detail = "一段会话工作流完成。";
-  } else if ("message" in event && typeof event.message === "string" && event.message.trim()) {
+  } else if (
+    "message" in event &&
+    typeof event.message === "string" &&
+    event.message.trim()
+  ) {
     detail = event.message.trim();
   } else {
     detail = `事件类型：${type}`;
@@ -424,7 +468,8 @@ function addPendingCounters(target: PendingCounters, event: ChatEvent) {
   target.events += 1;
   if (type === "token") {
     target.tokenChunks += 1;
-    const text = "text" in event && typeof event.text === "string" ? event.text : "";
+    const text =
+      "text" in event && typeof event.text === "string" ? event.text : "";
     target.tokenChars += text.length;
   } else if (type === "thinking") {
     target.thinking += 1;
@@ -455,7 +500,7 @@ function StatusPill({ online, label }: { online: boolean; label: string }) {
     <span
       className={cn(
         "status-board-pill",
-        online ? "status-board-pill--online" : "status-board-pill--offline",
+        online ? "status-board-pill--online" : "status-board-pill--offline"
       )}
     >
       <span className="status-board-pill-dot" />
@@ -468,7 +513,10 @@ function MetricTile({ metric }: { metric: MetricCard }) {
   const Icon = metric.icon;
   return (
     <section
-      className={cn("status-board-card status-board-metric", `status-board-tone-${metric.tone}`)}
+      className={cn(
+        "status-board-card status-board-metric",
+        `status-board-tone-${metric.tone}`
+      )}
     >
       <div className="status-board-metric-icon">
         <Icon size={18} strokeWidth={2.2} />
@@ -493,7 +541,10 @@ function FactList({ items }: { items: FactItem[] }) {
       {items.map((item) => (
         <div
           key={item.label}
-          className={cn("status-board-fact", item.tone && `status-board-fact--${item.tone}`)}
+          className={cn(
+            "status-board-fact",
+            item.tone && `status-board-fact--${item.tone}`
+          )}
         >
           <span>{item.label}</span>
           <strong title={item.value}>{item.value}</strong>
@@ -508,7 +559,7 @@ function FactList({ items }: { items: FactItem[] }) {
 function runSnapshotRequest<T>(promise: Promise<T>) {
   return promise.then(
     (value) => ({ ok: true as const, value }),
-    (error) => ({ ok: false as const, error }),
+    (error) => ({ ok: false as const, error })
   );
 }
 
@@ -516,7 +567,9 @@ function useDashboardAuth() {
   const initialTokenRef = useRef(readDashboardTokenSeed());
   const [token, setToken] = useState("");
   const [loginToken, setLoginToken] = useState(initialTokenRef.current);
-  const [authSubmitting, setAuthSubmitting] = useState(() => initialTokenRef.current !== "");
+  const [authSubmitting, setAuthSubmitting] = useState(
+    () => initialTokenRef.current !== ""
+  );
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -604,7 +657,10 @@ export function StatusDashboardPage() {
     submit,
     logout,
   } = useDashboardAuth();
-  const api = useMemo(() => (token ? getGatewayWebSocketClient(token) : null), [token]);
+  const api = useMemo(
+    () => (token ? getGatewayWebSocketClient(token) : null),
+    [token]
+  );
   const pendingEventsRef = useRef<DashboardEvent[]>([]);
   const pendingCountersRef = useRef<PendingCounters>(initialPendingCounters());
   const lastTokenEventAtRef = useRef(0);
@@ -613,12 +669,17 @@ export function StatusDashboardPage() {
   const [statusError, setStatusError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryList | null>(null);
   const [workdirs, setWorkdirs] = useState<HistoryWorkdirSummary[]>([]);
-  const [tunnelState, setTunnelState] = useState<TunnelStateSnapshot | null>(null);
+  const [tunnelState, setTunnelState] = useState<TunnelStateSnapshot | null>(
+    null
+  );
   const [terminals, setTerminals] = useState<TerminalSession[]>([]);
   const [providers, setProviders] = useState<GatewayProviderSummary[]>([]);
-  const [settingsSnapshot, setSettingsSnapshot] = useState<GatewaySettingsSyncPayload | null>(null);
+  const [settingsSnapshot, setSettingsSnapshot] =
+    useState<GatewaySettingsSyncPayload | null>(null);
   const [recentEvents, setRecentEvents] = useState<DashboardEvent[]>([]);
-  const [liveCounters, setLiveCounters] = useState<LiveCounters>(() => initialCounters());
+  const [liveCounters, setLiveCounters] = useState<LiveCounters>(() =>
+    initialCounters()
+  );
   const [snapshot, setSnapshot] = useState<SnapshotState>({
     loading: false,
     error: null,
@@ -628,13 +689,16 @@ export function StatusDashboardPage() {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      const nextEvents = pendingEventsRef.current.splice(0, pendingEventsRef.current.length);
+      const nextEvents = pendingEventsRef.current.splice(
+        0,
+        pendingEventsRef.current.length
+      );
       const pendingCounters = pendingCountersRef.current;
       pendingCountersRef.current = initialPendingCounters();
 
       if (nextEvents.length > 0) {
         setRecentEvents((current) =>
-          [...nextEvents.reverse(), ...current].slice(0, MAX_RECENT_EVENTS),
+          [...nextEvents.reverse(), ...current].slice(0, MAX_RECENT_EVENTS)
         );
       }
       if (pendingCounters.events > 0) {
@@ -671,7 +735,9 @@ export function StatusDashboardPage() {
         const session = event.session;
         setTerminals((current) => {
           const without = current.filter((item) => item.id !== session.id);
-          return [session, ...without].sort((a, b) => b.updatedAt - a.updatedAt);
+          return [session, ...without].sort(
+            (a, b) => b.updatedAt - a.updatedAt
+          );
         });
       }
     });
@@ -680,7 +746,7 @@ export function StatusDashboardPage() {
     });
     const unsubscribeTunnelState = api.subscribeTunnelState((snapshot) => {
       setTunnelState((current) =>
-        current && snapshot.revision <= current.revision ? current : snapshot,
+        current && snapshot.revision <= current.revision ? current : snapshot
       );
     });
 
@@ -752,85 +818,121 @@ export function StatusDashboardPage() {
       }
       setSnapshot({
         loading: false,
-        error: errors.length > 0 ? Array.from(new Set(errors)).slice(0, 2).join(" / ") : null,
+        error:
+          errors.length > 0
+            ? Array.from(new Set(errors)).slice(0, 2).join(" / ")
+            : null,
         lastRefreshAt: Date.now(),
       });
     }
 
     void refresh(api);
-    const timer = window.setInterval(() => void refresh(api), SNAPSHOT_REFRESH_MS);
+    const timer = window.setInterval(
+      () => void refresh(api),
+      SNAPSHOT_REFRESH_MS
+    );
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
   }, [api, refreshVersion]);
 
-  const runningConversations = useMemo(() => buildRunningConversations(history), [history]);
+  const runningConversations = useMemo(
+    () => buildRunningConversations(history),
+    [history]
+  );
   const tunnels = useMemo(() => tunnelState?.tunnels ?? [], [tunnelState]);
   const activeTunnels = useMemo(
-    () => tunnels.filter((item) => !item.expiresAt || item.expiresAt > now / 1000),
-    [now, tunnels],
+    () =>
+      tunnels.filter((item) => !item.expiresAt || item.expiresAt > now / 1000),
+    [now, tunnels]
   );
-  const runningTerminals = useMemo(() => terminals.filter((item) => item.running), [terminals]);
+  const runningTerminals = useMemo(
+    () => terminals.filter((item) => item.running),
+    [terminals]
+  );
   const activeProviders = useMemo(
     () => providers.filter((provider) => provider.activeModels.length > 0),
-    [providers],
+    [providers]
   );
   const activeModelCount = useMemo(
-    () => activeProviders.reduce((total, provider) => total + provider.activeModels.length, 0),
-    [activeProviders],
+    () =>
+      activeProviders.reduce(
+        (total, provider) => total + provider.activeModels.length,
+        0
+      ),
+    [activeProviders]
   );
-  const uptimeMs = status?.online ? now - normalizeEpochMs(status.connected_since) : 0;
-  const heartbeatAgeMs = status?.last_heartbeat ? now - normalizeEpochMs(status.last_heartbeat) : 0;
+  const uptimeMs = status?.online
+    ? now - normalizeEpochMs(status.connected_since)
+    : 0;
+  const heartbeatAgeMs = status?.last_heartbeat
+    ? now - normalizeEpochMs(status.last_heartbeat)
+    : 0;
   const isFreshHeartbeat = status?.online === true && heartbeatAgeMs < 20_000;
   const observedMinutes = Math.max(1, (now - liveCounters.startedAt) / 60_000);
   const eventsPerMinute = liveCounters.events / observedMinutes;
   const messageSampleCount = useMemo(
     () =>
-      (history?.conversations ?? []).reduce((total, item) => total + (item.message_count || 0), 0),
-    [history],
+      (history?.conversations ?? []).reduce(
+        (total, item) => total + (item.message_count || 0),
+        0
+      ),
+    [history]
   );
   const todayConversationCount = useMemo(() => {
     const start = new Date(now);
     start.setHours(0, 0, 0, 0);
     return (history?.conversations ?? []).filter(
-      (item) => normalizeEpochMs(item.created_at) >= start.getTime(),
+      (item) => normalizeEpochMs(item.created_at) >= start.getTime()
     ).length;
   }, [history, now]);
   const runtimeState = formatRuntimeState(status);
   const runtimeHeartbeatAgeMs = status?.runtime_last_heartbeat
     ? now - normalizeEpochMs(status.runtime_last_heartbeat)
     : 0;
-  const runtimeActiveRunCount = status?.runtime_active_run_count ?? runningConversations.length;
+  const runtimeActiveRunCount =
+    status?.runtime_active_run_count ?? runningConversations.length;
   const totalTunnelConnections = activeTunnels.reduce(
     (sum, item) => sum + item.activeConnections,
-    0,
+    0
   );
-  const activeWorkspaceProjects = settingsSnapshot?.system.workspaceProjects ?? [];
+  const activeWorkspaceProjects =
+    settingsSnapshot?.system.workspaceProjects ?? [];
   const activeWorkspaceProject =
     activeWorkspaceProjects.find(
-      (project) => project.id === settingsSnapshot?.system.activeWorkspaceProjectId,
+      (project) =>
+        project.id === settingsSnapshot?.system.activeWorkspaceProjectId
     ) ?? activeWorkspaceProjects[0];
   const automation = useAutomation();
   const selectedModel = settingsSnapshot?.selectedModel ?? null;
   const selectedProvider = selectedModel
-    ? (providers.find((provider) => provider.id === selectedModel.customProviderId) ??
+    ? (providers.find(
+        (provider) => provider.id === selectedModel.customProviderId
+      ) ??
       settingsSnapshot?.customProviders.find(
-        (provider) => provider.id === selectedModel.customProviderId,
+        (provider) => provider.id === selectedModel.customProviderId
       ))
     : undefined;
   const selectedProviderName =
     selectedProvider?.name?.trim() || selectedModel?.customProviderId || "--";
   const selectedProviderType = selectedProvider?.type || "--";
   const selectedModelConfig = selectedProvider?.models?.find(
-    (model) => model.id === selectedModel?.model,
+    (model) => model.id === selectedModel?.model
   );
-  const enabledCronCount = automation.cron.tasks.filter((task) => task.enabled).length;
-  const enabledHookCount = automation.hooks.hooks.filter((hook) => hook.enabled).length;
+  const enabledCronCount = automation.cron.tasks.filter(
+    (task) => task.enabled
+  ).length;
+  const enabledHookCount = automation.hooks.hooks.filter(
+    (hook) => hook.enabled
+  ).length;
   const enabledMcpCount =
-    settingsSnapshot?.mcp.servers.filter((server) => server.enabled).length ?? 0;
+    settingsSnapshot?.mcp.servers.filter((server) => server.enabled).length ??
+    0;
   const configuredProviderCount =
-    settingsSnapshot?.customProviders.filter((provider) => provider.apiKeyConfigured).length ?? 0;
+    settingsSnapshot?.customProviders.filter(
+      (provider) => provider.apiKeyConfigured
+    ).length ?? 0;
   const selectedSkillCount = settingsSnapshot?.skills.enabled
     ? settingsSnapshot.skills.selected.length
     : 0;
@@ -844,14 +946,19 @@ export function StatusDashboardPage() {
   const latestTerminal = runningTerminals[0] ?? terminals[0];
   const activeWorkspaceName =
     activeWorkspaceProject?.name?.trim() ||
-    (activeWorkspaceProject?.path ? basename(activeWorkspaceProject.path) : "--");
+    (activeWorkspaceProject?.path
+      ? basename(activeWorkspaceProject.path)
+      : "--");
   const activeWorkspaceHint = activeWorkspaceProject?.path
     ? truncateMiddle(activeWorkspaceProject.path, 48)
     : settingsSnapshot
       ? "未配置工作区"
       : "等待 settings.get";
   const loadedConversationRows = history?.conversations.length ?? 0;
-  const maxWorkdirCount = Math.max(1, ...workdirs.map((item) => item.conversationCount || 0));
+  const maxWorkdirCount = Math.max(
+    1,
+    ...workdirs.map((item) => item.conversationCount || 0)
+  );
   const activeSubsystemCount =
     Number(status?.online === true) +
     Number(status?.chat_runtime_ready === true) +
@@ -868,7 +975,7 @@ export function StatusDashboardPage() {
       (status?.chat_runtime_ready ? 18 : 0) +
       (settingsSnapshot ? 12 : 0) +
       (activeProviders.length > 0 ? 10 : 0) +
-      (snapshot.error ? 0 : 8),
+      (snapshot.error ? 0 : 8)
   );
   const activeLoadValues = [
     liveCounters.tokenChunks,
@@ -937,12 +1044,16 @@ export function StatusDashboardPage() {
     },
     {
       label: "Worker ID",
-      value: status?.runtime_worker_id ? truncateMiddle(status.runtime_worker_id, 22) : "--",
+      value: status?.runtime_worker_id
+        ? truncateMiddle(status.runtime_worker_id, 22)
+        : "--",
       note: `runtime_visible=${formatBooleanFlag(status?.runtime_visible)}`,
     },
     {
       label: "Runtime Heartbeat Age",
-      value: status?.runtime_last_heartbeat ? formatDuration(runtimeHeartbeatAgeMs) : "--",
+      value: status?.runtime_last_heartbeat
+        ? formatDuration(runtimeHeartbeatAgeMs)
+        : "--",
       unit: "age",
       note: "runtime_last_heartbeat",
     },
@@ -951,7 +1062,9 @@ export function StatusDashboardPage() {
   const modelFacts: FactItem[] = [
     {
       label: "Selected Model",
-      value: selectedModel?.model ? truncateMiddle(selectedModel.model, 30) : "--",
+      value: selectedModel?.model
+        ? truncateMiddle(selectedModel.model, 30)
+        : "--",
       note: selectedProviderName,
       tone: selectedModel ? "violet" : "slate",
     },
@@ -980,25 +1093,33 @@ export function StatusDashboardPage() {
   const fabricFacts: FactItem[] = [
     {
       label: "MCP Servers",
-      value: settingsSnapshot ? `${enabledMcpCount}/${settingsSnapshot.mcp.servers.length}` : "--",
+      value: settingsSnapshot
+        ? `${enabledMcpCount}/${settingsSnapshot.mcp.servers.length}`
+        : "--",
       unit: "enabled/total",
       note: `selected ${settingsSnapshot?.mcp.selected.length ?? "--"}`,
       tone: enabledMcpCount > 0 ? "cyan" : "slate",
     },
     {
       label: "Cron Tasks",
-      value: automation.ready ? `${enabledCronCount}/${automation.cron.tasks.length}` : "--",
+      value: automation.ready
+        ? `${enabledCronCount}/${automation.cron.tasks.length}`
+        : "--",
       unit: "enabled/total",
       tone: enabledCronCount > 0 ? "amber" : "slate",
     },
     {
       label: "Hooks",
-      value: automation.ready ? `${enabledHookCount}/${automation.hooks.hooks.length}` : "--",
+      value: automation.ready
+        ? `${enabledHookCount}/${automation.hooks.hooks.length}`
+        : "--",
       unit: "enabled/total",
     },
     {
       label: "Skills",
-      value: settingsSnapshot?.skills.enabled ? String(selectedSkillCount) : "OFF",
+      value: settingsSnapshot?.skills.enabled
+        ? String(selectedSkillCount)
+        : "OFF",
       unit: settingsSnapshot?.skills.enabled ? "selected" : undefined,
       note: `skills.enabled=${formatBooleanFlag(settingsSnapshot?.skills.enabled)}`,
     },
@@ -1010,7 +1131,12 @@ export function StatusDashboardPage() {
       value: String(integrityScore),
       unit: "%",
       note: `${activeSubsystemCount}/8 observed subsystems`,
-      tone: integrityScore >= 70 ? "emerald" : integrityScore >= 40 ? "amber" : "rose",
+      tone:
+        integrityScore >= 70
+          ? "emerald"
+          : integrityScore >= 40
+            ? "amber"
+            : "rose",
     },
     {
       label: "Event Rate",
@@ -1109,15 +1235,24 @@ export function StatusDashboardPage() {
     <main className="status-board-shell">
       <div className="status-board-aurora" aria-hidden="true" />
       <div className="status-board-noise" aria-hidden="true" />
-      <div className="status-board-orb status-board-orb--a" aria-hidden="true" />
-      <div className="status-board-orb status-board-orb--b" aria-hidden="true" />
-      <div className="status-board-orb status-board-orb--c" aria-hidden="true" />
+      <div
+        className="status-board-orb status-board-orb--a"
+        aria-hidden="true"
+      />
+      <div
+        className="status-board-orb status-board-orb--b"
+        aria-hidden="true"
+      />
+      <div
+        className="status-board-orb status-board-orb--c"
+        aria-hidden="true"
+      />
 
       <section className="status-board-stage">
         <header className="status-board-header status-board-command">
           <div className="status-board-brand">
             <div className="status-board-logo status-board-logo--hot">
-              <Sparkles size={19} strokeWidth={2.4} />
+              <img src="/icon-simple.png" alt="" aria-hidden="true" />
             </div>
             <div>
               <p>Calen Nexus</p>
@@ -1152,7 +1287,11 @@ export function StatusDashboardPage() {
               )}
               Sync
             </Button>
-            <a className="status-board-link-button" href="./" title="回到 Gateway 控制台">
+            <a
+              className="status-board-link-button"
+              href="./"
+              title="回到 Gateway 控制台"
+            >
               Console
               <ExternalLink size={14} />
             </a>
@@ -1189,7 +1328,7 @@ export function StatusDashboardPage() {
                 <div
                   className={cn(
                     "status-board-reactor",
-                    status?.online && "status-board-reactor--online",
+                    status?.online && "status-board-reactor--online"
                   )}
                   style={{
                     background: `conic-gradient(from -90deg, rgba(41, 255, 214, 0.96) 0deg, rgba(20, 184, 255, 0.96) ${integrityScore * 3.6}deg, rgba(30, 39, 68, 0.88) ${integrityScore * 3.6}deg 360deg)`,
@@ -1205,7 +1344,9 @@ export function StatusDashboardPage() {
                 <div className="status-board-reactor-copy">
                   <span>Runtime: {runtimeState}</span>
                   <strong>
-                    {status?.agent_id ? truncateMiddle(status.agent_id, 24) : "等待 Agent 接入"}
+                    {status?.agent_id
+                      ? truncateMiddle(status.agent_id, 24)
+                      : "等待 Agent 接入"}
                   </strong>
                   <em>
                     我在监听 Gateway 心跳：
@@ -1246,7 +1387,9 @@ export function StatusDashboardPage() {
                 <div className="status-board-mini-card">
                   <Plug size={17} />
                   <span>Remote</span>
-                  <strong>{settingsSnapshot ? `${remoteFeatureCount}/3` : "--"}</strong>
+                  <strong>
+                    {settingsSnapshot ? `${remoteFeatureCount}/3` : "--"}
+                  </strong>
                 </div>
               </div>
             </section>
@@ -1269,7 +1412,10 @@ export function StatusDashboardPage() {
               </section>
 
               <div className="status-board-radar-deck">
-                <div className="status-board-radar-screen" aria-label="live signal radar">
+                <div
+                  className="status-board-radar-screen"
+                  aria-label="live signal radar"
+                >
                   <div className="status-board-radar-grid" />
                   <div className="status-board-radar-sweep" />
                   <div className="status-board-radar-core">
@@ -1280,7 +1426,10 @@ export function StatusDashboardPage() {
                   {throughputSegments.map((segment, index) => (
                     <span
                       key={segment.label}
-                      className={cn("status-board-radar-node", `status-board-tone-${segment.tone}`)}
+                      className={cn(
+                        "status-board-radar-node",
+                        `status-board-tone-${segment.tone}`
+                      )}
                       style={{
                         transform: `rotate(${index * 72 - 18}deg) translateX(${118 + segment.width * 0.62}px)`,
                       }}
@@ -1296,7 +1445,10 @@ export function StatusDashboardPage() {
                   {throughputSegments.map((segment) => (
                     <div
                       key={segment.label}
-                      className={cn("status-board-load-row", `status-board-tone-${segment.tone}`)}
+                      className={cn(
+                        "status-board-load-row",
+                        `status-board-tone-${segment.tone}`
+                      )}
                     >
                       <span>{segment.label}</span>
                       <div>
@@ -1323,13 +1475,17 @@ export function StatusDashboardPage() {
               <div className="status-board-event-list">
                 {recentEvents.length === 0 ? (
                   <EmptyState>
-                    我还没收到实时事件；当 token、thinking 或 tool_call 抵达时，这里会亮起来。
+                    我还没收到实时事件；当 token、thinking 或 tool_call
+                    抵达时，这里会亮起来。
                   </EmptyState>
                 ) : (
                   recentEvents.slice(0, 6).map((event) => (
                     <article
                       key={event.id}
-                      className={cn("status-board-event", `status-board-tone-${event.tone}`)}
+                      className={cn(
+                        "status-board-event",
+                        `status-board-tone-${event.tone}`
+                      )}
                     >
                       <span className="status-board-event-dot" />
                       <div>
@@ -1368,13 +1524,17 @@ export function StatusDashboardPage() {
                   <EmptyState>暂无运行中会话。</EmptyState>
                 ) : (
                   runningConversations.slice(0, 4).map((item) => (
-                    <article key={item.id} className="status-board-running-item">
+                    <article
+                      key={item.id}
+                      className="status-board-running-item"
+                    >
                       <div className="status-board-running-dot" />
                       <div>
                         <strong>{truncateMiddle(item.title, 34)}</strong>
                         <span>
-                          {item.cwd ? basename(item.cwd) : "默认空间"} · {item.messageCount}{" "}
-                          messages · {formatDuration(now - item.updatedAt)} ago
+                          {item.cwd ? basename(item.cwd) : "默认空间"} ·{" "}
+                          {item.messageCount} messages ·{" "}
+                          {formatDuration(now - item.updatedAt)} ago
                         </span>
                       </div>
                     </article>
@@ -1393,7 +1553,9 @@ export function StatusDashboardPage() {
               </div>
               <div className="status-board-active-workspace">
                 <span>Active Workspace</span>
-                <strong title={activeWorkspaceHint}>{activeWorkspaceName}</strong>
+                <strong title={activeWorkspaceHint}>
+                  {activeWorkspaceName}
+                </strong>
                 <em>{activeWorkspaceHint}</em>
               </div>
               <div className="status-board-workdir-list">
@@ -1410,7 +1572,9 @@ export function StatusDashboardPage() {
                         <span
                           style={{
                             width: percentage(
-                              ((item.conversationCount || 0) / maxWorkdirCount) * 100,
+                              ((item.conversationCount || 0) /
+                                maxWorkdirCount) *
+                                100
                             ),
                           }}
                         />
@@ -1427,20 +1591,28 @@ export function StatusDashboardPage() {
         <footer className="status-board-footer">
           <span>
             <CheckCircle2 size={14} />
-            Sources: status.get / settings.get / history.list / terminal.list / tunnel.state /
-            providers.list
+            Sources: status.get / settings.get / history.list / terminal.list /
+            tunnel.state / providers.list
           </span>
           <span>
             <Timer size={14} />
-            Snapshot interval {SNAPSHOT_REFRESH_MS / 1000} s · realtime batch {LIVE_FLUSH_MS} ms
+            Snapshot interval {SNAPSHOT_REFRESH_MS / 1000} s · realtime batch{" "}
+            {LIVE_FLUSH_MS} ms
           </span>
           <span>
             <Wrench size={14} />
-            Tool stream {compactNumber(liveCounters.toolCalls + liveCounters.toolResults)} events
+            Tool stream{" "}
+            {compactNumber(
+              liveCounters.toolCalls + liveCounters.toolResults
+            )}{" "}
+            events
           </span>
           <span>
             <Zap size={14} />
-            /dashboard · {status?.session_id ? truncateMiddle(status.session_id, 18) : "no session"}
+            /dashboard ·{" "}
+            {status?.session_id
+              ? truncateMiddle(status.session_id, 18)
+              : "no session"}
           </span>
         </footer>
       </section>

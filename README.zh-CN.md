@@ -1,382 +1,200 @@
+<p align="center">
+  <img src="docs/images/calen-icon.png" alt="Calen" width="168" />
+</p>
+
 <h1 align="center">Calen</h1>
 
 <p align="center">
-  <strong>Your Local-First AI Agent Desktop</strong><br/>
-  多模型接入 · 本地工具执行 · MCP & Skills 生态 · 远程 Gateway
+  一款本地优先的桌面 Agent：真正处理工作、自由扩展工具，并提供证据化股票研究。
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | 简体中文
+  <a href="README.md">English</a> · 简体中文
 </p>
 
 <p align="center">
-  <img alt="Release Platform" src="https://img.shields.io/badge/release-Windows%20x64-blueviolet" />
-  <img alt="Tauri" src="https://img.shields.io/badge/built%20with-Tauri%202-FFC131?logo=tauri&logoColor=white" />
-  <img alt="React" src="https://img.shields.io/badge/React-19-087EA4?logo=react&logoColor=white" />
-  <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-B7410E?logo=rust&logoColor=white" />
-  <img alt="Go" src="https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white" />
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-green" />
+  <a href="https://github.com/MiaTxxx/Calen/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/MiaTxxx/Calen?display_name=tag&style=flat-square" /></a>
+  <img alt="Windows x64" src="https://img.shields.io/badge/desktop-Windows%20x64-2563EB?style=flat-square" />
+  <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8D8?style=flat-square" />
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-16A34A?style=flat-square" /></a>
 </p>
 
 <p align="center">
-  <a href="#核心能力">核心能力</a> •
-  <a href="#下载与部署">下载与部署</a> •
-  <a href="#faq">FAQ</a> •
-  <a href="docs/">文档</a>
+  <a href="https://github.com/MiaTxxx/Calen/releases/latest">下载</a> ·
+  <a href="docs/README.md">文档</a> ·
+  <a href="https://github.com/MiaTxxx/Calen/issues">问题反馈</a>
 </p>
 
 ---
 
-## 🌟 特别鸣谢
+## Calen 是什么
 
-<p align="center">
-  <a href="https://linux.do">
-    <img src="docs/images/linuxdo.png" alt="LINUX DO" width="420" />
-  </a>
-</p>
-<p align="center"><b>学AI，上L站！祝小破站越来越好～</b></p>
+Calen 把 AI Agent 放进一个真正可工作的桌面环境中。它不只回答问题，还可以在授权范围内处理本地文件、执行命令、连接 MCP Server 与 Skills、保留长期上下文、管理定时任务，并协作完成更长的工作流。
 
----
+桌面端是产品主体，也是本地数据与工具执行的真相源。可选的 Gateway 用于从浏览器远程访问已经运行的桌面 Agent；工具执行和持久化存储仍在桌面端，但启用远程功能时，对话、历史、设置和文件上传流量会经过身份验证的 Gateway 中继。
 
-## ❤️ 赞助商
+Calen 还内置了独立的股票研究领域。行情、公司资料、公告、组合记录和实验性量化结果都会携带来源与时效信息，不会被当作模型可以自由生成的事实。
 
-<table>
-<tr>
-<td width="200" align="center" valign="middle"><a href="https://www.packyapi.com/register"><img src="docs/images/partners/packycode.png" alt="PackyCode" width="160"></a></td>
-<td valign="middle">PackyCode 是一家稳定、高效、专业的API中转服务商，提供 Claude Code、Codex、Gemini，国模 等多种中转服务，老牌顶级中转，<b>开发本软件用的绝大多数模型资源都是PackyCode提供，感谢老农！</b>从 <a href="https://www.packyapi.com/register">此处</a> 注册并开始使用！ </td>
-</tr>
-<tr>
-<td width="200" align="center" valign="middle"><a href="https://www.right.codes/register"><img src="docs/images/partners/rightcode.jpg" alt="RightCode" width="160"></a></td>
-<td valign="middle">Right Code 提供稳定的 Claude Code、Codex、Gemini，国模 等模型的中转服务。充值即可开票，企业、团队用户一对一对接。<b>开发本软件用的另一部分模型资源都是RightCode提供，感谢RC站长，感谢小客服！</b> 从 <a href="https://www.right.codes/register">此处</a> 注册并开始使用！</td>
-</tr>
-</table>
+## 核心体验
 
----
+| 领域          | 能力                                                                  |
+| ------------- | --------------------------------------------------------------------- |
+| Agent 工作区  | 流式对话、多轮执行、模型切换、长上下文压缩、代码与文档预览。          |
+| 本地工具      | 文件操作、搜索、Shell、进程托管、文件导入、定时任务和受控子代理协作。 |
+| MCP 与 Skills | 连接外部 MCP Server，按需加载任务型 Skills，保持核心应用边界清晰。    |
+| 记忆          | 通过本地 Markdown 与 SQLite 检索保存项目知识和跨会话上下文。          |
+| 股票研究      | 个股研究、市场复盘、自选、持仓、交易流水、指标、策略与可复算回测。    |
+| 远程访问      | 通过可选的 Go Gateway 与浏览器 WebUI 访问正在运行的桌面 Agent。       |
 
-## 为什么是 Calen?
+### 模型与兼容服务
 
-Calen 是一个 **本地优先** 的 AI Agent 桌面客户端。它将大语言模型的推理能力与本地系统工具深度整合,让 AI 能够真正操作你的文件系统、执行命令、管理定时任务,同时通过 Gateway 实现远程访问与协作。
+Calen 支持 Claude、OpenAI/Codex 与 Gemini 风格的 Provider 流程，也支持为兼容服务配置自定义 Base URL。Provider 凭据由桌面应用持久化，模型请求会发送到用户选择的对应服务端点。
 
-- **真正动手的 Agent** — 不止于对话:读写文件、精确编辑、执行 Bash、托管长驻进程
-- **生态完全开放** — MCP 协议桥接任意外部工具,Skills 技能包按需加载
-- **本地与远程兼得** — 桌面端独立可用,部署 Gateway 后浏览器随处操控
+### 工具权限仍由你控制
 
----
+本地能力由桌面运行时执行。浏览器远程会话使用受限工具配置，不会自动获得无限制的文件系统、Shell、记忆、MCP、Skills、Cron、SSH、隧道或子代理权限。
 
-## 核心能力
+## 股票研究
 
-### 🧠 多模型与对话
+股票工作区定位为研究基础设施，不是自动交易终端。
 
-- **多模型路由** — Claude(Anthropic)与 Codex(OpenAI)、Gemini 三协议,支持自定义 Base URL 接入第三方兼容服务
-- **富文本渲染** — Markdown 流式渲染,内建 KaTeX 公式、Mermaid 图表与 Monaco 代码预览
-- **历史压缩** — Segment + Summary Checkpoint 双层持久化,长对话不丢上下文
-- **国际化** — 内建 i18n 多语言框架
+- 支持 A 股、港股、美股和 ETF 的标的搜索与统一标识，具体覆盖范围取决于数据源。
+- 在数据源支持时提供行情、日 K、公司资料、财务三表、股东、分红、资金流、新闻与公告。
+- 提供市场热点、市场宽度、资金流、异动等由 Provider 数据支撑的盘前与盘后报告模块。
+- 本地保存自选、组合和完整交易流水，支持 CSV 导入导出、多币种汇总与加密备份。
+- 技术指标、评分卡、策略信号、Evaluator 与因果回测统一标记为实验性研究功能，并展示基准、费用、回撤、覆盖率和限制。
+- 内置 Provider 路由、有界缓存、限流、健康检查、熔断和自动回退，不会补造缺失数据。
 
-### 🔧 本地工具执行
+每个证据结果都包含来源、数据截至时间、获取时间、缓存状态和警告。能力不足或调用失败时，会明确返回 `partial` 或 `unavailable`。
 
-- **文件系统全能力** — `Read` / `Write` / `Edit` / `Delete` 精确读写,`Glob` / `Grep` 模式与正则搜索
-- **Bash 与长驻进程** — 非交互式命令执行(cwd / timeout),`ManagedProcess` 托管 dev server 等常驻任务
-- **Sub-Agent 委派** — 独立子代理并行执行,worktree 隔离,自动合并
-- **隧道暴露** — `TunnelManager` 一键将本地服务暴露公网
+> 市场信息可能延迟、不完整或存在错误。Calen 不执行交易、不保证收益，也不构成投资建议。
 
-### 🧩 MCP 与 Skills 生态
+## Windows 下载
 
-- **MCP 协议桥接** — Tauri 端原生桥接任意 stdio / http MCP Server,无限扩展工具能力
-- **Skills 技能包** — 渐进式披露、按需加载,支持安装 / 创建 / 打包与 ClawHub 生态
+当前公开桌面版本为 [Calen v1.1.0](https://github.com/MiaTxxx/Calen/releases/tag/v1.1.0)，支持 Windows x64。
 
-### 💾 记忆与自动化
+| 安装包                               | 适用场景                    |
+| ------------------------------------ | --------------------------- |
+| `Calen-v1.1.0-Windows-x64-Setup.exe` | 普通用户交互式安装。        |
+| `Calen-v1.1.0-Windows-x64.msi`       | 企业分发或基于 MSI 的安装。 |
 
-- **持久化记忆** — Markdown + SQLite FTS 全文检索,跨会话知识管理
-- **定时任务** — bash / http / prompt 三种 Cron 任务类型,后台自动执行
+系统需要 Windows 10/11 与 WebView2。当前安装包没有 Authenticode 发布者签名，因此 Windows 可能提示“未知发布者”；应用更新会单独校验 Tauri updater 签名。
 
-### 📈 股票研究
+该版本不提供便携包、Linux 安装包或 macOS 安装包。
 
-- **Calen 原生股票 Hub** — 研究、市场、自选与持仓、实验室、数据源五个工作区
-- **证据化研究** — 行情、K 线、财务、公告、新闻和市场专题均展示来源、截至时间与缺失警告
-- **本地资产账本** — 交易流水、组合分析、多币种汇总、CSV 导入导出和加密备份
-- **实验性量化能力** — 技术指标、评分、策略信号、Evaluator 与可复算回测，明确展示数据覆盖与限制
+## 第一次使用
 
-### 🌐 远程 Gateway
+1. 从 [GitHub Releases](https://github.com/MiaTxxx/Calen/releases/latest) 安装 Calen。
+2. 添加模型 Provider，并测试配置的服务端点。
+3. 在允许 Agent 操作项目文件前，先选择明确的工作目录。
+4. 只在需要时连接 MCP Server 或安装 Skills。
+5. 打开“股票研究”，搜索证券、检查数据源状态，或创建本地投资组合。
 
-- **浏览器随处访问** — Go + gRPC 网关,WebUI 远程操控本地 Agent
-- **断线可恢复** — 有界 seq window 补齐短时断线,桌面端持久化兜底
+部分免费股票数据源可在不填写 Key 的情况下覆盖基础体验。高级 Provider 各自具有凭据、配额、使用条款和市场范围，请只配置你有权使用的服务。
 
----
+## 架构概览
 
-## 下载与部署
+```mermaid
+flowchart LR
+    Browser["浏览器 WebUI"] <--> Gateway["可选 Go Gateway"]
+    Gateway <--> Desktop["Calen 桌面端"]
+    Desktop --> Runtime["Agent 运行时"]
+    Runtime --> Tools["本地工具 · MCP · Skills · 记忆"]
+    Runtime --> Stock["受管股票 Sidecar"]
+    Desktop --> Storage["本地 SQLite 与 Markdown"]
+```
 
-首个融合股票能力的版本仅发布 Windows x64。安装包由 GitHub Actions 构建并使用 Tauri updater 签名；在 Provider 条款批准与签名门禁满足后，正式版本会发布到 [**GitHub Releases**](https://github.com/MiaTxxx/Calen/releases/latest)。
+- **桌面 UI：** React 19、TypeScript 7、Vite 8、Tailwind CSS 4。
+- **桌面后端：** Tauri 2、Rust、Tokio、SQLite、gRPC。
+- **股票服务：** 由 Calen 管理的 JSON-RPC stdio sidecar，对外返回统一证据结构。
+- **Gateway：** Go 1.25、gRPC、HTTP、WebSocket 与内嵌 React WebUI。
 
-### 系统要求
+完整进程边界与数据流请阅读[总体架构](docs/architecture/overview.md)。
 
-| 平台    | 要求                                      |
-| ------- | ----------------------------------------- |
-| Windows | x64,需 WebView2 运行时(Windows 11 已内置) |
+## 从源码运行
 
-### Windows 用户
+### 环境要求
 
-从 [Releases](https://github.com/MiaTxxx/Calen/releases/latest) 按需选择一种安装方式:
+- Node.js 24 与 pnpm 10.32.1。
+- Rust stable 与对应平台工具链；Windows 开发需要 MSVC Build Tools 和 Windows SDK。
+- 构建 Gateway 时需要 Go 1.25.12。
+- 仓库快捷命令使用 `make`；也可以按照各子项目 manifest 执行等价命令。
 
-| 方式     | 文件                                 | 适合                |
-| -------- | ------------------------------------ | ------------------- |
-| 安装向导 | `Calen-<版本>-Windows-x64-Setup.exe` | 大多数用户          |
-| MSI 包   | `Calen-<版本>-Windows-x64.msi`       | 企业分发 / 静默安装 |
-
-> 首版不提供便携版、Linux 或 macOS 安装包，也没有 Authenticode 代码签名，因此 Windows 可能显示“未知发布者”。应用内更新仍会强制校验 Tauri updater 签名。
-
-### 需要远程访问? 部署 Gateway
-
-桌面端开箱即用,不依赖任何服务端。只有想 **在浏览器里远程操控本地 Agent** 时,才需要部署 Gateway。
-
-**注意：在部署并使用Nginx反向代理后，设置中Remote页面Gateway地址填写Https地址，端口号填写443。**
+### 启动桌面开发环境
 
 ```bash
-# 拉取镜像(GitHub Actions 自动构建,multi-arch: amd64 / arm64)
+git clone https://github.com/MiaTxxx/Calen.git
+cd Calen
+pnpm install
+pnpm --dir crates/stock-sidecar install
+pnpm --dir crates/agent-gui install
+pnpm --dir crates/agent-gateway/web install
+make dev
+```
+
+### 验证
+
+```bash
+pnpm typecheck
+pnpm test
+git diff --check
+```
+
+子项目命令见[开发与运行](docs/operations/development.md)，股票领域边界见[股票集成计划](docs/stock-integration-plan.md)。
+
+## 可选 Gateway
+
+桌面应用可以独立运行。只有需要从浏览器远程访问已经启动的桌面 Agent 时，才需要部署 Gateway。
+
+```bash
 docker pull ghcr.io/miatxxx/calen-gateway:latest
 
-# 后台运行(gRPC → 宿主机 50051 ｜ HTTP/WebSocket → 宿主机 50052)
 docker run -d \
   --name calen-gateway \
   --restart unless-stopped \
   -p 50051:50051 \
   -p 50052:8080 \
-  -e LIVEAGENT_GATEWAY_TOKEN=your-token \
+  -e LIVEAGENT_GATEWAY_TOKEN=replace-with-a-strong-token \
   ghcr.io/miatxxx/calen-gateway:latest
 ```
 
-<details>
-<summary><b>Nginx 反向代理配置</b> — 自建域名 / TLS 时参考</summary>
+`LIVEAGENT_GATEWAY_TOKEN` 是保留的兼容变量。不会破坏迁移安全的新配置会优先使用 `CALEN_*` 名称。
 
-> Gateway 对外有两类流量：
->
-> 桌面端的 gRPC 双向流 (默认 50051) 与浏览器端的 HTTP / WebSocket (默认 50052)。
->
-> 经 Nginx 暴露时需要分别代理,注意 gRPC 与 WebSocket 均为长连接,超时需调大:
+## 隐私与安全边界
 
-```nginx
-# GUI Remote: gRPC Authenticate + AgentConnect
-location /liveagent.gateway.v1.AgentGateway/ {
-    grpc_pass grpc://127.0.0.1:50051;
+- 模型和股票 Provider 凭据持久化在桌面端，并从普通 Gateway 设置快照中脱敏。
+- 如果用户明确通过 WebUI 修改 Provider Key，密钥会经身份验证的 Gateway 会话中继到桌面端；调用模型或市场数据服务时，所需凭据也会发送到配置的 Provider 端点。
+- Gateway 不会直接浏览桌面文件系统，也不是持久化数据源。远程上传以及部分对话、历史和设置数据会经过中继；工作区、记忆、组合与交易流水的持久化状态仍保留在桌面端。
+- 只有用户明确发起组合分析时，AI 工具才会读取相关资产；AI 工具不获得资产写权限。
+- 股票数据失败或字段缺失时会显示警告，不会让模型补齐。
+- 远程访问应使用强 Token、TLS 和最小化的网络暴露范围。
 
-    grpc_set_header Host $host;
-    grpc_set_header Authorization $http_authorization;
-    grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    grpc_set_header X-Forwarded-Proto $scheme;
+## 文档导航
 
-    grpc_socket_keepalive on;
-    grpc_read_timeout 24h;
-    grpc_send_timeout 24h;
-}
+- [文档索引](docs/README.md)
+- [总体架构](docs/architecture/overview.md)
+- [对话运行时](docs/features/chat-runtime.md)
+- [工具系统](docs/features/tools.md)
+- [Skills 与 MCP](docs/features/skills-and-mcp.md)
+- [协议边界](docs/architecture/protocols.md)
+- [股票集成计划](docs/stock-integration-plan.md)
+- [Provider 合规审查](docs/provider-compliance-review.md)
+- [开发与运行](docs/operations/development.md)
 
-# WebUI WebSocket
-location = /ws {
-    proxy_pass http://127.0.0.1:50052;
+## 参与贡献
 
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
+欢迎提交 Issue 和边界清晰的 Pull Request。请把修改放在正确的 Calen 模块中，根据风险补充测试，并在没有迁移方案时保留现有兼容标识。
 
-    proxy_set_header Host $host;
-    proxy_set_header Authorization $http_authorization;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
+提交 PR 前请运行：
 
-    proxy_read_timeout 24h;
-    proxy_send_timeout 24h;
-    proxy_buffering off;
-}
-
-# WebUI SPA/static/API
-location / {
-    proxy_pass http://127.0.0.1:50052;
-
-    proxy_set_header Host $host;
-    proxy_set_header Authorization $http_authorization;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-
-    proxy_read_timeout 10m;
-    proxy_send_timeout 10m;
-}
+```bash
+pnpm typecheck
+pnpm test
+git diff --check
 ```
 
-> 上游端口与上方 `docker run` 的宿主机映射一一对应:gRPC 50051、HTTP/WebSocket 50052(容器内 HTTP 实际监听 `PORT=8080`)。gRPC 代理要求 Nginx 以 HTTP/2 接收桌面端连接(`listen 443 ssl; http2 on;`)。
+## 许可证与第三方归属
 
-</details>
+Calen 使用 [MIT License](LICENSE) 发布，Copyright © 2026 Stack-Cairn。
 
-### 从源码构建
-
-展开下方「开发指南」查看完整 Make 命令。
-
-![](docs/images/architecture.webp)
-
-<details>
-<summary><b>架构总览</b> — 架构图与技术栈</summary>
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                        Browser WebUI                          │
-│              React + Vite + WebSocket + Gateway API           │
-└────────────────────────────┬─────────────────────────────────┘
-                             │ WebSocket / HTTP
-┌────────────────────────────▼─────────────────────────────────┐
-│                       Agent Gateway                           │
-│         Go · gRPC · HTTP · Session Manager · Event Store     │
-│                    (Railway / Docker / 自部署)                 │
-└────────────────────────────┬─────────────────────────────────┘
-                             │ gRPC (双向流)
-┌────────────────────────────▼─────────────────────────────────┐
-│                        Agent GUI                              │
-│                   Tauri 2 · React 19 · Rust                  │
-├──────────┬───────────┬───────────┬───────────┬───────────────┤
-│ 模型协议  │ Agent运行时 │  工具执行   │  Skills   │  Memory/Cron  │
-│ pi-ai    │ 多轮循环   │ FS/Bash/  │  渐进披露  │  SQLite+MD    │
-│ + Codex  │ + SubAgent │ MCP桥接   │  + Hub    │  FTS索引      │
-└──────────┴───────────┴───────────┴───────────┴───────────────┘
-```
-
-**技术栈**
-
-| 组件                 | 技术                                                         |
-| -------------------- | ------------------------------------------------------------ |
-| **Agent GUI** · 框架 | Tauri 2 + React 19 + TypeScript 6                            |
-| **Agent GUI** · 构建 | Vite 8 + pnpm                                                |
-| **Agent GUI** · 样式 | Tailwind CSS 4 + Radix UI                                    |
-| **Agent GUI** · 渲染 | streamdown + KaTeX + Mermaid + Monaco Editor                 |
-| **Agent GUI** · 后端 | Rust + Tokio + SQLite (rusqlite) + gRPC (tonic)              |
-| **Agent GUI** · LLM  | @earendil-works/pi-ai · @openai/codex-sdk · claude-agent-sdk |
-| **Gateway** · 语言   | Go 1.25                                                      |
-| **Gateway** · 协议   | gRPC + Protobuf + HTTP + WebSocket                           |
-| **Gateway** · Web UI | React + Vite + Tailwind CSS(嵌入式)                          |
-| **Gateway** · 部署   | Docker multi-stage · Railway CI/CD                           |
-
-</details>
-
-<details>
-<summary><b>开发指南</b> — 常用 Make 命令(完整列表见 <code>make help</code>)</summary>
-
-| 命令                               | 说明                   |
-| ---------------------------------- | ---------------------- |
-| `make dev`                         | 启动 Tauri 开发环境    |
-| `make build`                       | 构建桌面应用           |
-| `make dev-gateway`                 | 启动 Gateway 开发服务  |
-| `make dev-webui`                   | 启动 WebUI 开发服务    |
-| `make gateway-build`               | 构建 Gateway 二进制    |
-| `make gateway-docker-build`        | 构建 Docker 镜像       |
-| `make gateway-docker-smoke`        | 构建 + 健康检查        |
-| `make desktop-build-macos-release` | macOS 签名发布构建     |
-| `make build-linux`                 | Linux amd64 网关       |
-| `make build-linux-arm`             | Linux arm64 网关       |
-| `make proto`                       | 重新生成 Protobuf 代码 |
-| `make clean`                       | 清理构建产物           |
-
-</details>
-
-<details>
-<summary><b>项目结构</b> — 目录树</summary>
-
-```
-Calen/
-├── crates/
-│   ├── agent-gui/                # 桌面客户端
-│   │   ├── src/                  # React 前端
-│   │   │   ├── components/       #   UI 组件
-│   │   │   ├── lib/              #   核心逻辑 (chat, tools, skills, memory)
-│   │   │   ├── pages/            #   页面 (Chat, Settings)
-│   │   │   ├── i18n/             #   国际化
-│   │   │   └── prompt/           #   System Prompt 模板
-│   │   └── src-tauri/            # Rust 后端 (Tauri)
-│   │
-│   └── agent-gateway/            # Go 网关服务
-│       ├── cmd/gateway/          #   入口
-│       ├── internal/             #   核心实现
-│       ├── proto/v1/             #   Protobuf 定义
-│       └── web/                  #   嵌入式 WebUI
-│
-├── docs/                         # 项目文档
-│   ├── architecture/             #   架构设计
-│   ├── features/                 #   功能说明
-│   └── operations/               #   运维部署
-│
-├── scripts/release/              # 发布自动化
-├── .github/workflows/            # CI/CD (CI + Desktop Release + Gateway Docker)
-├── Dockerfile                    # Gateway 容器镜像
-├── Makefile                      # 构建命令集
-└── Cargo.toml                    # Rust workspace
-```
-
-</details>
-
----
-
-## FAQ
-
-<details>
-<summary><b>API Key 会离开本机吗?</b></summary>
-
-不会。秘钥仅保存在桌面端本地,Gateway 只做协议中继 — 不访问文件系统、不存储任何凭据。
-
-</details>
-
-<details>
-<summary><b>必须部署 Gateway 吗?</b></summary>
-
-不需要。桌面客户端可独立使用全部本地能力;只有需要从浏览器远程访问本地 Agent 时,才部署 Gateway。
-
-</details>
-
-<details>
-<summary><b>支持哪些模型?</b></summary>
-
-内置 Claude(Anthropic) 与 Codex(OpenAI)、Gemini 三协议,并支持自定义 Base URL 接入任何兼容的第三方服务。
-
-</details>
-
-<details>
-<summary><b>长对话 / 断线后上下文会丢吗?</b></summary>
-
-不会。桌面端以 Segment + Summary Checkpoint 持久化完整历史;Gateway 通过有界 seq window 补齐短时断线,重连后自动收敛。
-
-</details>
-
----
-
-## 贡献
-
-欢迎提交 Issue 与 Pull Request!开发环境搭建请参考 [开发指南](docs/operations/development.md)。
-
-提交 PR 前,请确保以下检查全部通过(与 CI 门禁一致):
-
-**桌面客户端 · `crates/agent-gui`**
-
-1. 类型检查与构建通过:`pnpm build`
-2. 代码规范检查通过:`pnpm lint`
-3. 前端单元测试通过:`pnpm test:frontend`(改动发布脚本时另跑 `pnpm test:release`)
-4. Rust 后端检查通过:`cargo check --manifest-path crates/agent-gui/src-tauri/Cargo.toml --tests`(仓库根目录执行)
-
-**Gateway · `crates/agent-gateway`(如有改动)**
-
-1. Go 单元测试通过:`go test ./...`
-2. WebUI 构建 / Lint / 测试通过:`pnpm build && pnpm lint && pnpm test`(在 `web/` 目录执行)
-3. Proto 变更后重新生成并提交产物:`make proto`
-
-**跨端一致性**
-
-- GUI 与 WebUI 的镜像文件必须逐字节一致:`node scripts/check-mirror.mjs`
-- 保持 diff 干净 (无行尾空白):`git diff --check`
-
----
-
-## 👥 贡献者
-
-感谢所有为 Calen 做出贡献的朋友们！
-
-<a href="https://github.com/MiaTxxx/Calen/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=MiaTxxx/Calen" alt="Contributors" />
-</a>
-
----
-
-## License
-
-MIT © StackCairn
+股票研究实现的部分代码或设计来源于 Apache-2.0 许可的 Opptrix。完整归属和随附依赖声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。开源代码许可证不等于第三方市场数据的再分发授权。
