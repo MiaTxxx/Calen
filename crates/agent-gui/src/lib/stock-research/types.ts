@@ -236,6 +236,7 @@ export interface StockServiceStatus {
   state: "starting" | "ready" | "degraded" | "stopped" | "failed";
   version?: string;
   message?: string;
+  runtime?: StockServiceRuntimeStatus;
   providers: Array<{
     id: string;
     name: string;
@@ -244,6 +245,28 @@ export interface StockServiceStatus {
     lastSuccessAt?: string;
     message?: string;
   }>;
+}
+
+export interface StockServiceRuntimeFailure {
+  stage: string;
+  occurredAt?: string;
+  processId?: number;
+  exitCode?: number;
+  firstError?: string;
+  restartError?: string;
+  stderrTail: string[];
+  sidecarRoot?: string;
+}
+
+export interface StockServiceRuntimeStatus {
+  available?: boolean;
+  running?: boolean;
+  disabledAfterFailures?: boolean;
+  consecutiveFailures?: number;
+  sidecarRoot?: string;
+  stderrTail: string[];
+  message?: string;
+  failure?: StockServiceRuntimeFailure;
 }
 
 export interface StockProviderSettings {
@@ -457,6 +480,7 @@ export interface StockResearchPort {
   marketBrief(request: MarketBriefRequest): Promise<StockEvidenceResult<MarketBrief>>;
   backtest(request: StockBacktestRequest): Promise<StockEvidenceResult<BacktestResult>>;
   status(): Promise<StockServiceStatus>;
+  restart(): Promise<StockServiceStatus>;
   settingsGet(): Promise<StockSettings>;
   settingsSave(payload: StockSettingsSavePayload): Promise<StockSettings>;
   portfolioRead(): Promise<PortfolioSnapshot>;

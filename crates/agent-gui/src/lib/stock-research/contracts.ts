@@ -97,6 +97,24 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+export function getStockServiceFailureMessage(status: StockServiceStatus): string | undefined {
+  if (status.state === "ready") return status.runtime?.message ?? status.message;
+  return (
+    status.runtime?.failure?.restartError ??
+    status.runtime?.failure?.firstError ??
+    status.runtime?.message ??
+    status.message
+  );
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function asInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
+}
+
 function isStockCurrency(value: unknown): value is "CNY" | "HKD" | "USD" {
   return value === "CNY" || value === "HKD" || value === "USD";
 }
@@ -884,6 +902,57 @@ export function mapStockBacktestResult(raw: unknown): StockEvidenceResult<Backte
 
 export function mapStockServiceStatus(raw: unknown): StockServiceStatus {
   const record = asRecord(raw);
+  const runtimeRecord = strictRecord(record.runtime);
+  const failureRecord = runtimeRecord
+    ? strictRecord(runtimeRecord.failure ?? runtimeRecord.lastFailure)
+    : null;
+  const runtime = runtimeRecord
+    ? {
+        ...(asBoolean(runtimeRecord.available) === undefined
+          ? {}
+          : { available: asBoolean(runtimeRecord.available) }),
+        ...(asBoolean(runtimeRecord.running) === undefined
+          ? {}
+          : { running: asBoolean(runtimeRecord.running) }),
+        ...(asBoolean(runtimeRecord.disabledAfterFailures) === undefined
+          ? {}
+          : { disabledAfterFailures: asBoolean(runtimeRecord.disabledAfterFailures) }),
+        ...(asInteger(runtimeRecord.consecutiveFailures) === undefined
+          ? {}
+          : { consecutiveFailures: asInteger(runtimeRecord.consecutiveFailures) }),
+        ...(asString(runtimeRecord.sidecarRoot)
+          ? { sidecarRoot: asString(runtimeRecord.sidecarRoot) }
+          : {}),
+        stderrTail: asStringArray(runtimeRecord.stderrTail),
+        ...(asString(runtimeRecord.message) ? { message: asString(runtimeRecord.message) } : {}),
+        ...(failureRecord && asString(failureRecord.stage)
+          ? {
+              failure: {
+                stage: asString(failureRecord.stage) as string,
+                ...(asString(failureRecord.occurredAt)
+                  ? { occurredAt: asString(failureRecord.occurredAt) }
+                  : {}),
+                ...(asInteger(failureRecord.processId) === undefined
+                  ? {}
+                  : { processId: asInteger(failureRecord.processId) }),
+                ...(asInteger(failureRecord.exitCode) === undefined
+                  ? {}
+                  : { exitCode: asInteger(failureRecord.exitCode) }),
+                ...(asString(failureRecord.firstError)
+                  ? { firstError: asString(failureRecord.firstError) }
+                  : {}),
+                ...(asString(failureRecord.restartError)
+                  ? { restartError: asString(failureRecord.restartError) }
+                  : {}),
+                stderrTail: asStringArray(failureRecord.stderrTail),
+                ...(asString(failureRecord.sidecarRoot)
+                  ? { sidecarRoot: asString(failureRecord.sidecarRoot) }
+                  : {}),
+              },
+            }
+          : {}),
+      }
+    : undefined;
   const state =
     record.state === "ready" ||
     record.state === "degraded" ||
@@ -975,6 +1044,7 @@ export function mapStockServiceStatus(raw: unknown): StockServiceStatus {
     state,
     version: asString(record.version),
     message: asString(record.message),
+    ...(runtime ? { runtime } : {}),
     providers,
   };
 }

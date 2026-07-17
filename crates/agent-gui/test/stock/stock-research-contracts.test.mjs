@@ -6,6 +6,7 @@ import { createTsModuleLoader } from "../helpers/load-ts-module.mjs";
 import {
   buildSparklinePath,
   formatStockError,
+  getStockServiceFailureMessage,
   isStockResultStatus,
   mapStockBacktestResult,
   mapStockMarketBriefResult,
@@ -648,6 +649,7 @@ test("Tauri adapter exposes only the agreed high-level commands", async () => {
     "stock_research_market_brief",
     "stock_research_backtest",
     "stock_research_status",
+    "stock_restart",
     "stock_settings_get",
     "stock_settings_save",
     "stock_portfolio_read",
@@ -666,6 +668,115 @@ test("Tauri adapter exposes only the agreed high-level commands", async () => {
     /pub async fn stock_research_market_brief[\s\S]*?invoke_stock_method\(app, state, "marketBrief", request\)/
   );
   assert.doesNotMatch(source, /http:\/\/|https:\/\//);
+});
+
+test("stock service status keeps safe runtime failure diagnostics", () => {
+  const status = mapStockServiceStatus({
+    state: "failed",
+    message: "股票 sidecar 连续失败，已暂停自动重启",
+    providers: [],
+    runtime: {
+      available: true,
+      running: false,
+      disabledAfterFailures: true,
+      consecutiveFailures: 2,
+      sidecarRoot: "D:\\Calen\\stock-sidecar",
+      stderrTail: ["provider key=[REDACTED]", "node exited"],
+      lastFailure: {
+        stage: "write",
+        occurredAt: "2026-07-17T08:00:00.000Z",
+        processId: 4242,
+        exitCode: 1,
+        firstError: "管道正在被关闭。(os error 232)",
+        restartError: "重启后的 sidecar 也提前退出",
+        stderrTail: ["node exited"],
+        sidecarRoot: "D:\\Calen\\stock-sidecar",
+      },
+    },
+  });
+
+  assert.equal(status.runtime?.failure?.stage, "write");
+  assert.equal(status.runtime?.failure?.processId, 4242);
+  assert.equal(status.runtime?.failure?.exitCode, 1);
+  assert.equal(
+    status.runtime?.failure?.firstError,
+    "管道正在被关闭。(os error 232)"
+  );
+  assert.equal(
+    status.runtime?.failure?.restartError,
+    "重启后的 sidecar 也提前退出"
+  );
+  assert.deepEqual(status.runtime?.failure?.stderrTail, ["node exited"]);
+  assert.equal(status.runtime?.consecutiveFailures, 2);
+  assert.equal(status.runtime?.disabledAfterFailures, true);
+});
+
+test("stock service failure message prefers the concrete restart failure", () => {
+  assert.equal(
+    getStockServiceFailureMessage({
+      state: "failed",
+      message: "股票 sidecar 连续失败，已暂停自动重启",
+      providers: [],
+      runtime: {
+        running: false,
+        stderrTail: [],
+        failure: {
+          stage: "unexpected-exit",
+          firstError: "首次启动时管道关闭",
+          restartError: "自动重启后进程退出，exit code 1",
+          stderrTail: [],
+        },
+      },
+    }),
+    "自动重启后进程退出，exit code 1"
+  );
+});
+
+test("recovered stock service keeps historical failures in diagnostics only", () => {
+  assert.equal(
+    getStockServiceFailureMessage({
+      state: "ready",
+      providers: [],
+      runtime: {
+        running: true,
+        stderrTail: [],
+        failure: {
+          stage: "write",
+          firstError: "historical pipe failure",
+          stderrTail: [],
+        },
+      },
+    }),
+    undefined
+  );
+});
+
+test("Tauri adapter preserves a live degraded status after restart", () => {
+  const calls = [];
+  const adapterLoader = createTsModuleLoader({
+    mocks: {
+      "@tauri-apps/api/core": {
+        async invoke(command, args) {
+          calls.push({ command, args });
+          return {
+            state: "degraded",
+            version: "1.1.0",
+            providers: [],
+            runtime: { running: true, consecutiveFailures: 0 },
+          };
+        },
+      },
+    },
+  });
+  const { TauriStockResearchAdapter } = adapterLoader.loadModule(
+    "src/lib/stock-research/tauri.ts"
+  );
+
+  return new TauriStockResearchAdapter().restart().then((status) => {
+    assert.deepEqual(calls, [{ command: "stock_restart", args: undefined }]);
+    assert.equal(status.state, "degraded");
+    assert.equal(status.runtime?.running, true);
+  });
 });
 
 test("stock hub keeps the five product views", async () => {
@@ -693,6 +804,17 @@ test("stock hub keeps the five product views", async () => {
   }
   assert.match(source, /不构成投资建议/);
   assert.match(source, /已保存的 Key 永不回显/);
+  assert.match(source, /重启股票服务/);
+  assert.match(source, /stockResearch\.restart\(\)/);
+  assert.match(source, /next\.runtime\?\.running !== true/);
+  assert.match(source, /股票服务部分可用/);
+  assert.match(source, /resource\.data\.runtime\?\.running === true/);
+  assert.match(source, /正在重启股票服务/);
+  assert.match(source, /重启失败/);
+  assert.match(source, /运行诊断/);
+  assert.match(source, /首次错误/);
+  assert.match(source, /重启错误/);
+  assert.match(source, /stderr/);
   assert.match(portfolioSource, /autoComplete="new-password"/);
   assert.doesNotMatch(source, /value=\{provider\.key/);
   assert.match(portfolioSource, /mode === "replaceAll"/);

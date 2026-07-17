@@ -20,6 +20,7 @@ import {
   type BacktestResult,
   formatStockError,
   generateStockAiResearchBrief,
+  getStockServiceFailureMessage,
   type InstrumentRef,
   type InstrumentSearchResult,
   type MarketBrief,
@@ -115,12 +116,19 @@ export function StockHubPage({
                 </button>
               ))}
             </nav>
+            {view === "research" || view === "market" ? (
+              <ServiceFailureNotice resource={status} />
+            ) : null}
             {view === "research" ? <ResearchView modelSettings={modelSettings} /> : null}
             {view === "market" ? <MarketView selectedModel={modelSettings.selectedModel} /> : null}
             {view === "portfolio" ? <PortfolioView /> : null}
             {view === "lab" ? <LabView /> : null}
             {view === "sources" ? (
-              <SourcesView resource={status} onRefresh={refreshStatus} />
+              <SourcesView
+                resource={status}
+                onRefresh={refreshStatus}
+                onRestarted={(next) => setStatus({ state: "ready", data: next })}
+              />
             ) : null}
           </div>
         </div>
@@ -131,13 +139,17 @@ export function StockHubPage({
 
 function ServicePill({ resource }: { resource: AsyncResource<StockServiceStatus> }) {
   const ready = resource.state === "ready" && resource.data.state === "ready";
+  const partiallyAvailable =
+    resource.state === "ready" && resource.data.runtime?.running === true && !ready;
   return (
     <div
       className={cn(
         "hidden items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] sm:flex",
         ready
           ? "border-emerald-500/25 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300"
-          : "border-border/45 bg-background/60 text-muted-foreground",
+          : partiallyAvailable
+            ? "border-amber-500/25 bg-amber-500/5 text-amber-700 dark:text-amber-300"
+            : "border-border/45 bg-background/60 text-muted-foreground",
       )}
     >
       <span
@@ -145,13 +157,55 @@ function ServicePill({ resource }: { resource: AsyncResource<StockServiceStatus>
           "h-1.5 w-1.5 rounded-full",
           ready
             ? "bg-emerald-500"
-            : resource.state === "loading"
-              ? "animate-pulse bg-amber-500"
-              : "bg-muted-foreground/50",
+            : partiallyAvailable
+              ? "bg-amber-500"
+              : resource.state === "loading"
+                ? "animate-pulse bg-amber-500"
+                : "bg-muted-foreground/50",
         )}
       />
-      {ready ? "股票服务已就绪" : resource.state === "loading" ? "正在连接" : "服务未就绪"}
+      {ready
+        ? "股票服务已就绪"
+        : partiallyAvailable
+          ? "股票服务部分可用"
+          : resource.state === "loading"
+            ? "正在连接"
+            : "服务未就绪"}
     </div>
+  );
+}
+
+function ServiceFailureNotice({ resource }: { resource: AsyncResource<StockServiceStatus> }) {
+  if (resource.state === "idle" || resource.state === "loading") return null;
+  if (
+    resource.state === "ready" &&
+    (resource.data.state === "ready" || resource.data.runtime?.running === true)
+  )
+    return null;
+
+  const status = resource.state === "ready" ? resource.data : null;
+  const specificMessage = status
+    ? getStockServiceFailureMessage(status)
+    : resource.state === "error"
+      ? resource.message
+      : undefined;
+  const generalMessage = status?.message;
+
+  return (
+    <GlassPanel tone="error">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold">股票服务异常</h2>
+          <p className="mt-1 break-words text-xs text-destructive">
+            {specificMessage ?? "股票服务当前不可用，请前往数据源页面查看诊断并重启服务。"}
+          </p>
+          {generalMessage && generalMessage !== specificMessage ? (
+            <p className="mt-1 text-[10.5px] text-muted-foreground">服务状态：{generalMessage}</p>
+          ) : null}
+        </div>
+      </div>
+    </GlassPanel>
   );
 }
 
@@ -1378,9 +1432,11 @@ function BacktestTrades({ trades }: { trades: BacktestResult["trades"] }) {
 function SourcesView({
   resource,
   onRefresh,
+  onRestarted,
 }: {
   resource: AsyncResource<StockServiceStatus>;
   onRefresh: () => Promise<void>;
+  onRestarted: (status: StockServiceStatus) => void;
 }) {
   const [settings, setSettings] = useState<AsyncResource<StockSettings>>({
     state: "idle",
@@ -1389,6 +1445,9 @@ function SourcesView({
   const [clearKeys, setClearKeys] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
+  const [restartSucceeded, setRestartSucceeded] = useState(false);
 
   const loadSettings = useCallback(async () => {
     setSettings({ state: "loading" });
@@ -1438,9 +1497,41 @@ function SourcesView({
     }
   }
 
+  async function restartService() {
+    setRestarting(true);
+    setRestartError(null);
+    setRestartSucceeded(false);
+    try {
+      const next = await stockResearch.restart();
+      if (next.runtime?.running !== true) {
+        throw new Error(getStockServiceFailureMessage(next) ?? "股票服务重启后仍未完成探活。");
+      }
+      onRestarted(next);
+      setRestartSucceeded(true);
+    } catch (error) {
+      setRestartError(formatStockError(error));
+    } finally {
+      setRestarting(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex justify-end gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void restartService()}
+          disabled={restarting || resource.state === "loading"}
+          className="gap-2"
+        >
+          {restarting ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Server className="h-3.5 w-3.5" />
+          )}
+          {restarting ? "正在重启股票服务…" : "重启股票服务"}
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -1454,6 +1545,19 @@ function SourcesView({
           刷新状态
         </Button>
       </div>
+      {restartError ? (
+        <GlassPanel tone="error">
+          <div className="flex items-start gap-2 text-xs text-destructive">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>重启失败：{restartError}</span>
+          </div>
+        </GlassPanel>
+      ) : null}
+      {restartSucceeded ? (
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+          股票服务已重启并完成探活。
+        </div>
+      ) : null}
       {resource.state === "loading" ? <LoadingCard text="检查 sidecar 与 Provider…" /> : null}
       <ResourceError resource={resource} panel />
       <ResourceError resource={settings} panel />
@@ -1498,11 +1602,18 @@ function SourcesView({
                   />
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {resource.data.message ??
+                  {getStockServiceFailureMessage(resource.data) ??
                     `状态：${resource.data.state}${resource.data.version ? ` · v${resource.data.version}` : ""}`}
                 </p>
+                {resource.data.message &&
+                resource.data.message !== getStockServiceFailureMessage(resource.data) ? (
+                  <p className="mt-1 text-[10.5px] text-muted-foreground">
+                    服务状态：{resource.data.message}
+                  </p>
+                ) : null}
               </div>
             </div>
+            <RuntimeDiagnostics status={resource.data} />
           </GlassPanel>
           <StockCapabilityMatrix />
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -1564,6 +1675,58 @@ function SourcesView({
         </>
       ) : null}
     </div>
+  );
+}
+
+function RuntimeDiagnostics({ status }: { status: StockServiceStatus }) {
+  const runtime = status.runtime;
+  if (!runtime) return null;
+  const failure = runtime.failure;
+  const stderrTail = failure?.stderrTail.length ? failure.stderrTail : runtime.stderrTail;
+  const sidecarRoot = failure?.sidecarRoot ?? runtime.sidecarRoot;
+
+  return (
+    <details className="mt-4 rounded-xl border border-border/40 bg-background/45 px-3 py-2">
+      <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">
+        运行诊断
+      </summary>
+      <div className="mt-3 grid gap-2 text-[10.5px] text-muted-foreground sm:grid-cols-2">
+        <div>运行中：{runtime.running === undefined ? "未知" : runtime.running ? "是" : "否"}</div>
+        <div>连续失败：{runtime.consecutiveFailures ?? "未知"}</div>
+        {failure?.stage ? <div>故障阶段：{failure.stage}</div> : null}
+        {failure?.occurredAt ? <div>发生时间：{failure.occurredAt}</div> : null}
+        {failure?.processId !== undefined ? <div>进程 PID：{failure.processId}</div> : null}
+        {failure?.exitCode !== undefined ? <div>退出码：{failure.exitCode}</div> : null}
+        {sidecarRoot ? (
+          <div className="break-all sm:col-span-2">Sidecar 路径：{sidecarRoot}</div>
+        ) : null}
+      </div>
+      {failure?.firstError ? (
+        <div className="mt-3 rounded-lg bg-destructive/5 px-3 py-2 text-[10.5px] text-destructive">
+          <span className="font-medium">首次错误：</span>
+          <span className="break-words">{failure.firstError}</span>
+        </div>
+      ) : null}
+      {failure?.restartError ? (
+        <div className="mt-2 rounded-lg bg-destructive/5 px-3 py-2 text-[10.5px] text-destructive">
+          <span className="font-medium">重启错误：</span>
+          <span className="break-words">{failure.restartError}</span>
+        </div>
+      ) : null}
+      {runtime.message ? (
+        <div className="mt-2 break-words text-[10.5px] text-muted-foreground">
+          Runtime：{runtime.message}
+        </div>
+      ) : null}
+      {stderrTail.length ? (
+        <div className="mt-3">
+          <div className="mb-1 text-[10.5px] font-medium text-muted-foreground">stderr 尾部</div>
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-black/5 p-3 text-[10px] leading-4 text-muted-foreground dark:bg-white/5">
+            {stderrTail.join("\n")}
+          </pre>
+        </div>
+      ) : null}
+    </details>
   );
 }
 

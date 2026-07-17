@@ -48,6 +48,7 @@ const commands = {
   marketBrief: "stock_research_market_brief",
   backtest: "stock_research_backtest",
   status: "stock_research_status",
+  restart: "stock_restart",
   settingsGet: "stock_settings_get",
   settingsSave: "stock_settings_save",
   portfolioRead: "stock_portfolio_read",
@@ -113,6 +114,10 @@ export class TauriStockResearchAdapter implements StockResearchPort, StockFxRate
 
   status() {
     return invoke<unknown>(commands.status).then(mapStockServiceStatus);
+  }
+
+  restart() {
+    return invoke<unknown>(commands.restart).then(mapStockServiceStatus);
   }
 
   settingsGet() {
