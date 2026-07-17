@@ -982,6 +982,7 @@ async fn terminate_stock_process(process: &mut StockProcess) -> Result<Option<i3
     Ok(status.code())
 }
 
+#[derive(Debug)]
 struct SidecarLaunch {
     program: PathBuf,
     args: Vec<OsString>,
