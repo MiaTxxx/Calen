@@ -1,4 +1,5 @@
 {
   "crates/agent-gui/src/**/*.{css,js,jsx,json,ts,tsx}": "pnpm --dir crates/agent-gui exec biome check --write --no-errors-on-unmatched",
+  "crates/agent-gateway/web/src/**/*.{css,js,jsx,json,ts,tsx}": "pnpm --dir crates/agent-gateway/web exec biome check --write --no-errors-on-unmatched",
   "*": "prettier --ignore-unknown --write"
 }

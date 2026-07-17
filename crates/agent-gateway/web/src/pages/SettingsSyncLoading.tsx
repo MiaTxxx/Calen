@@ -6,19 +6,9 @@ type SettingsSyncLoadingProps = {
 
 export function SettingsSyncLoading({ locale }: SettingsSyncLoadingProps) {
   return (
-    <div
-      className="sync-loading sync-loading-entrance"
-      role="status"
-      aria-live="polite"
-    >
-      <div
-        className="sync-loading-orb sync-loading-orb--1"
-        aria-hidden="true"
-      />
-      <div
-        className="sync-loading-orb sync-loading-orb--2"
-        aria-hidden="true"
-      />
+    <div className="sync-loading sync-loading-entrance" role="status" aria-live="polite">
+      <div className="sync-loading-orb sync-loading-orb--1" aria-hidden="true" />
+      <div className="sync-loading-orb sync-loading-orb--2" aria-hidden="true" />
 
       <div className="sync-loading-stage">
         <div className="sync-loading-icon">

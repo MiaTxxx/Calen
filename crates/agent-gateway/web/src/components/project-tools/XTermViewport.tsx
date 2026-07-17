@@ -251,8 +251,7 @@ export function XTermViewport({
     window.setTimeout(fitAndResize, 0);
 
     const applyStdinState = () => {
-      term.options.disableStdin =
-        !sessionRef.current.running || inputPausedByStream;
+      term.options.disableStdin = !sessionRef.current.running || inputPausedByStream;
     };
 
     const applyInputState = (state: TerminalStreamInputState) => {
@@ -369,7 +368,7 @@ export function XTermViewport({
         (nextOffset) => {
           lastOutputOffset = nextOffset;
         },
-        lastOutputOffset
+        lastOutputOffset,
       );
       if (result !== "skipped") {
         renderedOutput = true;
@@ -397,8 +396,7 @@ export function XTermViewport({
         lastOutputOffset = endOffset;
       } else if (endOffset > lastOutputOffset) {
         const alreadyWritten = lastOutputOffset - startOffset;
-        const pending =
-          alreadyWritten > 0 ? bytes.subarray(alreadyWritten) : bytes;
+        const pending = alreadyWritten > 0 ? bytes.subarray(alreadyWritten) : bytes;
         if (pending.byteLength > 0) {
           term.write(pending);
         }
@@ -428,10 +426,7 @@ export function XTermViewport({
     const scheduleSnapshotRetry = () => {
       if (disposed || streamHandle || snapshotRetryTimer !== null) return;
       const delay = snapshotRetryDelayMs;
-      snapshotRetryDelayMs = Math.min(
-        snapshotRetryDelayMs * 2,
-        SNAPSHOT_ATTACH_RETRY_MAX_MS
-      );
+      snapshotRetryDelayMs = Math.min(snapshotRetryDelayMs * 2, SNAPSHOT_ATTACH_RETRY_MAX_MS);
       snapshotRetryTimer = window.setTimeout(() => {
         snapshotRetryTimer = null;
         loadSnapshot();
@@ -495,11 +490,7 @@ export function XTermViewport({
     let streamInputUnsubscribe: (() => void) | null = null;
     const unsubscribe = client.subscribe((event) => {
       if (disposed || event.sessionId !== session.id) return;
-      if (
-        event.kind === "exit" ||
-        event.kind === "closed" ||
-        event.kind === "reconnecting"
-      ) {
+      if (event.kind === "exit" || event.kind === "closed" || event.kind === "reconnecting") {
         term.options.disableStdin = true;
       }
       if (event.kind === "reconnected") {
@@ -547,10 +538,7 @@ export function XTermViewport({
     <div
       ref={containerRef}
       style={viewportStyle}
-      className={cn(
-        "project-terminal-viewport h-full min-h-0 w-full overflow-hidden",
-        className
-      )}
+      className={cn("project-terminal-viewport h-full min-h-0 w-full overflow-hidden", className)}
     />
   );
 }
@@ -586,8 +574,7 @@ function terminalSnapshotEndOffset(snapshot: TerminalSnapshot) {
   }
   return (
     terminalSnapshotStartOffset(snapshot) +
-    (snapshot.outputBytes?.byteLength ??
-      new TextEncoder().encode(snapshot.output).byteLength)
+    (snapshot.outputBytes?.byteLength ?? new TextEncoder().encode(snapshot.output).byteLength)
   );
 }
 
@@ -597,7 +584,7 @@ export function writeTerminalChunk(
   term: Pick<XTerm, "write" | "reset">,
   chunk: TerminalStreamChunk,
   setLastOutputOffset: (offset: number) => void,
-  lastOutputOffset: number
+  lastOutputOffset: number,
 ): "written" | "skipped" | "reset" {
   const data = chunk.bytes;
   if (data.byteLength === 0) return "skipped";

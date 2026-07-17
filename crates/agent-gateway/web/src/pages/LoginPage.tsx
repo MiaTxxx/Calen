@@ -1,12 +1,5 @@
 import { useState } from "react";
-import {
-  ArrowRight,
-  History,
-  Key,
-  Lock,
-  MessageSquareText,
-  Timer,
-} from "../components/icons";
+import { ArrowRight, History, Key, Lock, MessageSquareText, Timer } from "../components/icons";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import { cn } from "../lib/shared/utils";
@@ -40,27 +33,15 @@ const features = [
   },
 ];
 
-export function LoginPage({
-  token,
-  error,
-  isSubmitting,
-  onTokenChange,
-  onSubmit,
-}: LoginPageProps) {
+export function LoginPage({ token, error, isSubmitting, onTokenChange, onSubmit }: LoginPageProps) {
   const [isFocused, setIsFocused] = useState(false);
 
   return (
     <main className="login-shell">
       {/* Subtle mesh gradient backdrop */}
       <div className="login-backdrop" aria-hidden="true" />
-      <div
-        className="login-backdrop-orb login-backdrop-orb--1"
-        aria-hidden="true"
-      />
-      <div
-        className="login-backdrop-orb login-backdrop-orb--2"
-        aria-hidden="true"
-      />
+      <div className="login-backdrop-orb login-backdrop-orb--1" aria-hidden="true" />
+      <div className="login-backdrop-orb login-backdrop-orb--2" aria-hidden="true" />
 
       <div className="login-container login-entrance">
         {/* Left: branding + features */}
@@ -100,17 +81,10 @@ export function LoginPage({
                 </div>
                 <h2 className="login-form-title">连接控制台</h2>
               </div>
-              <p className="login-form-sub">
-                输入 Gateway 服务端的 Access Token 以验证身份
-              </p>
+              <p className="login-form-sub">输入 Gateway 服务端的 Access Token 以验证身份</p>
             </div>
 
-            <div
-              className={cn(
-                "login-input-wrap",
-                isFocused && "login-input-wrap--focus"
-              )}
-            >
+            <div className={cn("login-input-wrap", isFocused && "login-input-wrap--focus")}>
               <label htmlFor="access-token" className="login-input-label">
                 <Key size={12} strokeWidth={2.5} />
                 Access Token
@@ -149,9 +123,7 @@ export function LoginPage({
               )}
             </Button>
 
-            <p className="login-form-footer">
-              Token 验证通过后将本地保存，下次自动登录
-            </p>
+            <p className="login-form-footer">Token 验证通过后将本地保存，下次自动登录</p>
           </div>
         </div>
       </div>
