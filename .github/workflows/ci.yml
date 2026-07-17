@@ -298,21 +298,20 @@ jobs:
           CARGO_TERM_COLOR: always
         run: cargo check --manifest-path crates/agent-gui/src-tauri/Cargo.toml --tests
 
-      - name: Test stock lifecycle on Windows
+      # A liveagent `cargo test --lib` executable lacks the app's Common Controls
+      # v6 manifest and fails in the Windows loader before the Rust harness starts.
+      - name: Test stock process tree and launch runtime on Windows
         env:
           CARGO_TERM_COLOR: always
-        run: cargo test --manifest-path crates/stock-process-tree/Cargo.toml
+        run: |
+          cargo test --manifest-path crates/stock-process-tree/Cargo.toml
+          cargo test --manifest-path crates/stock-sidecar-runtime/Cargo.toml
 
-      - name: Test stock Manager launch paths on Windows
-        env:
-          CARGO_TERM_COLOR: always
-        run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml node_launch_paths --lib
-
-      - name: Smoke packaged stock sidecar through the Manager on Windows
+      - name: Smoke packaged stock sidecar through the production launch runtime
         env:
           CARGO_TERM_COLOR: always
           CALEN_STOCK_WINDOWS_INSTALL_ROOT: ${{ github.workspace }}\crates\agent-gui\src-tauri\resources\stock-sidecar
-        run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml installed_node_and_dist_work_through_the_manager_request_path --lib -- --ignored
+        run: cargo test --manifest-path crates/stock-sidecar-runtime/Cargo.toml packaged_sidecar_uses_production_launch_and_stdio -- --ignored
 
       - name: Test stock portfolio ledger on Windows
         env:

@@ -620,6 +620,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "calen-stock-process-tree"
+version = "0.1.0"
+dependencies = [
+ "wait-timeout",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "calen-stock-sidecar-runtime"
+version = "0.1.0"
+dependencies = [
+ "calen-stock-process-tree",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "camino"
 version = "1.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -659,14 +677,6 @@ checksum = "374b7c592d9c00c1f4972ea58390ac6b18cbb6ab79011f3bdc90a0b82ca06b77"
 dependencies = [
  "serde",
  "toml 0.9.12+spec-1.1.0",
-]
-
-[[package]]
-name = "calen-stock-process-tree"
-version = "0.1.0"
-dependencies = [
- "wait-timeout",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3279,6 +3289,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "calen-stock-process-tree",
+ "calen-stock-sidecar-runtime",
  "chacha20poly1305",
  "chrono",
  "dirs",

@@ -43,6 +43,10 @@ const updaterSignatureVerifier = readFileSync(
   path.join(guiRoot, "src-tauri/examples/verify-updater-signature.rs"),
   "utf8"
 );
+const v112ReleaseNotes = readFileSync(
+  path.join(repoRoot, "docs/releases/v1.1.2.md"),
+  "utf8"
+);
 
 function runValidation(env = {}) {
   return spawnSync(process.execPath, [validationScript], {
@@ -164,6 +168,19 @@ test("desktop release publishes only Windows installers and a Windows updater ma
   );
   assert.match(releaseWorkflow, /needs\.windows\.result == 'success'/);
   assert.match(releaseWorkflow, /some\(k=>!k\.startsWith\("windows-"\)\)/);
+});
+
+test("desktop release prefers curated tag notes for GitHub and updater metadata", () => {
+  assert.match(
+    releaseWorkflow,
+    /curated_notes_path="docs\/releases\/\$\{RELEASE_TAG\}\.md"/
+  );
+  assert.match(
+    releaseWorkflow,
+    /if \[ -s "\$curated_notes_path" \]; then[\s\S]*?cp "\$curated_notes_path" "\$notes_path"/
+  );
+  assert.match(v112ReleaseNotes, /^# Calen v1\.1\.2/m);
+  assert.match(v112ReleaseNotes, /Windows 安装版股票研究服务/);
 });
 
 test("desktop release resolves metadata, builds, and publishes from the same tag", () => {
@@ -296,16 +313,21 @@ test("pull request CI builds temporary-signed Windows installers and runs lifecy
   assert.match(ciWorkflow, /STOCK_NODE_VERSION: 24\.17\.0/);
   assert.match(
     ciWorkflow,
-    /Smoke packaged stock sidecar through the Manager on Windows/
+    /Smoke packaged stock sidecar through the production launch runtime/
   );
   assert.match(
     ciWorkflow,
-    /installed_node_and_dist_work_through_the_manager_request_path --lib -- --ignored/
+    /cargo test --manifest-path crates\/stock-sidecar-runtime\/Cargo\.toml packaged_sidecar_uses_production_launch_and_stdio -- --ignored/
   );
   assert.match(
+    ciWorkflow,
+    /cargo test --manifest-path crates\/stock-sidecar-runtime\/Cargo\.toml/
+  );
+  assert.doesNotMatch(
     ciWorkflow,
     /cargo test --manifest-path crates\/agent-gui\/src-tauri\/Cargo\.toml node_launch_paths --lib/
   );
+  assert.match(ciWorkflow, /Common Controls/);
   assert.match(ciWorkflow, /CALEN_STOCK_WINDOWS_INSTALL_ROOT/);
   assert.match(ciWorkflow, /--example verify-updater-signature/);
   assert.match(ciWorkflow, /test-msiexec-argument-quoting\.ps1/);
@@ -324,11 +346,11 @@ test("pull request CI builds temporary-signed Windows installers and runs lifecy
   );
   assert.match(
     releaseWorkflow,
-    /Smoke packaged stock sidecar through the Manager/
+    /Smoke packaged stock sidecar through the production launch runtime/
   );
   assert.match(
     releaseWorkflow,
-    /installed_node_and_dist_work_through_the_manager_request_path --lib -- --ignored/
+    /cargo test --manifest-path crates\/stock-sidecar-runtime\/Cargo\.toml packaged_sidecar_uses_production_launch_and_stdio -- --ignored/
   );
 });
 

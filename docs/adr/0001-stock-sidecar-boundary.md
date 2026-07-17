@@ -20,7 +20,8 @@ Windows 安装包携带固定为 Node 24.17.0 x64 的运行时和 sidecar 编译
 - API Key 由 Tauri 本地秘密存储注入，禁止进入 Gateway、普通设置同步和日志。
 - 首版 Manager 为保证 stdio 响应匹配与取消语义，跨请求串行执行；单次研究内部可并行查询多个 Provider 能力。若后续需要高并发，再引入独立 reader task 与 request-id 多路复用。
 - Windows sidecar 进程加入 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` Job Object；更新安装、应用重启和真实退出都会先停止 sidecar，避免 `node.exe` 锁定安装目录或遗留子进程。
-- Windows CI 和 Release 会从已暂存的安装包资源运行 `StockResearchManager` 请求 smoke，而非只直接调用 `node.exe`；该 smoke 同时覆盖 `\\?\` 资源路径归一化、stdio JSON-RPC 和进程树清理。
+- `crates/stock-sidecar-runtime` 是不依赖 Tauri/WebView2 的生产启动层，统一生成 Node、入口参数、工作目录、stdio 管道和 Windows 无窗口进程配置；`StockResearchManager` 与 Windows smoke 必须共用该层，禁止分别拼装命令。
+- Windows CI 和 Release 会从已暂存的安装包资源调用生产启动层，连续完成两次 stdio JSON-RPC 请求，并覆盖 `\\?\` 资源路径归一化与 Job Object 清理。完整 Manager 的自动重启、熔断、超时、取消和诊断策略由 Linux Tauri backend 测试覆盖；Windows 不直接运行 `liveagent_lib` 测试二进制，因为该测试 EXE 不含应用的 Common Controls v6 manifest，loader 会在 Rust test harness 启动前因 `comctl32.dll!TaskDialogIndirect` 触发 `0xc0000139`。
 - ZZShare、Tushare、TickFlow、Fuyao Key Provider 已实现，但仍默认关闭。保存的 Key 仅从 Windows Credential Manager 注入 sidecar，普通设置、Gateway 投影和日志只显示 `keyConfigured`。
 - Provider Registry 同时具有请求前节流 seam 和响应后冷却/熔断；同一 Provider 的不同能力共享上游总节拍，健康与熔断按 Provider、能力和市场隔离。未探测的备用源保持 `unknown`，不会单独把可工作的服务判为降级；本地节流等待支持取消和总超时，且不会被误计为 Provider 上游失败。
 - 用户配置的 `timeoutMs` 是 Tauri Manager 的整单截止时间；sidecar 从中派生更短且最多 15 秒的单 Provider 尝试预算，为后续回退和协议收尾保留时间。

@@ -1,3 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/agent-gui/src-tauri", "crates/stock-process-tree"]
+members = [
+  "crates/agent-gui/src-tauri",
+  "crates/stock-process-tree",
+  "crates/stock-sidecar-runtime",
+]

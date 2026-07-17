@@ -121,11 +121,11 @@ jobs:
             throw "Stock sidecar resource must not contain node_modules."
           }
 
-      - name: Smoke packaged stock sidecar through the Manager
+      - name: Smoke packaged stock sidecar through the production launch runtime
         env:
           CARGO_TERM_COLOR: always
           CALEN_STOCK_WINDOWS_INSTALL_ROOT: ${{ github.workspace }}\crates\agent-gui\src-tauri\resources\stock-sidecar
-        run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml installed_node_and_dist_work_through_the_manager_request_path --lib -- --ignored
+        run: cargo test --manifest-path crates/stock-sidecar-runtime/Cargo.toml packaged_sidecar_uses_production_launch_and_stdio -- --ignored
 
       - name: Validate updater signing configuration
         env:
@@ -234,10 +234,15 @@ jobs:
           set -euo pipefail
           github_notes_path="$RUNNER_TEMP/calen-github-release-notes.md"
           notes_path="$RUNNER_TEMP/calen-release-notes.md"
-          if ! gh api "repos/$GH_REPO/releases/generate-notes" -f tag_name="$RELEASE_TAG" --jq ".body" > "$github_notes_path"; then
-            printf 'Calen %s\n' "$RELEASE_TAG" > "$github_notes_path"
+          curated_notes_path="docs/releases/${RELEASE_TAG}.md"
+          if [ -s "$curated_notes_path" ]; then
+            cp "$curated_notes_path" "$notes_path"
+          else
+            if ! gh api "repos/$GH_REPO/releases/generate-notes" -f tag_name="$RELEASE_TAG" --jq ".body" > "$github_notes_path"; then
+              printf 'Calen %s\n' "$RELEASE_TAG" > "$github_notes_path"
+            fi
+            node scripts/release/create-ai-release-notes.mjs "$RELEASE_TAG" "$notes_path" "$github_notes_path"
           fi
-          node scripts/release/create-ai-release-notes.mjs "$RELEASE_TAG" "$notes_path" "$github_notes_path"
           test -s "$notes_path" || printf 'Calen %s\n' "$RELEASE_TAG" > "$notes_path"
 
           node scripts/release/create-tauri-updater-manifest.mjs release-artifacts release-artifacts/latest.json "$notes_path"

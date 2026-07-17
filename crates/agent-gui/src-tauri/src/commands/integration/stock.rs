@@ -1,17 +1,16 @@
+use calen_stock_sidecar_runtime::{normalize_node_launch_path, SidecarLaunch};
 use chrono::Utc;
 use regex::Regex;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
-use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use tokio::sync::{oneshot, Mutex};
 use uuid::Uuid;
 
@@ -601,7 +600,7 @@ impl StockResearchManager {
         serialized_provider_keys: Option<&str>,
     ) -> Result<StockProcess, StockSpawnFailure> {
         self.clear_stderr_tail();
-        let mut command = sidecar_command(&launch);
+        let mut command = launch.command();
         command
             .env("CALEN_STOCK_DATA_DIR", data_dir)
             .env("CALEN_STOCK_SETTINGS", serialized_settings)
@@ -618,12 +617,12 @@ impl StockResearchManager {
                     stage: "launch",
                     message: format!(
                         "启动股票 sidecar 失败（{}）：{error}",
-                        launch.program.display()
+                        launch.program().display()
                     ),
                     process_id: None,
                     exit_code: None,
                     stderr_tail: Vec::new(),
-                    sidecar_root: Some(launch.root.to_string_lossy().into_owned()),
+                    sidecar_root: Some(launch.root().to_string_lossy().into_owned()),
                 });
             }
         };
@@ -643,7 +642,7 @@ impl StockResearchManager {
                     process_id: None,
                     exit_code,
                     stderr_tail: self.stderr_snapshot(),
-                    sidecar_root: Some(launch.root.to_string_lossy().into_owned()),
+                    sidecar_root: Some(launch.root().to_string_lossy().into_owned()),
                 });
             }
         };
@@ -659,7 +658,7 @@ impl StockResearchManager {
                     process_id: Some(process_id),
                     exit_code,
                     stderr_tail: self.stderr_snapshot(),
-                    sidecar_root: Some(launch.root.to_string_lossy().into_owned()),
+                    sidecar_root: Some(launch.root().to_string_lossy().into_owned()),
                 });
             }
         };
@@ -675,7 +674,7 @@ impl StockResearchManager {
                     process_id: Some(process_id),
                     exit_code,
                     stderr_tail: self.stderr_snapshot(),
-                    sidecar_root: Some(launch.root.to_string_lossy().into_owned()),
+                    sidecar_root: Some(launch.root().to_string_lossy().into_owned()),
                 });
             }
         };
@@ -691,7 +690,7 @@ impl StockResearchManager {
                     process_id: Some(process_id),
                     exit_code,
                     stderr_tail: self.stderr_snapshot(),
-                    sidecar_root: Some(launch.root.to_string_lossy().into_owned()),
+                    sidecar_root: Some(launch.root().to_string_lossy().into_owned()),
                 });
             }
         };
@@ -706,14 +705,14 @@ impl StockResearchManager {
                 process_id: Some(process_id),
                 exit_code,
                 stderr_tail: self.stderr_snapshot(),
-                sidecar_root: Some(launch.root.to_string_lossy().into_owned()),
+                sidecar_root: Some(launch.root().to_string_lossy().into_owned()),
             });
         }
         Ok(StockProcess {
             child,
             stdin,
             stdout: BufReader::new(stdout).lines(),
-            root: launch.root,
+            root: launch.root().to_path_buf(),
             process_tree,
             stderr_task: stderr_task.take(),
         })
@@ -982,158 +981,9 @@ async fn terminate_stock_process(process: &mut StockProcess) -> Result<Option<i3
     Ok(status.code())
 }
 
-#[derive(Debug)]
-struct SidecarLaunch {
-    program: PathBuf,
-    args: Vec<OsString>,
-    root: PathBuf,
-}
-
-fn sidecar_command(launch: &SidecarLaunch) -> Command {
-    let mut command = Command::new(&launch.program);
-    command
-        .args(&launch.args)
-        .current_dir(&launch.root)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.as_std_mut().creation_flags(CREATE_NO_WINDOW);
-    }
-
-    command
-}
-
-#[cfg(target_os = "windows")]
-fn normalize_node_launch_path(path: &Path) -> Result<PathBuf, String> {
-    use std::os::windows::ffi::{OsStrExt, OsStringExt};
-    use std::path::{Component, Prefix};
-
-    let Some(Component::Prefix(prefix)) = path.components().next() else {
-        return Ok(path.to_path_buf());
-    };
-
-    let encoded = path.as_os_str().encode_wide().collect::<Vec<_>>();
-    match prefix.kind() {
-        Prefix::VerbatimDisk(_) => {
-            const VERBATIM_PREFIX_LEN: usize = 4;
-            if encoded.len() <= VERBATIM_PREFIX_LEN {
-                return Err(format!(
-                    "股票 sidecar 路径不是有效的 Windows 绝对路径：{}",
-                    path.display()
-                ));
-            }
-            let normalized = PathBuf::from(OsString::from_wide(&encoded[VERBATIM_PREFIX_LEN..]));
-            if !normalized.is_absolute() {
-                return Err(format!(
-                    "股票 sidecar 路径不是有效的 Windows 绝对路径：{}",
-                    path.display()
-                ));
-            }
-            Ok(normalized)
-        }
-        Prefix::VerbatimUNC(_, _) => {
-            const VERBATIM_UNC_PREFIX_LEN: usize = 8;
-            if encoded.len() <= VERBATIM_UNC_PREFIX_LEN {
-                return Err(format!("股票 sidecar UNC 路径无效：{}", path.display()));
-            }
-            let mut normalized = vec![b'\\' as u16, b'\\' as u16];
-            normalized.extend_from_slice(&encoded[VERBATIM_UNC_PREFIX_LEN..]);
-            Ok(PathBuf::from(OsString::from_wide(&normalized)))
-        }
-        Prefix::Verbatim(_) | Prefix::DeviceNS(_) => Err(format!(
-            "股票 sidecar 不支持 Windows 设备命名空间路径：{}",
-            path.display()
-        )),
-        Prefix::UNC(_, _) | Prefix::Disk(_) => Ok(path.to_path_buf()),
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn normalize_node_launch_path(path: &Path) -> Result<PathBuf, String> {
-    Ok(path.to_path_buf())
-}
-
-fn checked_sidecar_launch(
-    program: PathBuf,
-    entry: PathBuf,
-    root: PathBuf,
-    program_file_label: Option<&str>,
-    entry_file_label: &str,
-) -> Result<SidecarLaunch, String> {
-    let program = normalize_node_launch_path(&program)?;
-    let entry = normalize_node_launch_path(&entry)?;
-    let root = normalize_node_launch_path(&root)?;
-
-    if !root.is_dir() {
-        return Err(format!(
-            "股票 sidecar 工作目录不存在或不是目录：{}",
-            root.display()
-        ));
-    }
-    if !entry.is_file() {
-        return Err(format!(
-            "{entry_file_label} 必须指向现有文件：{}",
-            entry.display()
-        ));
-    }
-    if let Some(label) = program_file_label {
-        if !program.is_file() {
-            return Err(format!("{label} 必须指向现有文件：{}", program.display()));
-        }
-    }
-
-    Ok(SidecarLaunch {
-        program,
-        args: vec![entry.into_os_string()],
-        root,
-    })
-}
-
-fn development_sidecar_launch(
-    entry: PathBuf,
-    explicit_node: Option<PathBuf>,
-) -> Result<SidecarLaunch, String> {
-    let root = entry
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
-        .to_path_buf();
-    let (program, program_file_label) = match explicit_node {
-        Some(program) => (program, Some("CALEN_STOCK_NODE")),
-        None => (PathBuf::from("node"), None),
-    };
-    checked_sidecar_launch(
-        program,
-        entry,
-        root,
-        program_file_label,
-        "CALEN_STOCK_SIDECAR_ENTRY",
-    )
-}
-
-fn installed_sidecar_launch(root: &Path) -> Result<SidecarLaunch, String> {
-    checked_sidecar_launch(
-        root.join(if cfg!(target_os = "windows") {
-            "node.exe"
-        } else {
-            "node"
-        }),
-        root.join("dist").join("stdio.mjs"),
-        root.to_path_buf(),
-        Some("安装包内置 Node"),
-        "安装包股票入口",
-    )
-}
-
 fn resolve_sidecar_launch(app: &AppHandle) -> Result<SidecarLaunch, String> {
     if let Some(entry) = std::env::var_os("CALEN_STOCK_SIDECAR_ENTRY") {
-        return development_sidecar_launch(
+        return SidecarLaunch::development(
             PathBuf::from(entry),
             std::env::var_os("CALEN_STOCK_NODE").map(PathBuf::from),
         );
@@ -1142,24 +992,20 @@ fn resolve_sidecar_launch(app: &AppHandle) -> Result<SidecarLaunch, String> {
     if let Ok(resource_dir) = app.path().resource_dir() {
         let root = normalize_node_launch_path(&resource_dir.join("stock-sidecar"))?;
         if root.exists() {
-            return installed_sidecar_launch(&root);
+            return SidecarLaunch::installed(&root);
         }
     }
 
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../stock-sidecar");
     let entry = root.join("dist").join("stdio.mjs");
     let explicit_node = std::env::var_os("CALEN_STOCK_NODE").map(PathBuf::from);
-    let (program, program_file_label) = match explicit_node {
-        Some(program) => (program, Some("CALEN_STOCK_NODE")),
-        None => (PathBuf::from("node"), None),
-    };
-    checked_sidecar_launch(
-        program,
-        entry,
-        root,
-        program_file_label,
-        "开发版股票入口；请先构建 crates/stock-sidecar",
-    )
+    if !entry.is_file() {
+        return Err(format!(
+            "开发版股票入口不存在；请先构建 crates/stock-sidecar：{}",
+            entry.display()
+        ));
+    }
+    SidecarLaunch::development_at_root(root, entry, explicit_node)
 }
 
 fn stock_data_dir() -> Result<PathBuf, String> {
@@ -1711,11 +1557,14 @@ pub async fn stock_settings_save(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
     use std::pin::Pin;
+    use std::process::Stdio;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::task::{Context, Poll};
     use std::time::Instant;
     use tokio::io::AsyncWrite;
+    use tokio::process::Command;
 
     #[derive(Default)]
     struct RecordingWriter {
@@ -1746,95 +1595,6 @@ mod tests {
             .prefix("Calen 股票 生命周期 ")
             .tempdir()
             .expect("create Unicode/space sidecar test directory")
-    }
-
-    #[cfg(target_os = "windows")]
-    fn windows_verbatim_path(path: &Path) -> PathBuf {
-        use std::os::windows::ffi::{OsStrExt, OsStringExt};
-
-        let mut encoded = r"\\?\".encode_utf16().collect::<Vec<_>>();
-        encoded.extend(path.as_os_str().encode_wide());
-        PathBuf::from(OsString::from_wide(&encoded))
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn node_launch_paths_convert_supported_windows_verbatim_namespaces() {
-        assert_eq!(
-            normalize_node_launch_path(Path::new(
-                r"\\?\D:\Calen 股票\stock sidecar\dist\stdio.mjs",
-            ))
-            .expect("drive-letter verbatim path should be supported"),
-            PathBuf::from(r"D:\Calen 股票\stock sidecar\dist\stdio.mjs")
-        );
-        assert_eq!(
-            normalize_node_launch_path(Path::new(r"\\?\UNC\server\共享目录\Calen\dist\stdio.mjs",))
-                .expect("UNC verbatim path should be supported"),
-            PathBuf::from(r"\\server\共享目录\Calen\dist\stdio.mjs")
-        );
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn node_launch_paths_preserve_ordinary_unicode_and_space_paths() {
-        let ordinary = Path::new(r"D:\应用目录\Calen 股票\dist\stdio.mjs");
-        assert_eq!(
-            normalize_node_launch_path(ordinary).expect("ordinary path should be supported"),
-            ordinary
-        );
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn node_launch_paths_reject_device_namespaces() {
-        let error = normalize_node_launch_path(Path::new(r"\\.\PIPE\calen-stock"))
-            .expect_err("device namespace must not be passed to Node");
-
-        assert!(error.contains("设备命名空间"));
-        assert!(error.contains(r"\\.\PIPE\calen-stock"));
-
-        let error = normalize_node_launch_path(Path::new(r"\\?\GLOBALROOT\Device\Harddisk0"))
-            .expect_err("arbitrary verbatim namespace must not be passed to Node");
-        assert!(error.contains("设备命名空间"));
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn installed_launch_normalizes_every_node_facing_path() {
-        let install = scripted_sidecar_dir();
-        let root = install.path().join("stock-sidecar");
-        std::fs::create_dir_all(root.join("dist")).expect("create installed sidecar folders");
-        std::fs::write(root.join("node.exe"), b"node placeholder").expect("write node placeholder");
-        std::fs::write(root.join("dist").join("stdio.mjs"), b"entry placeholder")
-            .expect("write entry placeholder");
-
-        let launch = installed_sidecar_launch(&windows_verbatim_path(&root))
-            .expect("installed launch should accept a verbatim resource path");
-
-        assert_eq!(launch.program, root.join("node.exe"));
-        assert_eq!(launch.root, root);
-        assert_eq!(
-            launch.args,
-            vec![root.join("dist").join("stdio.mjs").into_os_string()]
-        );
-    }
-
-    #[test]
-    fn development_override_requires_existing_entry_and_explicit_node_files() {
-        let root = scripted_sidecar_dir();
-        let missing_entry = root.path().join("missing-stdio.mjs");
-        let error = development_sidecar_launch(missing_entry.clone(), None)
-            .expect_err("missing override entry must fail before spawn");
-        assert!(error.contains("CALEN_STOCK_SIDECAR_ENTRY"));
-        assert!(error.contains(&missing_entry.to_string_lossy().into_owned()));
-
-        let entry = root.path().join("stdio.mjs");
-        std::fs::write(&entry, b"entry placeholder").expect("write override entry");
-        let missing_node = root.path().join("missing-node.exe");
-        let error = development_sidecar_launch(entry, Some(missing_node.clone()))
-            .expect_err("missing explicit node executable must fail before spawn");
-        assert!(error.contains("CALEN_STOCK_NODE"));
-        assert!(error.contains(&missing_node.to_string_lossy().into_owned()));
     }
 
     #[cfg(target_os = "windows")]
@@ -1986,19 +1746,6 @@ esac
             process_tree,
             stderr_task,
         })
-    }
-
-    #[cfg(target_os = "windows")]
-    async fn spawn_installed_windows_sidecar(
-        manager: &StockResearchManager,
-        root: &Path,
-        data_dir: &Path,
-    ) -> Result<StockProcess, StockSpawnFailure> {
-        let launch = installed_sidecar_launch(root).map_err(StockSpawnFailure::launch)?;
-        let settings = json!({ "enabled": true, "providers": [] }).to_string();
-        manager
-            .spawn_resolved_launch(launch, data_dir, &settings, None)
-            .await
     }
 
     #[test]
@@ -2345,67 +2092,6 @@ esac
             .restart_error
             .as_deref()
             .is_some_and(|message| message.contains("timeout") || message.contains("超时")));
-    }
-
-    #[cfg(target_os = "windows")]
-    #[tokio::test]
-    #[ignore = "requires CALEN_STOCK_WINDOWS_INSTALL_ROOT pointing at installed stock-sidecar"]
-    async fn installed_node_and_dist_work_through_the_manager_request_path() {
-        let manager = StockResearchManager::default();
-        let root = PathBuf::from(
-            std::env::var_os("CALEN_STOCK_WINDOWS_INSTALL_ROOT")
-                .expect("set CALEN_STOCK_WINDOWS_INSTALL_ROOT to the stock-sidecar directory"),
-        );
-        assert!(root.join("node.exe").is_file());
-        assert!(root.join("dist").join("stdio.mjs").is_file());
-        let manager_root = root
-            .canonicalize()
-            .expect("canonicalize installed sidecar like Tauri resource_dir");
-        assert!(manager_root.to_string_lossy().starts_with(r"\\?\"));
-        let data_dir = tempfile::Builder::new()
-            .prefix("Calen 股票 Manager 安装态 ")
-            .tempdir()
-            .expect("create installed sidecar data directory");
-        let (_cancel_tx, cancel_rx) = oneshot::channel();
-
-        let status = manager
-            .call_locked_with_spawns(
-                "status",
-                json!({}),
-                "installed-manager-smoke",
-                10_000,
-                cancel_rx,
-                spawn_installed_windows_sidecar(&manager, &manager_root, data_dir.path()),
-                async {
-                    Err(StockSpawnFailure::launch(
-                        "installed sidecar unexpectedly required replacement",
-                    ))
-                },
-            )
-            .await
-            .expect("installed sidecar responds through StockResearchManager");
-
-        assert!(status.is_object());
-
-        let (_cancel_tx, cancel_rx) = oneshot::channel();
-        let second_status = manager
-            .call_locked_with_spawns(
-                "status",
-                json!({}),
-                "installed-manager-smoke-second",
-                10_000,
-                cancel_rx,
-                spawn_installed_windows_sidecar(&manager, &manager_root, data_dir.path()),
-                async {
-                    Err(StockSpawnFailure::launch(
-                        "installed sidecar unexpectedly required replacement",
-                    ))
-                },
-            )
-            .await
-            .expect("installed sidecar remains responsive through StockResearchManager");
-        assert!(second_status.is_object());
-        manager.stop().await.expect("stop installed sidecar");
     }
 
     #[tokio::test]
