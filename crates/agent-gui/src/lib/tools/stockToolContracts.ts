@@ -80,12 +80,15 @@ export function toStockSidecarToolPayload(
     };
   const instrument = normalizeToolInstrument(rawPayload.instrument);
   if (operation === "snapshot") {
-    const historyDays = finiteNumber(rawPayload.historyDays) ?? 30;
+    const requestedHistoryDays = Math.trunc(finiteNumber(rawPayload.historyDays) ?? 30);
+    const includeHistory = requestedHistoryDays > 0;
+    const historyLimit = Math.min(Math.max(requestedHistoryDays, 1), 120);
     return {
       ...rawPayload,
       instrument,
-      includeHistory: historyDays > 0,
-      historyLimit: Math.trunc(historyDays),
+      includeHistory,
+      // The JSON-RPC contract requires a valid limit even when history is disabled.
+      historyLimit,
       includeProfile: true,
     };
   }

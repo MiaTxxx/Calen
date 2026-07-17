@@ -27,6 +27,8 @@ import {
   parseFiniteNumber,
   type QuoteSnapshot,
   type ResearchBundle,
+  STOCK_TIMEOUT_MAX_MS,
+  STOCK_TIMEOUT_MIN_MS,
   type StockAiResearchBrief,
   type StockBacktestStrategyId,
   type StockEvidenceMetadata,
@@ -37,6 +39,8 @@ import {
   type StockSettings,
   type StockSettingsSavePayload,
   stockResearch,
+  summarizeStockServiceFailure,
+  validateStockTimeoutDraft,
 } from "../../lib/stock-research";
 import { PortfolioWorkspace } from "./PortfolioWorkspace";
 import { StockChart } from "./StockChart";
@@ -187,10 +191,8 @@ function ServiceFailureNotice({ resource }: { resource: AsyncResource<StockServi
   const specificMessage = status
     ? getStockServiceFailureMessage(status)
     : resource.state === "error"
-      ? resource.message
+      ? summarizeStockServiceFailure(resource.message)
       : undefined;
-  const generalMessage = status?.message;
-
   return (
     <GlassPanel tone="error">
       <div className="flex items-start gap-3">
@@ -200,9 +202,6 @@ function ServiceFailureNotice({ resource }: { resource: AsyncResource<StockServi
           <p className="mt-1 break-words text-xs text-destructive">
             {specificMessage ?? "股票服务当前不可用，请前往数据源页面查看诊断并重启服务。"}
           </p>
-          {generalMessage && generalMessage !== specificMessage ? (
-            <p className="mt-1 text-[10.5px] text-muted-foreground">服务状态：{generalMessage}</p>
-          ) : null}
         </div>
       </div>
     </GlassPanel>
@@ -1448,11 +1447,16 @@ function SourcesView({
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
   const [restartSucceeded, setRestartSucceeded] = useState(false);
+  const [timeoutDraft, setTimeoutDraft] = useState("");
+  const [timeoutError, setTimeoutError] = useState<string | null>(null);
 
   const loadSettings = useCallback(async () => {
     setSettings({ state: "loading" });
     try {
-      setSettings({ state: "ready", data: await stockResearch.settingsGet() });
+      const next = await stockResearch.settingsGet();
+      setSettings({ state: "ready", data: next });
+      setTimeoutDraft(String(next.timeoutMs));
+      setTimeoutError(null);
     } catch (error) {
       setSettings({ state: "error", message: formatStockError(error) });
     }
@@ -1471,6 +1475,12 @@ function SourcesView({
 
   async function saveSettings() {
     if (settings.state !== "ready") return;
+    const timeoutValidation = validateStockTimeoutDraft(timeoutDraft);
+    if (!timeoutValidation.ok) {
+      setTimeoutError(timeoutValidation.error);
+      setSaved(false);
+      return;
+    }
     const providerKeyUpdates: StockSettingsSavePayload["providerKeyUpdates"] = {};
     for (const provider of keyedProviders) {
       const draft = keyDrafts[provider.id]?.trim();
@@ -1479,6 +1489,7 @@ function SourcesView({
     }
     const payload: StockSettingsSavePayload = {
       ...settings.data,
+      timeoutMs: timeoutValidation.value,
       ...(Object.keys(providerKeyUpdates).length ? { providerKeyUpdates } : {}),
     };
     setSaving(true);
@@ -1486,6 +1497,8 @@ function SourcesView({
     try {
       const next = await stockResearch.settingsSave(payload);
       setSettings({ state: "ready", data: next });
+      setTimeoutDraft(String(next.timeoutMs));
+      setTimeoutError(null);
       setKeyDrafts({});
       setClearKeys({});
       setSaved(true);
@@ -1569,7 +1582,14 @@ function SourcesView({
           clearKeys={clearKeys}
           saving={saving}
           saved={saved}
+          timeoutDraft={timeoutDraft}
+          timeoutError={timeoutError}
           onChange={updateSettings}
+          onTimeoutDraft={(value) => {
+            setTimeoutDraft(value);
+            setTimeoutError(null);
+            setSaved(false);
+          }}
           onKeyDraft={(id, value) => {
             setKeyDrafts((current) => ({ ...current, [id]: value }));
             setClearKeys((current) => ({ ...current, [id]: false }));
@@ -1605,12 +1625,6 @@ function SourcesView({
                   {getStockServiceFailureMessage(resource.data) ??
                     `状态：${resource.data.state}${resource.data.version ? ` · v${resource.data.version}` : ""}`}
                 </p>
-                {resource.data.message &&
-                resource.data.message !== getStockServiceFailureMessage(resource.data) ? (
-                  <p className="mt-1 text-[10.5px] text-muted-foreground">
-                    服务状态：{resource.data.message}
-                  </p>
-                ) : null}
               </div>
             </div>
             <RuntimeDiagnostics status={resource.data} />
@@ -1805,7 +1819,10 @@ function StockSettingsPanel(props: {
   clearKeys: Record<string, boolean>;
   saving: boolean;
   saved: boolean;
+  timeoutDraft: string;
+  timeoutError: string | null;
   onChange: (updater: (current: StockSettings) => StockSettings) => void;
+  onTimeoutDraft: (value: string) => void;
   onKeyDraft: (id: string, value: string) => void;
   onClearKey: (id: string) => void;
   onSave: () => void;
@@ -1816,7 +1833,10 @@ function StockSettingsPanel(props: {
     clearKeys,
     saving,
     saved,
+    timeoutDraft,
+    timeoutError,
     onChange,
+    onTimeoutDraft,
     onKeyDraft,
     onClearKey,
     onSave,
@@ -1864,18 +1884,25 @@ function StockSettingsPanel(props: {
         </Field>
         <Field label="请求超时（毫秒）">
           <Input
+            id="stock-request-timeout"
             type="number"
-            min={1000}
-            max={120000}
+            min={STOCK_TIMEOUT_MIN_MS}
+            max={STOCK_TIMEOUT_MAX_MS}
             step={1000}
-            value={settings.timeoutMs}
-            onChange={(event) =>
-              onChange((current) => ({
-                ...current,
-                timeoutMs: Number(event.target.value),
-              }))
-            }
+            value={timeoutDraft}
+            aria-invalid={Boolean(timeoutError)}
+            aria-describedby={timeoutError ? "stock-request-timeout-error" : undefined}
+            onChange={(event) => onTimeoutDraft(event.target.value)}
           />
+          {timeoutError ? (
+            <p
+              id="stock-request-timeout-error"
+              role="alert"
+              className="mt-1.5 text-[10.5px] text-destructive"
+            >
+              {timeoutError}
+            </p>
+          ) : null}
         </Field>
         <Field label="缓存 TTL（分钟）">
           <Input

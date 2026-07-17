@@ -56,7 +56,7 @@ export interface ProviderRegistryOptions {
   cacheTtlMs?: number;
   timeoutMs?: number;
   /**
-   * Minimum interval between requests for one provider/capability key.
+   * Minimum interval shared by all requests to one provider.
    * A value of zero disables proactive throttling while retaining cooldown.
    */
   throttleIntervalMs?: number;
@@ -66,6 +66,7 @@ export interface ProviderRegistryOptions {
   failureThreshold?: number;
   circuitOpenMs?: number;
   cooldownBaseMs?: number;
+  /** Failed upstream calls tolerated before one final recovery candidate. */
   maxAttempts?: number;
 }
 
@@ -192,7 +193,7 @@ export class ProviderRegistry {
   private readonly failureThreshold: number;
   private readonly circuitOpenMs: number;
   private readonly cooldownBaseMs: number;
-  private readonly maxAttempts: number;
+  private readonly maxFailedAttempts: number;
 
   constructor(
     providers: StockProvider[],
@@ -211,9 +212,7 @@ export class ProviderRegistry {
     this.failureThreshold = options.failureThreshold ?? 3;
     this.circuitOpenMs = options.circuitOpenMs ?? 60_000;
     this.cooldownBaseMs = options.cooldownBaseMs ?? 60_000;
-    this.maxAttempts = options.maxAttempts ?? 3;
-    for (const provider of providers)
-      this.health.set(provider.id, this.newHealth());
+    this.maxFailedAttempts = Math.max(0, Math.trunc(options.maxAttempts ?? 3));
   }
 
   async query<T>(
@@ -247,20 +246,26 @@ export class ProviderRegistry {
     if (cached) this.cache.delete(key);
 
     const warnings: string[] = [];
+    const market = this.marketScope(cacheKey);
     const candidates = this.providers
       .filter((provider) => provider.capabilities.includes(capability))
-      .filter((provider) => this.isAvailable(provider.id, currentMs))
-      .sort((left, right) => this.compareProviders(left, right))
-      .slice(0, this.maxAttempts);
+      .filter((provider) =>
+        this.isAvailable(provider.id, capability, market, currentMs)
+      )
+      .sort((left, right) =>
+        this.compareProviders(left, right, capability, market)
+      );
 
+    let failedAttempts = 0;
     for (const provider of candidates) {
+      if (failedAttempts > this.maxFailedAttempts) break;
       if (signal?.aborted)
         throw signal.reason ?? new Error("Request cancelled");
       const startedAt = this.now().getTime();
-      const throttleKey = `${provider.id}:${capability}`;
+      const throttleConfigKey = `${provider.id}:${capability}`;
       const throttleIntervalMs = Math.max(
         0,
-        this.throttleIntervalsMs[throttleKey] ??
+        this.throttleIntervalsMs[throttleConfigKey] ??
           this.throttleIntervalsMs[provider.id] ??
           this.throttleIntervalMs
       );
@@ -270,7 +275,7 @@ export class ProviderRegistry {
         await this.withTimeout(
           (throttleSignal) =>
             this.throttleStore.acquire(
-              throttleKey,
+              provider.id,
               throttleIntervalMs,
               throttleSignal
             ),
@@ -287,10 +292,18 @@ export class ProviderRegistry {
             }),
           signal
         );
-        if (evidence.data === null) throw new ProviderError("返回空数据");
+        if (this.isEmptyEvidence(evidence.data)) {
+          const reason = evidence.warnings?.length
+            ? evidence.warnings.join("；")
+            : "返回空数据";
+          warnings.push(`${provider.id}: ${reason}`);
+          continue;
+        }
         const finishedAt = this.now().getTime();
         this.recordSuccess(
           provider.id,
+          capability,
+          market,
           Math.max(0, finishedAt - startedAt),
           finishedAt
         );
@@ -319,9 +332,12 @@ export class ProviderRegistry {
         if (signal?.aborted) throw signal.reason ?? error;
         const message = error instanceof Error ? error.message : String(error);
         warnings.push(`${provider.id}: ${message}`);
-        if (upstreamStarted) this.recordFailure(provider, error);
+        if (upstreamStarted) {
+          failedAttempts += 1;
+          this.recordFailure(provider, capability, market, error);
+        }
       } finally {
-        if (throttled) this.throttleStore.release(throttleKey);
+        if (throttled) this.throttleStore.release(provider.id);
       }
     }
     if (!candidates.length)
@@ -332,36 +348,60 @@ export class ProviderRegistry {
   status(): ProviderStatus[] {
     const currentMs = this.now().getTime();
     return this.providers.map((provider) => {
-      const state = this.health.get(provider.id) ?? this.newHealth();
+      const states = this.providerHealth(provider.id);
+      const observed = states.filter((state) => state.hasObservation);
+      const availableStates = observed.filter(
+        (state) =>
+          state.circuitOpenUntilMs <= currentMs &&
+          state.cooldownUntilMs <= currentMs
+      );
+      const circuitOpenUntilMs = Math.max(
+        0,
+        ...observed.map((state) => state.circuitOpenUntilMs)
+      );
+      const cooldownUntilMs = Math.max(
+        0,
+        ...observed.map((state) => state.cooldownUntilMs)
+      );
+      const lastSuccessAtMs = Math.max(
+        0,
+        ...observed.map((state) => state.lastSuccessAtMs ?? 0)
+      );
+      const latencies = observed
+        .map((state) => state.averageLatencyMs)
+        .filter((value): value is number => value !== undefined);
       const status: ProviderStatus = {
         id: provider.id,
         capabilities: [...provider.capabilities],
         priority: provider.priority,
-        state: !state.hasObservation
+        state: !observed.length
           ? "unknown"
-          : this.isAvailable(provider.id, currentMs)
+          : availableStates.length
             ? "ready"
-            : state.cooldownUntilMs > currentMs
+            : cooldownUntilMs > currentMs
               ? "cooldown"
               : "unavailable",
         enabled: true,
         configured: true,
-        available:
-          state.hasObservation && this.isAvailable(provider.id, currentMs),
-        consecutiveFailures: state.consecutiveFailures,
+        available: availableStates.length > 0,
+        consecutiveFailures: Math.max(
+          0,
+          ...observed.map((state) => state.consecutiveFailures)
+        ),
       };
-      if (state.circuitOpenUntilMs > currentMs)
-        status.circuitOpenUntil = new Date(
-          state.circuitOpenUntilMs
-        ).toISOString();
-      if (state.cooldownUntilMs > currentMs)
-        status.cooldownUntil = new Date(state.cooldownUntilMs).toISOString();
-      if (state.averageLatencyMs !== undefined)
-        status.averageLatencyMs = state.averageLatencyMs;
-      if (state.lastSuccessAtMs !== undefined)
-        status.lastSuccessAt = new Date(state.lastSuccessAtMs).toISOString();
-      if (state.lastError !== undefined) status.lastError = state.lastError;
-      if (!state.hasObservation) status.warnings = ["尚未完成首个真实上游探测"];
+      if (circuitOpenUntilMs > currentMs)
+        status.circuitOpenUntil = new Date(circuitOpenUntilMs).toISOString();
+      if (cooldownUntilMs > currentMs)
+        status.cooldownUntil = new Date(cooldownUntilMs).toISOString();
+      if (latencies.length)
+        status.averageLatencyMs = Math.round(
+          latencies.reduce((sum, value) => sum + value, 0) / latencies.length
+        );
+      if (lastSuccessAtMs > 0)
+        status.lastSuccessAt = new Date(lastSuccessAtMs).toISOString();
+      const lastError = observed.find((state) => state.lastError)?.lastError;
+      if (lastError !== undefined) status.lastError = lastError;
+      if (!observed.length) status.warnings = ["尚未完成首个真实上游探测"];
       return status;
     });
   }
@@ -370,17 +410,29 @@ export class ProviderRegistry {
     this.cache.clear();
   }
 
-  private compareProviders(left: StockProvider, right: StockProvider): number {
+  private compareProviders(
+    left: StockProvider,
+    right: StockProvider,
+    capability: StockCapability,
+    market: string
+  ): number {
     if (left.priority !== right.priority) return left.priority - right.priority;
     const leftLatency =
-      this.health.get(left.id)?.averageLatencyMs ?? Number.MAX_SAFE_INTEGER;
+      this.health.get(this.healthKey(left.id, capability, market))
+        ?.averageLatencyMs ?? Number.MAX_SAFE_INTEGER;
     const rightLatency =
-      this.health.get(right.id)?.averageLatencyMs ?? Number.MAX_SAFE_INTEGER;
+      this.health.get(this.healthKey(right.id, capability, market))
+        ?.averageLatencyMs ?? Number.MAX_SAFE_INTEGER;
     return leftLatency - rightLatency;
   }
 
-  private isAvailable(id: string, currentMs: number): boolean {
-    const state = this.health.get(id);
+  private isAvailable(
+    id: string,
+    capability: StockCapability,
+    market: string,
+    currentMs: number
+  ): boolean {
+    const state = this.health.get(this.healthKey(id, capability, market));
     return (
       !state ||
       (state.circuitOpenUntilMs <= currentMs &&
@@ -390,10 +442,13 @@ export class ProviderRegistry {
 
   private recordSuccess(
     id: string,
+    capability: StockCapability,
+    market: string,
     latencyMs: number,
     finishedAtMs: number
   ): void {
-    const state = this.health.get(id) ?? this.newHealth();
+    const key = this.healthKey(id, capability, market);
+    const state = this.health.get(key) ?? this.newHealth();
     state.hasObservation = true;
     state.consecutiveFailures = 0;
     state.circuitOpenUntilMs = 0;
@@ -404,11 +459,17 @@ export class ProviderRegistry {
       state.averageLatencyMs === undefined
         ? latencyMs
         : Math.round(state.averageLatencyMs * 0.7 + latencyMs * 0.3);
-    this.health.set(id, state);
+    this.health.set(key, state);
   }
 
-  private recordFailure(provider: StockProvider, error: unknown): void {
-    const state = this.health.get(provider.id) ?? this.newHealth();
+  private recordFailure(
+    provider: StockProvider,
+    capability: StockCapability,
+    market: string,
+    error: unknown
+  ): void {
+    const key = this.healthKey(provider.id, capability, market);
+    const state = this.health.get(key) ?? this.newHealth();
     state.hasObservation = true;
     const nowMs = this.now().getTime();
     state.consecutiveFailures += 1;
@@ -424,7 +485,33 @@ export class ProviderRegistry {
         nowMs +
         (retryAfter ?? this.cooldownBaseMs * 2 ** (state.cooldownLevel - 1));
     }
-    this.health.set(provider.id, state);
+    this.health.set(key, state);
+  }
+
+  private marketScope(cacheKey: string): string {
+    const prefix = cacheKey.split(":", 1)[0]?.toUpperCase();
+    return prefix === "CN" || prefix === "HK" || prefix === "US"
+      ? prefix
+      : "GLOBAL";
+  }
+
+  private healthKey(
+    providerId: string,
+    capability: StockCapability,
+    market: string
+  ): string {
+    return `${providerId}\u0000${capability}\u0000${market}`;
+  }
+
+  private providerHealth(providerId: string): ProviderHealth[] {
+    const prefix = `${providerId}\u0000`;
+    return [...this.health.entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([, state]) => state);
+  }
+
+  private isEmptyEvidence(value: unknown): boolean {
+    return value === null || (Array.isArray(value) && value.length === 0);
   }
 
   private isThrottleFailure(error: unknown): boolean {

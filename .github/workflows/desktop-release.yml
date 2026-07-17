@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: 24
+  NODE_VERSION: 24.17.0
 
 jobs:
   release-metadata:
@@ -120,6 +120,12 @@ jobs:
           if (Test-Path -LiteralPath "$resourceDir/node_modules") {
             throw "Stock sidecar resource must not contain node_modules."
           }
+
+      - name: Smoke packaged stock sidecar through the Manager
+        env:
+          CARGO_TERM_COLOR: always
+          CALEN_STOCK_WINDOWS_INSTALL_ROOT: ${{ github.workspace }}\crates\agent-gui\src-tauri\resources\stock-sidecar
+        run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml installed_node_and_dist_work_through_the_manager_request_path --lib -- --ignored
 
       - name: Validate updater signing configuration
         env:

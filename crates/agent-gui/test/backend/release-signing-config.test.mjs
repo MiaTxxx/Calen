@@ -145,7 +145,7 @@ test("desktop release publishes only Windows installers and a Windows updater ma
   assert.doesNotMatch(releaseWorkflow, /^\s{2}macos:/m);
   assert.doesNotMatch(releaseWorkflow, /^\s{2}linux:/m);
   assert.doesNotMatch(releaseWorkflow, /portable\.zip|Windows-x64-portable/);
-  assert.match(releaseWorkflow, /NODE_VERSION: 24/);
+  assert.match(releaseWorkflow, /NODE_VERSION: 24\.17\.0/);
   assert.match(
     releaseWorkflow,
     /Calen-\$\{LIVEAGENT_RELEASE_TAG\}-Windows-x64-Setup\.exe/
@@ -293,6 +293,20 @@ test("pull request CI builds temporary-signed Windows installers and runs lifecy
   assert.match(ciWorkflow, /CALEN_CI_PREVIOUS_MSI/);
   assert.match(ciWorkflow, /CALEN_CI_PREVIOUS_SETUP/);
   assert.match(ciWorkflow, /test-windows-installers\.ps1/);
+  assert.match(ciWorkflow, /STOCK_NODE_VERSION: 24\.17\.0/);
+  assert.match(
+    ciWorkflow,
+    /Smoke packaged stock sidecar through the Manager on Windows/
+  );
+  assert.match(
+    ciWorkflow,
+    /installed_node_and_dist_work_through_the_manager_request_path --lib -- --ignored/
+  );
+  assert.match(
+    ciWorkflow,
+    /cargo test --manifest-path crates\/agent-gui\/src-tauri\/Cargo\.toml node_launch_paths --lib/
+  );
+  assert.match(ciWorkflow, /CALEN_STOCK_WINDOWS_INSTALL_ROOT/);
   assert.match(ciWorkflow, /--example verify-updater-signature/);
   assert.match(ciWorkflow, /test-msiexec-argument-quoting\.ps1/);
   assert.match(ciWorkflow, /if \(\$LASTEXITCODE -ne 0\)/);
@@ -307,6 +321,14 @@ test("pull request CI builds temporary-signed Windows installers and runs lifecy
   assert.match(
     ciWorkflow,
     /cargo test --manifest-path crates\/agent-gui\/src-tauri\/Cargo\.toml stock_portfolio::tests --lib/
+  );
+  assert.match(
+    releaseWorkflow,
+    /Smoke packaged stock sidecar through the Manager/
+  );
+  assert.match(
+    releaseWorkflow,
+    /installed_node_and_dist_work_through_the_manager_request_path --lib -- --ignored/
   );
 });
 

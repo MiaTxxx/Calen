@@ -5,6 +5,7 @@
  * transparent research-style model with evidence quality and limitations.
  */
 import type { PriceBar, StockSnapshot } from "../types.ts";
+import { strictFiniteNumber as finite } from "../numbers.ts";
 import type { QuantIndicatorRow } from "./indicators.ts";
 import type { StrategySignal } from "./strategies.ts";
 
@@ -62,11 +63,6 @@ function record(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function finite(value: unknown): number | undefined {
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
 function financialDimension(value: unknown): EvaluatorDimension | undefined {
   const financials = record(value);
   const statements = record(financials?.statements);
@@ -79,6 +75,12 @@ function financialDimension(value: unknown): EvaluatorDimension | undefined {
   const netProfit = finite(income?.netProfit);
   const operatingCashFlow = finite(cashFlow?.operatingCashFlow);
   const debtAssetRatio = finite(balance?.debtAssetRatio);
+  if (
+    netProfit === undefined &&
+    operatingCashFlow === undefined &&
+    debtAssetRatio === undefined
+  )
+    return undefined;
   if (netProfit !== undefined) {
     score += netProfit > 0 ? 15 : -20;
     evidence.push(

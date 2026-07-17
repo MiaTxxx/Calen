@@ -58,6 +58,29 @@ export function parseFiniteNumber(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+export const STOCK_TIMEOUT_MIN_MS = 1_000;
+export const STOCK_TIMEOUT_MAX_MS = 120_000;
+
+export type StockTimeoutDraftValidation =
+  | { ok: true; draft: string; value: number }
+  | { ok: false; draft: string; error: string };
+
+export function validateStockTimeoutDraft(draft: string): StockTimeoutDraftValidation {
+  if (!draft.trim()) return { ok: false, draft, error: "请输入请求超时。" };
+  const value = Number(draft);
+  if (!Number.isFinite(value) || !Number.isInteger(value)) {
+    return { ok: false, draft, error: "请求超时必须是整数毫秒值。" };
+  }
+  if (value < STOCK_TIMEOUT_MIN_MS || value > STOCK_TIMEOUT_MAX_MS) {
+    return {
+      ok: false,
+      draft,
+      error: `请求超时必须在 ${STOCK_TIMEOUT_MIN_MS} 到 ${STOCK_TIMEOUT_MAX_MS} 毫秒之间。`,
+    };
+  }
+  return { ok: true, draft, value };
+}
+
 export function buildSparklinePath(
   values: readonly number[],
   width: number,
@@ -97,14 +120,42 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+export function summarizeStockServiceFailure(value: string | undefined): string | undefined {
+  const firstLine = value
+    ?.split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0 && !/^(?:at\s|node\.js\s+v)/i.test(line));
+  if (!firstLine) return undefined;
+
+  const stderrIndex = firstLine.search(/\bstderr\s*[:：]/i);
+  const withoutStderr = stderrIndex >= 0 ? firstLine.slice(0, stderrIndex) : firstLine;
+  const withoutPaths = withoutStderr
+    .replace(
+      /(['"])(?:(?:\\\\\?\\)?(?:[A-Za-z]:\\|\\\\[^\\\s]+\\[^\\\s]+\\)|\/)[^'"\r\n]*\1/g,
+      "$1[路径见运行诊断]$1",
+    )
+    .replace(
+      /(?:\\\\\?\\)?(?:[A-Za-z]:\\|\\\\[^\\\s]+\\[^\\\s]+\\|\/[^\s'"<>|]+)[^\s'"<>|]*/g,
+      "[路径见运行诊断]",
+    )
+    .trim();
+  if (!withoutPaths) return undefined;
+  return withoutPaths.length > 160 ? `${withoutPaths.slice(0, 157)}...` : withoutPaths;
+}
+
 export function getStockServiceFailureMessage(status: StockServiceStatus): string | undefined {
-  if (status.state === "ready") return status.runtime?.message ?? status.message;
-  return (
-    status.runtime?.failure?.restartError ??
-    status.runtime?.failure?.firstError ??
-    status.runtime?.message ??
-    status.message
-  );
+  const failure =
+    status.state === "ready" || status.runtime?.running === true
+      ? undefined
+      : status.runtime?.failure;
+  const rawMessage =
+    failure?.restartError ?? failure?.firstError ?? status.runtime?.message ?? status.message;
+  const parts = [
+    failure?.stage ? `阶段：${failure.stage}` : undefined,
+    failure?.exitCode !== undefined ? `退出码：${failure.exitCode}` : undefined,
+    summarizeStockServiceFailure(rawMessage),
+  ].filter((part): part is string => Boolean(part));
+  return parts.length ? parts.join(" · ") : undefined;
 }
 
 function asBoolean(value: unknown): boolean | undefined {

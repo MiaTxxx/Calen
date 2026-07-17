@@ -4,7 +4,29 @@ import test from "node:test";
 import {
   createStockResearchService,
   createTencentProvider,
+  isInstrumentRef,
+  makeInstrument,
 } from "../src/index.ts";
+
+test("isInstrumentRef accepts canonical instruments and rejects malformed values", () => {
+  assert.equal(
+    isInstrumentRef(makeInstrument("CN", "600519", "SSE", "EQUITY", "CNY")),
+    true
+  );
+  assert.equal(
+    isInstrumentRef({
+      id: "CN:600519",
+      market: "CN",
+      exchange: "SSE",
+      assetType: "bond",
+      currency: "CNY",
+      symbol: "600519",
+      name: "贵州茅台",
+    }),
+    false
+  );
+  assert.equal(isInstrumentRef({ id: "CN:600519" }), false);
+});
 
 test("resolve normalizes an A-share code into a stable InstrumentRef", async () => {
   const service = createStockResearchService({ providers: [] });
@@ -34,7 +56,40 @@ test("resolve keeps Beijing Stock Exchange codes out of the Shanghai route", asy
   assert.equal(result.instruments[0]?.exchange, "BSE");
 });
 
-test("resolve canonicalizes Tencent-style HK and US symbols", async () => {
+test("explicit market and exchange markers override the default market", async () => {
+  const service = createStockResearchService({ providers: [] });
+
+  const [hk, sh, sz, us] = await Promise.all([
+    service.resolve({ query: "HK00700", market: "CN" }),
+    service.resolve({ query: "600519.SH", market: "US" }),
+    service.resolve({ query: "SZ000001", market: "HK" }),
+    service.resolve({ query: "USAAPL.OQ", market: "CN" }),
+  ]);
+
+  assert.deepEqual(
+    [hk, sh, sz, us].map((result) => ({
+      market: result.instruments[0]?.market,
+      exchange: result.instruments[0]?.exchange,
+    })),
+    [
+      { market: "HK", exchange: "HKEX" },
+      { market: "CN", exchange: "SSE" },
+      { market: "CN", exchange: "SZSE" },
+      { market: "US", exchange: "NASDAQ" },
+    ]
+  );
+});
+
+test("resolve recognizes the SSE 520-series ETF code range", async () => {
+  const service = createStockResearchService({ providers: [] });
+
+  const result = await service.resolve({ query: "520001" });
+
+  assert.equal(result.instruments[0]?.exchange, "SSE");
+  assert.equal(result.instruments[0]?.assetType, "etf");
+});
+
+test("resolve canonicalizes overseas symbols without inventing an asset class", async () => {
   const service = createStockResearchService({ providers: [] });
 
   const hk = await service.resolve({ query: "hk700" });
@@ -44,7 +99,7 @@ test("resolve canonicalizes Tencent-style HK and US symbols", async () => {
     id: "HK:00700",
     market: "HK",
     exchange: "HKEX",
-    assetType: "stock",
+    assetType: "unknown",
     currency: "HKD",
     symbol: "00700",
     name: "00700",
@@ -53,11 +108,44 @@ test("resolve canonicalizes Tencent-style HK and US symbols", async () => {
     id: "US:AAPL",
     market: "US",
     exchange: "NASDAQ",
-    assetType: "stock",
+    assetType: "unknown",
     currency: "USD",
     symbol: "AAPL",
     name: "AAPL",
   });
+  assert.equal(hk.status, "partial");
+  assert.equal(us.status, "partial");
+  assert.match(hk.warnings.join("\n"), /股票\/ETF 类型/);
+});
+
+test("resolve uses provider product metadata to classify explicit HK and US ETFs", async () => {
+  const responses = [
+    {
+      stock: [{ code: "hk02800", name: "盈富基金", type: "GP-ETF" }],
+    },
+    {
+      stock: [{ code: "usSPY.AM", name: "SPDR S&P 500 ETF", type: "GP-ETF" }],
+    },
+  ];
+  const service = createStockResearchService({
+    providers: [createTencentProvider()],
+    fetch: async () => Response.json(responses.shift()),
+    throttleIntervalMs: 0,
+  });
+
+  const hk = await service.resolve({ query: "HK02800", market: "CN" });
+  const us = await service.resolve({ query: "USSPY.AM", market: "CN" });
+
+  assert.deepEqual(
+    [hk.instruments[0], us.instruments[0]].map((item) => ({
+      id: item?.id,
+      assetType: item?.assetType,
+    })),
+    [
+      { id: "HK:02800", assetType: "etf" },
+      { id: "US:SPY", assetType: "etf" },
+    ]
+  );
 });
 
 test("resolve preserves US class-share dots that are not Tencent exchange suffixes", async () => {

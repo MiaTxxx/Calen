@@ -11,7 +11,7 @@ Calen 是 Tauri 桌面 Agent，Opptrix 是包含 Electron、Web、Fastify、Agen
 
 股票能力收敛为 `StockResearchPort` 深模块，由独立 Node 24 sidecar 实现。Tauri 通过 JSON-RPC stdio 管理进程、超时、取消、健康检查和最多一次自动重启；sidecar 不开放网络监听端口。
 
-Windows 安装包携带 Node 24 x64 运行时和 sidecar 编译产物。Provider、缓存、限流、熔断、回退和数据归一化完全隐藏在接口之后。MCP 与 Builtin Tools 都只是 adapter，不能绕过该接口。
+Windows 安装包携带固定为 Node 24.17.0 x64 的运行时和 sidecar 编译产物。启动时会将 Node 无法安全处理的 Windows 扩展路径 `\\?\C:\...` 和 `\\?\UNC\...` 归一化为普通盘符/UNC 路径，并拒绝设备命名空间；Provider、缓存、限流、熔断、回退和数据归一化完全隐藏在接口之后。MCP 与 Builtin Tools 都只是 adapter，不能绕过该接口。
 
 ## 后果
 
@@ -20,8 +20,10 @@ Windows 安装包携带 Node 24 x64 运行时和 sidecar 编译产物。Provider
 - API Key 由 Tauri 本地秘密存储注入，禁止进入 Gateway、普通设置同步和日志。
 - 首版 Manager 为保证 stdio 响应匹配与取消语义，跨请求串行执行；单次研究内部可并行查询多个 Provider 能力。若后续需要高并发，再引入独立 reader task 与 request-id 多路复用。
 - Windows sidecar 进程加入 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` Job Object；更新安装、应用重启和真实退出都会先停止 sidecar，避免 `node.exe` 锁定安装目录或遗留子进程。
+- Windows CI 和 Release 会从已暂存的安装包资源运行 `StockResearchManager` 请求 smoke，而非只直接调用 `node.exe`；该 smoke 同时覆盖 `\\?\` 资源路径归一化、stdio JSON-RPC 和进程树清理。
 - ZZShare、Tushare、TickFlow、Fuyao Key Provider 已实现，但仍默认关闭。保存的 Key 仅从 Windows Credential Manager 注入 sidecar，普通设置、Gateway 投影和日志只显示 `keyConfigured`。
-- Provider Registry 同时具有请求前节流 seam 和响应后冷却/熔断；本地节流等待支持取消和总超时，且不会被误计为 Provider 上游失败。
+- Provider Registry 同时具有请求前节流 seam 和响应后冷却/熔断；同一 Provider 的不同能力共享上游总节拍，健康与熔断按 Provider、能力和市场隔离。未探测的备用源保持 `unknown`，不会单独把可工作的服务判为降级；本地节流等待支持取消和总超时，且不会被误计为 Provider 上游失败。
+- 用户配置的 `timeoutMs` 是 Tauri Manager 的整单截止时间；sidecar 从中派生更短且最多 15 秒的单 Provider 尝试预算，为后续回退和协议收尾保留时间。
 - Gateway 发起的会话不注册资产读取工具；本地持仓分析即使镜像到 Gateway，也只发送隐私占位，资产明文仅保留在桌面本地 transcript 与 SQLite。
 - 本地持仓轮次在首条用户消息上写入 `calenGatewayPrivacy=stock_portfolio` 标记；Gateway 事件、运行快照、历史读取和标题从工具执行前即使用占位信息，原始文本与附件元数据仅保留在桌面端。
 - 首版仅 Windows x64；其他平台必须分别解决运行时打包、路径和签名后再开放。

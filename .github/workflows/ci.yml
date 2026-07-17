@@ -11,6 +11,7 @@ permissions:
 
 env:
   NODE_VERSION: 22.19.0
+  STOCK_NODE_VERSION: 24.17.0
 
 jobs:
   stock-sidecar:
@@ -21,7 +22,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: ${{ env.STOCK_NODE_VERSION }}
 
       - name: Install pnpm
         run: npm install -g pnpm@10.32.1
@@ -239,7 +240,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: ${{ env.STOCK_NODE_VERSION }}
 
       - name: Install pnpm
         run: npm install -g pnpm@10.32.1
@@ -301,6 +302,17 @@ jobs:
         env:
           CARGO_TERM_COLOR: always
         run: cargo test --manifest-path crates/stock-process-tree/Cargo.toml
+
+      - name: Test stock Manager launch paths on Windows
+        env:
+          CARGO_TERM_COLOR: always
+        run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml node_launch_paths --lib
+
+      - name: Smoke packaged stock sidecar through the Manager on Windows
+        env:
+          CARGO_TERM_COLOR: always
+          CALEN_STOCK_WINDOWS_INSTALL_ROOT: ${{ github.workspace }}\crates\agent-gui\src-tauri\resources\stock-sidecar
+        run: cargo test --manifest-path crates/agent-gui/src-tauri/Cargo.toml installed_node_and_dist_work_through_the_manager_request_path --lib -- --ignored
 
       - name: Test stock portfolio ledger on Windows
         env:

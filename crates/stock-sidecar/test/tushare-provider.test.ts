@@ -162,6 +162,42 @@ test("Tushare snapshot and daily history normalize numeric fields and ascending 
   assert.equal(history.data?.[1]?.volume, 1234);
 });
 
+test("Tushare leaves optional null and blank quote values absent", async () => {
+  const provider = createTushareProvider("provider-token");
+  const instrument = makeInstrument("CN", "000001", "SZSE", "EQUITY", "CNY");
+  const result = await provider.snapshot!(instrument, {
+    fetch: async () =>
+      response(
+        [
+          "ts_code",
+          "trade_date",
+          "open",
+          "high",
+          "low",
+          "close",
+          "pre_close",
+          "vol",
+          "pct_chg",
+        ],
+        [["000001.SZ", "20260715", "", null, " ", 11.5, null, "", null]]
+      ),
+    now: () => new Date("2026-07-16T01:00:00.000Z"),
+  });
+
+  assert.equal(result.data?.price, 11.5);
+  for (const field of [
+    "previousClose",
+    "open",
+    "high",
+    "low",
+    "volume",
+    "change",
+    "changePercent",
+  ]) {
+    assert.equal(field in (result.data ?? {}), false, field);
+  }
+});
+
 test("Tushare profile combines stock_basic and stock_company without exposing provider fields", async () => {
   const provider = createTushareProvider("provider-token");
   const instrument = makeInstrument(

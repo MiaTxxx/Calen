@@ -46,6 +46,45 @@ test("Eastmoney normalizes an A-share snapshot", async () => {
   assert.equal(result.asOf, "2026-07-15T10:30:00+08:00");
 });
 
+test("Eastmoney preserves missing quote fields and does not invent market freshness", async () => {
+  const provider = createEastmoneyProvider();
+  const result = await provider.snapshot!(instrument, {
+    fetch: async () =>
+      Response.json({
+        data: {
+          f43: 1500.5,
+          f57: "600519",
+          f58: "贵州茅台",
+          f60: null,
+          f46: "",
+          f44: null,
+          f45: " ",
+          f47: null,
+          f169: "",
+          f170: null,
+          f86: null,
+        },
+      }),
+    now: () => new Date("2026-07-15T02:30:01.000Z"),
+  });
+
+  assert.equal(result.data?.price, 1500.5);
+  for (const field of [
+    "previousClose",
+    "open",
+    "high",
+    "low",
+    "volume",
+    "change",
+    "changePercent",
+  ]) {
+    assert.equal(field in (result.data ?? {}), false, field);
+  }
+  assert.equal(result.data?.marketTime, "unknown");
+  assert.equal(result.asOf, "unknown");
+  assert.match(result.warnings?.join("\n") ?? "", /时间|asOf|unknown/i);
+});
+
 test("Eastmoney is a real default-compatible snapshot fallback", async () => {
   const result = await createStockResearchService({
     fetch: async (input) => {

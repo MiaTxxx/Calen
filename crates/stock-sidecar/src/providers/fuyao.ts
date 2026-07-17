@@ -6,6 +6,7 @@
  */
 
 import { makeInstrument } from "../instruments.ts";
+import { strictFiniteNumber as number } from "../numbers.ts";
 import type {
   InstrumentRef,
   PriceBar,
@@ -27,12 +28,6 @@ function object(value: unknown): UnknownRecord | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as UnknownRecord)
     : undefined;
-}
-
-function number(value: unknown): number | undefined {
-  if (value === null || value === undefined || value === "") return undefined;
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function text(value: unknown): string | undefined {

@@ -1,4 +1,5 @@
 import { ProviderError } from "./registry.ts";
+import { strictFiniteNumber as finite } from "../numbers.ts";
 import type {
   MarketBriefSection,
   MarketBriefRequest,
@@ -51,12 +52,6 @@ function record(value: unknown): UnknownRecord | undefined {
   return value !== null && typeof value === "object"
     ? (value as UnknownRecord)
     : undefined;
-}
-
-function finite(value: unknown): number | undefined {
-  if (value === null || value === undefined || value === "") return undefined;
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function string(value: unknown): string | undefined {

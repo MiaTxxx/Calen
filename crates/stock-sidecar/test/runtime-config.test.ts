@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createStockResearchService,
   createStockResearchServiceFromEnvironment,
   loadStockRuntimeConfig,
+  makeInstrument,
 } from "../src/index.ts";
+import type { StockProvider } from "../src/index.ts";
 
 test("runtime settings filter providers and never expose provider keys in status", async () => {
   const env = {
@@ -26,12 +29,14 @@ test("runtime settings filter providers and never expose provider keys in status
   };
   const config = loadStockRuntimeConfig(env);
   assert.equal(config.timeoutMs, 2500);
+  assert.equal(config.providerTimeoutMs, 833);
   assert.equal(config.cacheTtlMs, 12 * 60_000);
   assert.deepEqual(config.enabledProviderIds, ["eastmoney", "sinafinance"]);
   assert.equal(config.providerKeys.tushare, "top-secret");
 
   const service = createStockResearchServiceFromEnvironment(env);
   const status = await service.status();
+  assert.equal(status.state, "ready");
   const byId = Object.fromEntries(
     status.providers.map((provider) => [provider.id, provider])
   );
@@ -42,8 +47,48 @@ test("runtime settings filter providers and never expose provider keys in status
   assert.doesNotMatch(JSON.stringify(status), /top-secret|also-secret/);
 });
 
+test("an unprobed fallback does not degrade a healthy stock service", async () => {
+  const primary: StockProvider = {
+    id: "primary",
+    priority: 1,
+    capabilities: ["snapshot"],
+    async snapshot(instrument) {
+      return {
+        data: { instrument, price: 10, marketTime: "2026-07-17" },
+        asOf: "2026-07-17",
+      };
+    },
+  };
+  const fallback: StockProvider = {
+    id: "fallback",
+    priority: 2,
+    capabilities: ["snapshot"],
+    async snapshot(instrument) {
+      return {
+        data: { instrument, price: 10, marketTime: "2026-07-17" },
+        asOf: "2026-07-17",
+      };
+    },
+  };
+  const service = createStockResearchService({
+    providers: [primary, fallback],
+    throttleIntervalMs: 0,
+  });
+  await service.snapshot({
+    instrument: makeInstrument("CN", "600519", "SSE", "EQUITY", "CNY"),
+  });
+
+  const status = await service.status();
+
+  assert.equal(status.state, "ready");
+  assert.equal(status.providers[0]?.state, "ready");
+  assert.equal(status.providers[1]?.state, "unknown");
+});
+
 test("implemented Sinafinance remains disabled until explicitly enabled", () => {
   const config = loadStockRuntimeConfig({});
+  assert.equal(config.timeoutMs, 15_000);
+  assert.equal(config.providerTimeoutMs, 5_000);
   assert.deepEqual(config.enabledProviderIds, ["tencent", "eastmoney"]);
   const sina = config.providerCatalog.find(
     (provider) => provider.id === "sinafinance"
@@ -51,6 +96,16 @@ test("implemented Sinafinance remains disabled until explicitly enabled", () => 
   assert.equal(sina?.state, "disabled");
   assert.equal(sina?.configured, true);
   assert.equal(sina?.available, false);
+});
+
+test("provider attempts leave fallback time inside the Manager request deadline", () => {
+  const config = loadStockRuntimeConfig({
+    CALEN_STOCK_SETTINGS: JSON.stringify({ timeoutMs: 45_000 }),
+  });
+
+  assert.equal(config.timeoutMs, 45_000);
+  assert.equal(config.providerTimeoutMs, 15_000);
+  assert.ok(config.providerTimeoutMs < config.timeoutMs);
 });
 
 test("implemented BaoStock remains disabled until explicitly enabled", async () => {

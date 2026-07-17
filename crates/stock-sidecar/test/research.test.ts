@@ -192,7 +192,7 @@ test("local analytics include their implicit history evidence source", async () 
     instrument,
     capabilities: ["technical", "score", "strategy", "evaluator"],
   });
-  assert.equal(result.status, "ok");
+  assert.equal(result.status, "partial");
   assert.deepEqual(
     result.sources.map((source) => source.capability),
     ["history"]
@@ -219,8 +219,34 @@ test("research can select a subset of the strategy registry", async () => {
   const data = result.data as {
     strategy: { algorithm: { parameters: { selectedStrategies: string[] } } };
   };
-  assert.equal(result.status, "ok");
+  assert.equal(result.status, "partial");
   assert.deepEqual(data.strategy.algorithm.parameters.selectedStrategies, [
     "breakout",
   ]);
+});
+
+test("short or low-coverage history does not emit a reliable BUY signal", async () => {
+  const provider: StockProvider = {
+    id: "short-history",
+    priority: 1,
+    capabilities: ["history"],
+    async history() {
+      return { data: bars.slice(0, 20), asOf: "2026-07-15" };
+    },
+  };
+  const result = await createStockResearchService({
+    providers: [provider],
+  }).research({
+    instrument,
+    capabilities: ["strategy"],
+    historyLimit: 120,
+  });
+  const data = result.data as {
+    strategy: { fusion: { verdict: string; confidence: number } };
+  };
+
+  assert.equal(result.status, "partial");
+  assert.equal(data.strategy.fusion.verdict, "HOLD");
+  assert.equal(data.strategy.fusion.confidence, 0);
+  assert.match(result.warnings.join("\n"), /覆盖|BUY/);
 });

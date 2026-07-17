@@ -55,6 +55,10 @@ const REMOTE_RESEARCH_CAPABILITIES = new Set<StockResearchCapability>([
   "etf",
 ]);
 
+const MINIMUM_ANALYSIS_BARS = 20;
+const MINIMUM_RELIABLE_ANALYSIS_BARS = 21;
+const MINIMUM_RELIABLE_ANALYSIS_COVERAGE = 0.8;
+
 /**
  * Aggregate evidence uses the oldest source timestamp as a conservative
  * "all included facts are at least current through" boundary. Individual
@@ -151,10 +155,11 @@ function localInstrumentResult(
   };
 }
 
-function prefersNameSearch(
+function prefersProviderResolution(
   query: string,
   instrument: InstrumentRef | null
 ): boolean {
+  if (instrument?.assetType === "unknown") return true;
   if (!instrument || instrument.market !== "US") return false;
   const value = query.trim();
   return !/^(?:US:|US[A-Z0-9]|.+\.(?:US|OQ|N|AM|PS|PK|OB))$/i.test(value);
@@ -173,17 +178,25 @@ export function createStockResearchService(
     ): Promise<InstrumentSearchResult> {
       const retrievedAt = now().toISOString();
       const instrument = normalizeInstrument(request.query, request.market);
-      if (instrument && !prefersNameSearch(request.query, instrument))
+      if (instrument && !prefersProviderResolution(request.query, instrument))
         return localInstrumentResult(instrument, retrievedAt);
+      const providerRequest = instrument
+        ? { ...request, market: instrument.market }
+        : request;
       const result = await registry.query(
         "resolve",
-        `${request.market ?? "GLOBAL"}:${request.query}:${request.limit ?? 10}`,
-        (provider, context) => provider.resolve!(request, context)
+        `${providerRequest.market ?? "GLOBAL"}:${request.query}:${request.limit ?? 10}`,
+        (provider, context) => provider.resolve!(providerRequest, context)
       );
       if (!result.data || !result.source) {
         if (instrument)
           return localInstrumentResult(instrument, retrievedAt, [
             ...result.warnings,
+            ...(instrument.assetType === "unknown"
+              ? [
+                  "Provider 标的分类不可用，当前仅确认市场与代码；股票/ETF 类型标记为 unknown。",
+                ]
+              : []),
             "名称搜索不可用，当前结果仅按可能的美股 ticker 解析，请核对证券身份。",
           ]);
         return {
@@ -294,7 +307,8 @@ export function createStockResearchService(
                   { limit: historyLimit },
                   context
                 ),
-              signal
+              signal,
+              request.maxAgeMs
             )
           : Promise.resolve(null),
         includeProfile
@@ -303,7 +317,8 @@ export function createStockResearchService(
               `${request.instrument.id}:snapshot`,
               (provider, context) =>
                 provider.profile!(request.instrument, context),
-              signal
+              signal,
+              request.maxAgeMs
             )
           : Promise.resolve(null),
       ]);
@@ -447,10 +462,22 @@ export function createStockResearchService(
       const bars = Array.isArray(historyResult?.data)
         ? (historyResult.data as PriceBar[])
         : [];
-      const hasAnalysisSample = bars.length >= 20;
-      const analysisWarnings = hasAnalysisSample
-        ? []
-        : ["历史行情不足 20 根，技术指标、评分和 Evaluator 不可用"];
+      const requestedHistoryBars = Math.max(request.historyLimit ?? 120, 1);
+      const analysisMetadata = createResearchAnalysisMetadata(
+        bars,
+        requestedHistoryBars
+      );
+      const hasAnalysisSample = bars.length >= MINIMUM_ANALYSIS_BARS;
+      const hasReliableAnalysisSample =
+        bars.length >= MINIMUM_RELIABLE_ANALYSIS_BARS &&
+        analysisMetadata.sample.coverage >= MINIMUM_RELIABLE_ANALYSIS_COVERAGE;
+      const analysisWarnings = !hasAnalysisSample
+        ? ["历史行情不足 20 根，技术指标、评分和 Evaluator 不可用"]
+        : hasReliableAnalysisSample
+          ? []
+          : [
+              `历史行情样本仅 ${bars.length} 根，覆盖请求的 ${(analysisMetadata.sample.coverage * 100).toFixed(0)}%；分析结果已降级，不产生可靠 BUY 信号。`,
+            ];
       const snapshotData = remoteResults.get("snapshot")?.data as
         StockSnapshot | null | undefined;
       const analysis = hasAnalysisSample
@@ -461,7 +488,17 @@ export function createStockResearchService(
               : {}),
           })
         : { technical: null, score: null, evaluator: null, strategy: null };
-      const strategy = analysis.strategy;
+      const strategy =
+        !analysis.strategy || hasReliableAnalysisSample
+          ? analysis.strategy
+          : {
+              ...analysis.strategy,
+              fusion: {
+                ...analysis.strategy.fusion,
+                verdict: "HOLD" as const,
+                confidence: 0,
+              },
+            };
       const capabilities: Record<
         string,
         {
@@ -490,9 +527,12 @@ export function createStockResearchService(
           const sectionWarnings =
             data === null
               ? [...analysisWarnings]
-              : (historyResult?.warnings ?? []).map(
-                  (warning) => `历史行情证据：${warning}`
-                );
+              : [
+                  ...analysisWarnings,
+                  ...(historyResult?.warnings ?? []).map(
+                    (warning) => `历史行情证据：${warning}`
+                  ),
+                ];
           capabilities[capability] = {
             status:
               data === null
@@ -567,10 +607,7 @@ export function createStockResearchService(
           facts: { snapshot: snapshotData ?? null, historyBars: bars.length },
           ...analysis,
           strategy,
-          analysisMetadata: createResearchAnalysisMetadata(
-            bars,
-            request.historyLimit ?? 120
-          ),
+          analysisMetadata,
         },
         sources: uniqueSources,
         asOf: aggregateAsOf(uniqueSources, retrievedAt),
@@ -664,25 +701,29 @@ export function createStockResearchService(
         ...runtimeStatus,
         ...providerCatalog.filter((provider) => !runtimeIds.has(provider.id)),
       ];
-      const available = providerStatus.filter(
+      const enabledProviders = providerStatus.filter(
+        (provider) => provider.enabled
+      );
+      const available = enabledProviders.filter(
         (provider) => provider.available
       ).length;
-      const pendingProbe = providerStatus.some(
-        (provider) => provider.enabled && provider.state === "unknown"
-      );
+      const pendingProbe = enabledProviders.filter(
+        (provider) => provider.state === "unknown"
+      ).length;
+      const failures = enabledProviders.filter(
+        (provider) =>
+          provider.state === "cooldown" ||
+          provider.state === "unavailable" ||
+          provider.state === "unconfigured"
+      ).length;
+      const state =
+        failures === 0
+          ? "ready"
+          : available > 0 || pendingProbe > 0
+            ? "degraded"
+            : "unavailable";
       return {
-        state:
-          available > 0 &&
-          available ===
-            providerStatus.filter((provider) => provider.enabled).length
-            ? "ready"
-            : available > 0
-              ? "degraded"
-              : pendingProbe
-                ? "degraded"
-                : providerStatus.length
-                  ? "unavailable"
-                  : "ready",
+        state,
         service: "calen-stock-sidecar",
         version: "0.1.0",
         providers: providerStatus,

@@ -191,3 +191,53 @@ test("JSON-RPC rejects invalid method params with -32602", async () => {
     responses.every((response) => /Invalid params/.test(response.error.message))
   );
 });
+
+test("JSON-RPC validates backtest instrument and volume even when bars are supplied", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const chunks: Buffer[] = [];
+  output.on("data", (chunk: Buffer) => chunks.push(chunk));
+  const completed = runJsonRpcStdio({
+    input,
+    output,
+    service: createStockResearchService({ providers: [] }),
+  });
+  const bar = {
+    time: "2026-07-15",
+    open: 10,
+    high: 11,
+    low: 9,
+    close: 10.5,
+  };
+  input.end(
+    [
+      {
+        jsonrpc: "2.0",
+        id: "invalid-instrument",
+        method: "backtest",
+        params: { instrument: { bad: true }, bars: [bar] },
+      },
+      {
+        jsonrpc: "2.0",
+        id: "invalid-volume",
+        method: "backtest",
+        params: { bars: [{ ...bar, volume: "not-a-number" }] },
+      },
+    ]
+      .map((request) => JSON.stringify(request))
+      .join("\n")
+  );
+  await completed;
+
+  const responses = Buffer.concat(chunks)
+    .toString("utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(
+    responses.map((response) => response.error?.code),
+    [-32602, -32602]
+  );
+  assert.match(responses[0].error.message, /instrument|标的|证券/i);
+  assert.match(responses[1].error.message, /volume|成交量/i);
+});

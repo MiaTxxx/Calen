@@ -8,6 +8,7 @@
 import { createConnection, type Socket } from "node:net";
 import { crc32, unzipSync } from "node:zlib";
 
+import { strictFiniteNumber as numeric } from "../numbers.ts";
 import type {
   HistoryRequest,
   InstrumentRef,
@@ -240,12 +241,6 @@ function parseRecords(raw: string | undefined): unknown[][] {
       cause: error,
     });
   }
-}
-
-function numeric(value: unknown): number | undefined {
-  if (value === undefined || value === null || value === "") return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function dateOnly(date: Date): string {

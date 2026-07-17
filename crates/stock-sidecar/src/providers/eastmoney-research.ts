@@ -1,5 +1,6 @@
 import { ProviderError } from "./registry.ts";
 import { extractPdfPlainText } from "../pdf-text.ts";
+import { strictFiniteNumber as finite } from "../numbers.ts";
 import type {
   FinancialBalanceStatement,
   FinancialCashFlowStatement,
@@ -17,11 +18,6 @@ function record(value: unknown): UnknownRecord | undefined {
   return value !== null && typeof value === "object"
     ? (value as UnknownRecord)
     : undefined;
-}
-
-function finite(value: unknown): number | undefined {
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function text(value: unknown): string | undefined {

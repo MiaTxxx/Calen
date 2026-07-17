@@ -6,6 +6,7 @@
  */
 import { ProviderError } from "./registry.ts";
 import { makeInstrument, normalizeInstrument } from "../instruments.ts";
+import { strictFiniteNumber as numeric } from "../numbers.ts";
 import type {
   AssetClass,
   InstrumentRef,
@@ -115,12 +116,6 @@ function providerSymbol(instrument: InstrumentRef): string {
   }
   if (instrument.market === "HK") return `hk${instrument.symbol}`;
   return `us${instrument.symbol}`;
-}
-
-function numeric(value: string | undefined): number | undefined {
-  if (value === undefined || value === "") return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function text(value: unknown): string | undefined {
@@ -296,11 +291,7 @@ export function createTencentProvider(): StockProvider {
       if (!fields || price === undefined || price <= 0) {
         throw new ProviderError("腾讯行情返回空数据");
       }
-      const asOf = marketTime(
-        fields[30],
-        context.now().toISOString(),
-        instrument.market
-      );
+      const asOf = marketTime(fields[30], "unknown", instrument.market);
       const namedInstrument = {
         ...instrument,
         name: fields[1]?.trim() || instrument.name,
@@ -323,7 +314,12 @@ export function createTencentProvider(): StockProvider {
         if (value !== undefined)
           (data as unknown as Record<string, unknown>)[key] = value;
       }
-      return { data, asOf };
+      const evidence: ProviderEvidence<StockSnapshot> = { data, asOf };
+      if (asOf === "unknown")
+        evidence.warnings = [
+          "腾讯未提供有效行情时间；asOf 标记为 unknown，获取时间仅记录在 retrievedAt。",
+        ];
+      return evidence;
     },
     async history(
       instrument,

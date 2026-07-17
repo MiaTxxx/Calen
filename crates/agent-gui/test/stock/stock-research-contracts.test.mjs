@@ -17,10 +17,12 @@ import {
   normalizeWarnings,
   parseFiniteNumber,
   sanitizeCsvFileName,
+  summarizeStockServiceFailure,
   toSidecarBacktestRequest,
   toSidecarMarketBriefRequest,
   toSidecarResolveRequest,
   toSidecarSnapshotRequest,
+  validateStockTimeoutDraft,
 } from "../../src/lib/stock-research/contracts.ts";
 import {
   isExplicitStockPortfolioRequest,
@@ -258,6 +260,70 @@ test("AI stock tools normalize instruments and backtest fields to the sidecar wi
     endDate: "2026-01-01",
   });
   assert.deepEqual(fused.strategy, { id: "fused" });
+});
+
+test("StockSnapshot historyDays matches the sidecar 120-day boundary", () => {
+  const snapshotTool = createStockResearchTools({
+    runtimeScope: "chat",
+  }).tools.find((tool) => tool.name === "StockSnapshot");
+  assert.ok(snapshotTool);
+  assert.equal(snapshotTool.parameters.properties.historyDays.maximum, 120);
+
+  const instrument = {
+    canonicalId: "CN:600519",
+    symbol: "600519",
+    displayName: "贵州茅台",
+    market: "CN",
+  };
+  assert.equal(
+    toStockSidecarToolPayload("snapshot", {
+      instrument,
+      historyDays: 120,
+    }).historyLimit,
+    120
+  );
+  assert.equal(
+    toStockSidecarToolPayload("snapshot", {
+      instrument,
+      historyDays: 121,
+    }).historyLimit,
+    120
+  );
+  const disabledHistory = toStockSidecarToolPayload("snapshot", {
+    instrument,
+    historyDays: -1,
+  });
+  assert.equal(disabledHistory.includeHistory, false);
+  assert.equal(disabledHistory.historyLimit, 1);
+});
+
+test("stock timeout validation rejects invalid drafts without replacing them", () => {
+  for (const draft of ["", "NaN", "Infinity", "-1", "999", "120001"]) {
+    const result = validateStockTimeoutDraft(draft);
+    assert.equal(result.ok, false, `expected ${JSON.stringify(draft)} to fail`);
+    assert.equal(result.draft, draft);
+    assert.ok(result.error);
+  }
+
+  assert.deepEqual(validateStockTimeoutDraft("1000"), {
+    ok: true,
+    draft: "1000",
+    value: 1000,
+  });
+  assert.deepEqual(validateStockTimeoutDraft("120000"), {
+    ok: true,
+    draft: "120000",
+    value: 120000,
+  });
+});
+
+test("stock failure summaries remove stderr, paths, and stack frames", () => {
+  const summary = summarizeStockServiceFailure(
+    "sidecar launch failed at /opt/Calen/stock-sidecar/dist/stdio.mjs\nstderr: node: not found\n    at launch (node:child_process:1:1)"
+  );
+
+  assert.equal(summary, "sidecar launch failed at [路径见运行诊断]");
+  assert.doesNotMatch(summary, /stderr|stdio\.mjs|at launch/i);
 });
 
 test("market brief requests preserve session, trade date, and selected sections", () => {
@@ -711,7 +777,7 @@ test("stock service status keeps safe runtime failure diagnostics", () => {
   assert.equal(status.runtime?.disabledAfterFailures, true);
 });
 
-test("stock service failure message prefers the concrete restart failure", () => {
+test("stock service failure message keeps raw diagnostics out of the summary", () => {
   assert.equal(
     getStockServiceFailureMessage({
       state: "failed",
@@ -722,13 +788,17 @@ test("stock service failure message prefers the concrete restart failure", () =>
         stderrTail: [],
         failure: {
           stage: "unexpected-exit",
-          firstError: "首次启动时管道关闭",
-          restartError: "自动重启后进程退出，exit code 1",
-          stderrTail: [],
+          exitCode: 1,
+          firstError:
+            "首次启动时管道关闭\n    at writeFrame (node:internal/streams:1:1)",
+          restartError:
+            "自动重启后进程退出：EISDIR lstat 'D:\\Calen\\stock-sidecar\\dist\\stdio.mjs'\nstderr: provider key leaked\n    at lstat (node:fs:1:1)",
+          stderrTail: ["provider key leaked"],
+          sidecarRoot: "D:\\Calen\\stock-sidecar",
         },
       },
     }),
-    "自动重启后进程退出，exit code 1"
+    "阶段：unexpected-exit · 退出码：1 · 自动重启后进程退出：EISDIR lstat '[路径见运行诊断]'"
   );
 });
 
@@ -815,6 +885,14 @@ test("stock hub keeps the five product views", async () => {
   assert.match(source, /首次错误/);
   assert.match(source, /重启错误/);
   assert.match(source, /stderr/);
+  assert.match(source, /value=\{timeoutDraft\}/);
+  assert.match(source, /aria-invalid=\{Boolean\(timeoutError\)\}/);
+  assert.match(source, /role="alert"/);
+  assert.match(source, /validateStockTimeoutDraft\(timeoutDraft\)/);
+  assert.doesNotMatch(
+    source,
+    /const generalMessage = status\?\.message;[\s\S]*?服务状态：\{generalMessage\}/
+  );
   assert.match(portfolioSource, /autoComplete="new-password"/);
   assert.doesNotMatch(source, /value=\{provider\.key/);
   assert.match(portfolioSource, /mode === "replaceAll"/);

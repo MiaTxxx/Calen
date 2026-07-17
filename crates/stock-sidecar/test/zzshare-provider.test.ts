@@ -155,6 +155,42 @@ test("ZZShare keyed daily requests preserve query parameters and normalize snaps
   );
 });
 
+test("ZZShare leaves optional null and blank quote values absent", async () => {
+  const provider = createZzshareProvider();
+  const instrument = makeInstrument("CN", "000001", "SZSE", "EQUITY", "CNY");
+  const result = await provider.snapshot!(instrument, {
+    fetch: async () =>
+      json({
+        list: [
+          {
+            trade_date: "20260715",
+            close: 11.5,
+            prev_close: null,
+            open: "",
+            high: null,
+            low: " ",
+            volume: null,
+            quote_rate: "",
+          },
+        ],
+      }),
+    now: () => new Date("2026-07-16T01:00:00.000Z"),
+  });
+
+  assert.equal(result.data?.price, 11.5);
+  for (const field of [
+    "previousClose",
+    "open",
+    "high",
+    "low",
+    "volume",
+    "change",
+    "changePercent",
+  ]) {
+    assert.equal(field in (result.data ?? {}), false, field);
+  }
+});
+
 test("ZZShare profile combines open stock info with the listed-instrument record", async () => {
   const provider = createZzshareProvider();
   const instrument = makeInstrument(

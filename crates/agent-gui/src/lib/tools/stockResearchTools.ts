@@ -79,7 +79,7 @@ const DEFINITIONS: readonly StockToolDefinition[] = [
       "Get a bounded, source-labelled snapshot for one resolved stock or ETF: quote, profile, key metrics and limited price history.",
     parameters: Type.Object({
       instrument: INSTRUMENT,
-      historyDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 365, default: 30 })),
+      historyDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 120, default: 30 })),
       deadlineMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 60000 })),
     }),
     scopes: ["chat", "cron_auto_prompt"],

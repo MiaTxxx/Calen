@@ -39,7 +39,7 @@ test("Tencent FX batches direct pairs and derives supported reverse rates", asyn
   assert.equal(result.data?.[2]?.rate, 7.8);
   assert.equal(result.data?.[3]?.rate, 0.92);
   assert.equal(result.data?.[3]?.asOf, "2026-07-16T10:30:02.000+08:00");
-  assert.equal(result.asOf, "2026-07-16T10:30:02.000+08:00");
+  assert.equal(result.asOf, "2026-07-16T10:30:00.000+08:00");
   assert.deepEqual(result.warnings, undefined);
 });
 
@@ -67,4 +67,19 @@ test("Tencent FX returns only observed rates and warns about missing pairs", asy
     [["USD", "CNY"]]
   );
   assert.match(result.warnings?.join("\n") ?? "", /USD\/HKD/);
+});
+
+test("Tencent FX marks missing quote time as unknown", async () => {
+  const result = await createTencentFxProvider().fxRates!(
+    { pairs: [{ fromCurrency: "USD", toCurrency: "CNY" }] },
+    {
+      fetch: async () =>
+        new Response('v_whUSDCNY="1~美元人民币~USDCNY~7.2~0~";'),
+      now: () => new Date("2026-07-16T02:30:03.000Z"),
+    }
+  );
+
+  assert.equal(result.data?.[0]?.asOf, "unknown");
+  assert.equal(result.asOf, "unknown");
+  assert.match(result.warnings?.join("\n") ?? "", /时间|unknown/i);
 });

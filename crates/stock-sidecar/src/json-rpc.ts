@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
+import { isInstrumentRef } from "./instruments.ts";
 import {
   MARKET_BRIEF_SECTIONS,
   MARKET_BRIEF_SESSIONS,
@@ -62,32 +63,6 @@ function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-}
-
-function validInstrument(value: unknown): boolean {
-  const instrument = record(value);
-  if (!instrument) return false;
-  const market = instrument.market;
-  const symbol = instrument.symbol;
-  return (
-    typeof instrument.id === "string" &&
-    typeof symbol === "string" &&
-    symbol.length > 0 &&
-    instrument.id === `${market}:${symbol}` &&
-    typeof instrument.name === "string" &&
-    instrument.name.length > 0 &&
-    (market === "CN" || market === "HK" || market === "US") &&
-    typeof instrument.exchange === "string" &&
-    instrument.exchange.length > 0 &&
-    (instrument.assetType === "stock" ||
-      instrument.assetType === "etf" ||
-      instrument.assetType === "index" ||
-      instrument.assetType === "fund" ||
-      instrument.assetType === "unknown") &&
-    (instrument.currency === "CNY" ||
-      instrument.currency === "HKD" ||
-      instrument.currency === "USD")
-  );
 }
 
 function validNumber(value: unknown): value is number {
@@ -196,7 +171,7 @@ function validateParams(
     return null;
   }
   if (method === "snapshot") {
-    if (!validInstrument(params.instrument))
+    if (!isInstrumentRef(params.instrument))
       return "snapshot.instrument 缺失或格式无效";
     if (!validInteger(params.maxAgeMs, 0, 86_400_000))
       return "snapshot.maxAgeMs 必须是有效的非负整数";
@@ -215,7 +190,7 @@ function validateParams(
     return null;
   }
   if (method === "research") {
-    if (!validInstrument(params.instrument))
+    if (!isInstrumentRef(params.instrument))
       return "research.instrument 缺失或格式无效";
     if (!validInteger(params.historyLimit, 1, 2_000))
       return "research.historyLimit 必须是 1-2000 的整数";
@@ -280,8 +255,10 @@ function validateParams(
   }
   if (method === "status") return null;
   if (method === "backtest") {
-    if (!Array.isArray(params.bars) && !validInstrument(params.instrument))
+    if (!Array.isArray(params.bars) && !isInstrumentRef(params.instrument))
       return "backtest 必须提供 bars 或 instrument";
+    if (params.instrument !== undefined && !isInstrumentRef(params.instrument))
+      return "backtest.instrument 必须是有效证券标的";
     if (
       params.initialCash !== undefined &&
       (!validNumber(params.initialCash) || params.initialCash <= 0)
@@ -343,9 +320,11 @@ function validateParams(
           !validNumber(bar.open) ||
           !validNumber(bar.high) ||
           !validNumber(bar.low) ||
-          !validNumber(bar.close)
+          !validNumber(bar.close) ||
+          (bar.volume !== undefined &&
+            (!validNumber(bar.volume) || bar.volume < 0))
         )
-          return "backtest.bars 包含无效 K 线";
+          return "backtest.bars 包含无效 K 线或成交量 volume";
       }
     }
     return null;

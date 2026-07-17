@@ -25,24 +25,83 @@ test("snapshot returns normalized Tencent evidence without requiring an API key"
   assert.equal(result.asOf, "2026-07-15T10:30:00.000+08:00");
 });
 
-test("maxAgeMs zero bypasses an existing snapshot cache", async () => {
+test("Tencent reports unknown freshness when the upstream quote time is missing", async () => {
+  const body =
+    'v_sh600519="1~贵州茅台~600519~1500.50~1490.00~1495.00~1000~~~~~~~~~~~~~~~~~~~~~~~10.50~0.70~1510.00~1488.00";';
+  const service = createStockResearchService({
+    fetch: async () => new Response(body, { status: 200 }),
+    now: () => new Date("2026-07-15T02:30:01.000Z"),
+  });
+
+  const result = await service.snapshot({ instrument });
+
+  assert.equal(result.status, "partial");
+  assert.equal(result.data?.marketTime, "unknown");
+  assert.equal(result.asOf, "unknown");
+  assert.match(result.warnings.join("\n"), /时间|asOf|unknown/i);
+});
+
+test("maxAgeMs zero bypasses cache for the snapshot and requested supporting data", async () => {
   let price = 10;
+  let historyReads = 0;
+  let profileReads = 0;
   const provider: StockProvider = {
     id: "changing",
     priority: 1,
-    capabilities: ["snapshot"],
+    capabilities: ["snapshot", "history", "profile"],
     async snapshot(ref) {
       return {
         data: { instrument: ref, price: price++, marketTime: "2026-07-15" },
         asOf: "2026-07-15",
       };
     },
+    async history() {
+      historyReads += 1;
+      return {
+        data: [
+          {
+            time: "2026-07-15",
+            open: 10,
+            high: 11,
+            low: 9,
+            close: 10,
+          },
+        ],
+        asOf: "2026-07-15",
+      };
+    },
+    async profile() {
+      profileReads += 1;
+      return {
+        data: { industry: `sector-${profileReads}` },
+        asOf: "2026-07-15",
+      };
+    },
   };
-  const service = createStockResearchService({ providers: [provider] });
-  const first = await service.snapshot({ instrument, maxAgeMs: 60_000 });
-  const second = await service.snapshot({ instrument, maxAgeMs: 0 });
+  const service = createStockResearchService({
+    providers: [provider],
+    throttleIntervalMs: 0,
+  });
+  const first = await service.snapshot({
+    instrument,
+    maxAgeMs: 60_000,
+    includeHistory: true,
+    includeProfile: true,
+  });
+  const second = await service.snapshot({
+    instrument,
+    maxAgeMs: 0,
+    includeHistory: true,
+    includeProfile: true,
+  });
   assert.equal(first.data?.price, 10);
   assert.equal(second.data?.price, 11);
+  assert.equal(historyReads, 2);
+  assert.equal(profileReads, 2);
+  assert.equal(
+    (second.data?.profile as { industry: string }).industry,
+    "sector-2"
+  );
   assert.equal(second.cached, false);
 });
 

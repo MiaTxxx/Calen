@@ -1,4 +1,5 @@
 import { simpleMovingAverage } from "./analytics.ts";
+import { isInstrumentRef } from "./instruments.ts";
 import { computeQuantIndicators } from "./quant/indicators.ts";
 import {
   STRATEGY_ALGORITHM_VERSION,
@@ -550,6 +551,8 @@ export function runBacktest(
   const initialCash = request.initialCash ?? 100_000;
   const feeRate = request.feeRate ?? 0.0003;
   const evaluationRatio = request.evaluationRatio ?? DEFAULT_EVALUATION_RATIO;
+  if (request.instrument !== undefined && !isInstrumentRef(request.instrument))
+    return unavailableResult(request, now, ["instrument 必须是有效证券标的"]);
   if (!Number.isFinite(initialCash) || initialCash <= 0)
     return unavailableResult(request, now, ["initialCash 必须是正的有限数"]);
   if (!Number.isFinite(feeRate) || feeRate < 0 || feeRate >= 1)
@@ -565,6 +568,13 @@ export function runBacktest(
 
   const seenTimes = new Set<string>();
   for (const bar of inputBars) {
+    if (
+      bar.volume !== undefined &&
+      (!Number.isFinite(bar.volume) || bar.volume < 0)
+    )
+      return unavailableResult(request, now, [
+        "K 线成交量 volume 必须是非负有限数",
+      ]);
     const prices = [bar.open, bar.high, bar.low, bar.close];
     if (
       !bar.time ||

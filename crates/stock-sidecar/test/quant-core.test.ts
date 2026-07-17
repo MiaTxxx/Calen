@@ -113,3 +113,28 @@ test("evaluator reports quality and weighted dimensions instead of one threshold
   );
   assert.ok(first.score >= 0 && first.score <= 100);
 });
+
+test("evaluator does not turn missing financial values into real zeroes", () => {
+  const bars = sampleBars();
+  const indicators = computeQuantIndicators(bars);
+  const result = evaluateResearchQuality({
+    bars,
+    indicator: indicators.at(-1)!,
+    signals: [],
+    financials: {
+      statements: {
+        income: { netProfit: null },
+        balance: { debtAssetRatio: "" },
+        cashFlow: { operatingCashFlow: " " },
+      },
+      periods: [],
+    },
+  });
+
+  assert.equal(result.quality.hasFinancials, false);
+  assert.equal(result.quality.dimensionsActual, 4);
+  assert.equal(
+    result.dimensions.some((dimension) => dimension.id === "fundamental"),
+    false
+  );
+});

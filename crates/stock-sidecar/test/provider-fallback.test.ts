@@ -111,6 +111,168 @@ test("provider timeout falls back even when the provider ignores AbortSignal", a
   assert.match(result.warnings.join("\n"), /timeout/i);
 });
 
+test("capability misses do not consume the fallback budget before a fourth provider", async () => {
+  const providers: StockProvider[] = [1, 2, 3].map((index) => ({
+    id: `unsupported-${index}`,
+    priority: index,
+    capabilities: ["snapshot"],
+    async snapshot() {
+      return {
+        data: null,
+        asOf: "2026-07-15",
+        warnings: ["当前市场不受支持"],
+      };
+    },
+  }));
+  providers.push({
+    id: "fourth-provider",
+    priority: 4,
+    capabilities: ["snapshot"],
+    async snapshot(ref) {
+      return {
+        data: { instrument: ref, price: 10, marketTime: "2026-07-15" },
+        asOf: "2026-07-15",
+      };
+    },
+  });
+  const registry = new ProviderRegistry(providers, {
+    maxAttempts: 3,
+    throttleIntervalMs: 0,
+  });
+
+  const result = await registry.query(
+    "snapshot",
+    instrument.id,
+    (provider, context) => provider.snapshot!(instrument, context)
+  );
+
+  assert.equal(result.source?.provider, "fourth-provider");
+  assert.equal(
+    registry.status().find((item) => item.id === "unsupported-1")
+      ?.consecutiveFailures,
+    0
+  );
+});
+
+test("three failed providers still allow a fourth provider to recover the request", async () => {
+  const providers: StockProvider[] = [1, 2, 3].map((index) => ({
+    id: `failed-${index}`,
+    priority: index,
+    capabilities: ["snapshot"],
+    async snapshot() {
+      throw new Error(`failure-${index}`);
+    },
+  }));
+  providers.push({
+    id: "fourth-recovery",
+    priority: 4,
+    capabilities: ["snapshot"],
+    async snapshot(ref) {
+      return {
+        data: { instrument: ref, price: 10, marketTime: "2026-07-15" },
+        asOf: "2026-07-15",
+      };
+    },
+  });
+  const registry = new ProviderRegistry(providers, {
+    maxAttempts: 3,
+    throttleIntervalMs: 0,
+  });
+
+  const result = await registry.query(
+    "snapshot",
+    instrument.id,
+    (provider, context) => provider.snapshot!(instrument, context)
+  );
+
+  assert.equal(result.source?.provider, "fourth-recovery");
+  assert.match(result.warnings.join("\n"), /failure-1/);
+  assert.match(result.warnings.join("\n"), /failure-3/);
+});
+
+test("provider health is isolated by capability and market", async () => {
+  let snapshotReads = 0;
+  const provider: StockProvider = {
+    id: "scoped-provider",
+    priority: 1,
+    capabilities: ["snapshot", "history"],
+    async snapshot(ref) {
+      snapshotReads += 1;
+      if (ref.market === "HK") throw new ProviderError("HK route failed");
+      return {
+        data: { instrument: ref, price: 10, marketTime: "2026-07-15" },
+        asOf: "2026-07-15",
+      };
+    },
+    async history() {
+      throw new ProviderError("history route failed");
+    },
+  };
+  const registry = new ProviderRegistry([provider], {
+    failureThreshold: 1,
+    throttleIntervalMs: 0,
+  });
+  await registry.query("history", instrument.id, (candidate, context) =>
+    candidate.history!(instrument, { limit: 20 }, context)
+  );
+  const afterCapabilityFailure = await registry.query(
+    "snapshot",
+    instrument.id,
+    (candidate, context) => candidate.snapshot!(instrument, context)
+  );
+  const hkInstrument = makeInstrument("HK", "00700", "HKEX", "EQUITY", "HKD");
+  await registry.query("snapshot", hkInstrument.id, (candidate, context) =>
+    candidate.snapshot!(hkInstrument, context)
+  );
+  const afterMarketFailure = await registry.query(
+    "snapshot",
+    "CN:000001",
+    (candidate, context) =>
+      candidate.snapshot!(
+        makeInstrument("CN", "000001", "SZSE", "EQUITY", "CNY"),
+        context
+      )
+  );
+
+  assert.equal(afterCapabilityFailure.source?.provider, "scoped-provider");
+  assert.equal(afterMarketFailure.source?.provider, "scoped-provider");
+  assert.equal(snapshotReads, 3);
+});
+
+test("different capabilities from one provider share upstream concurrency", async () => {
+  let active = 0;
+  let maximumActive = 0;
+  const read = async <T>(data: T) => {
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    active -= 1;
+    return { data, asOf: "2026-07-15" };
+  };
+  const provider: StockProvider = {
+    id: "shared-upstream",
+    priority: 1,
+    capabilities: ["snapshot", "history"],
+    snapshot: async (ref) =>
+      read({ instrument: ref, price: 10, marketTime: "2026-07-15" }),
+    history: async () => read([]),
+  };
+  const registry = new ProviderRegistry([provider], {
+    throttleIntervalMs: 0,
+  });
+
+  await Promise.all([
+    registry.query("snapshot", instrument.id, (candidate, context) =>
+      candidate.snapshot!(instrument, context)
+    ),
+    registry.query("history", instrument.id, (candidate, context) =>
+      candidate.history!(instrument, { limit: 20 }, context)
+    ),
+  ]);
+
+  assert.equal(maximumActive, 1);
+});
+
 test("provider throttle is injectable and aborts while waiting", async () => {
   const calls: Array<[string, number]> = [];
   const store = new MemoryThrottleStore();
@@ -153,8 +315,8 @@ test("provider throttle is injectable and aborts while waiting", async () => {
   );
   await assert.rejects(pending, /cancelled while throttled/);
   assert.deepEqual(calls, [
-    ["throttled:snapshot", 100],
-    ["throttled:snapshot", 100],
+    ["throttled", 100],
+    ["throttled", 100],
   ]);
 });
 

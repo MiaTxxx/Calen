@@ -6,6 +6,7 @@ import type {
   StockProvider,
   StockSnapshot,
 } from "../types.ts";
+import { strictFiniteNumber as number } from "../numbers.ts";
 import { ProviderError } from "./registry.ts";
 
 type UnknownRecord = Record<string, unknown>;
@@ -16,11 +17,6 @@ function object(value: unknown): UnknownRecord | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as UnknownRecord)
     : undefined;
-}
-
-function number(value: unknown): number | undefined {
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function tickflowSymbol(instrument: InstrumentRef): string | null {
@@ -221,7 +217,7 @@ export function createTickflowProvider(apiKey: string): StockProvider {
         throw new ProviderError("TickFlow 行情返回空数据");
       const ext = object(quote.ext) ?? {};
       const previousClose = number(quote.prev_close);
-      const asOf = marketTime(quote.timestamp, context.now().toISOString());
+      const asOf = marketTime(quote.timestamp, "unknown");
       const data: StockSnapshot = {
         instrument: {
           ...instrument,
@@ -255,7 +251,12 @@ export function createTickflowProvider(apiKey: string): StockProvider {
         if (value !== undefined)
           (data as unknown as Record<string, unknown>)[field] = value;
       }
-      return { data, asOf };
+      const evidence: ProviderEvidence<StockSnapshot> = { data, asOf };
+      if (asOf === "unknown")
+        evidence.warnings = [
+          "TickFlow 未提供有效行情时间；asOf 标记为 unknown，获取时间仅记录在 retrievedAt。",
+        ];
+      return evidence;
     },
     async history(
       instrument,

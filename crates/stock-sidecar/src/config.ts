@@ -51,7 +51,10 @@ function boundedNumber(
 
 export interface StockRuntimeConfig {
   enabled: boolean;
+  /** End-to-end request deadline enforced by the Tauri Manager. */
   timeoutMs: number;
+  /** Per-provider attempt budget, leaving room for fallback before timeoutMs. */
+  providerTimeoutMs: number;
   cacheTtlMs: number;
   enabledProviderIds: string[];
   providerKeys: Record<string, string>;
@@ -120,9 +123,14 @@ export function loadStockRuntimeConfig(
       return [status];
     }
   );
+  const timeoutMs = boundedNumber(settings.timeoutMs, 15_000, 500, 120_000);
   return {
     enabled,
-    timeoutMs: boundedNumber(settings.timeoutMs, 15_000, 500, 120_000),
+    timeoutMs,
+    providerTimeoutMs: Math.max(
+      250,
+      Math.min(15_000, Math.floor(timeoutMs / 3))
+    ),
     cacheTtlMs: boundedNumber(settings.cacheTtlMinutes, 5, 0, 1_440) * 60_000,
     enabledProviderIds,
     providerKeys,
@@ -145,7 +153,7 @@ export function createStockResearchServiceFromEnvironment(
       config.providerKeys
     ),
     providerCatalog: config.providerCatalog,
-    timeoutMs: config.timeoutMs,
+    timeoutMs: config.providerTimeoutMs,
     cacheTtlMs: config.cacheTtlMs,
   });
 }

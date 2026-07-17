@@ -115,6 +115,46 @@ test("TickFlow snapshot sends x-api-key and normalizes CN, HK, and US quotes", a
   }
 });
 
+test("TickFlow preserves missing quote fields and reports unknown market time", async () => {
+  const provider = createTickflowProvider("provider-key");
+  const instrument = makeInstrument("CN", "600519", "SSE", "EQUITY", "CNY");
+  const result = await provider.snapshot!(instrument, {
+    fetch: async () =>
+      Response.json({
+        data: [
+          {
+            symbol: "600519.SH",
+            last_price: 125.1,
+            prev_close: null,
+            open: "",
+            high: null,
+            low: " ",
+            volume: null,
+            timestamp: null,
+            ext: { change_pct: null, change_amount: "" },
+          },
+        ],
+      }),
+    now,
+  });
+
+  assert.equal(result.data?.price, 125.1);
+  for (const field of [
+    "previousClose",
+    "open",
+    "high",
+    "low",
+    "volume",
+    "change",
+    "changePercent",
+  ]) {
+    assert.equal(field in (result.data ?? {}), false, field);
+  }
+  assert.equal(result.data?.marketTime, "unknown");
+  assert.equal(result.asOf, "unknown");
+  assert.match(result.warnings?.join("\n") ?? "", /时间|asOf|unknown/i);
+});
+
 test("TickFlow history sends bounded OpenAPI parameters and expands compact bars", async () => {
   const provider = createTickflowProvider("provider-key");
   const instrument = makeInstrument("CN", "600519", "SSE", "EQUITY", "CNY");

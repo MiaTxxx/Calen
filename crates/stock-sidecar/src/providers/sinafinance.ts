@@ -1,4 +1,5 @@
 import { makeInstrument } from "../instruments.ts";
+import { strictFiniteNumber as number } from "../numbers.ts";
 import type {
   AssetClass,
   InstrumentRef,
@@ -52,11 +53,6 @@ async function decodeSinaText(response: Response): Promise<string> {
     ? "utf-8"
     : "gb18030";
   return new TextDecoder(encoding).decode(await response.arrayBuffer());
-}
-
-function number(value: unknown): number | undefined {
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function rounded(value: number, digits = 2): number {
@@ -237,7 +233,7 @@ async function snapshot(
   if (!fields || price === undefined || price <= 0)
     throw new ProviderError("新浪财经行情返回空数据");
   const previousClose = number(fields[2]);
-  const asOf = quoteTime(fields[30], fields[31], context.now().toISOString());
+  const asOf = quoteTime(fields[30], fields[31], "unknown");
   const data: StockSnapshot = {
     instrument: {
       ...instrument,
@@ -263,7 +259,12 @@ async function snapshot(
     if (value !== undefined)
       (data as unknown as Record<string, unknown>)[key] = value;
   }
-  return { data, asOf };
+  const evidence: ProviderEvidence<StockSnapshot> = { data, asOf };
+  if (asOf === "unknown")
+    evidence.warnings = [
+      "新浪财经未提供有效行情时间；asOf 标记为 unknown，获取时间仅记录在 retrievedAt。",
+    ];
+  return evidence;
 }
 
 async function history(

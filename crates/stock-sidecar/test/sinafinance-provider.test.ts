@@ -130,6 +130,25 @@ test("Sinafinance snapshot normalizes quote fields and market time", async () =>
   assert.equal(result.asOf, "2026-07-15T15:34:59.000+08:00");
 });
 
+test("Sinafinance does not substitute retrieval time for a missing quote time", async () => {
+  const provider = createSinafinanceProvider();
+  const instrument = makeInstrument("CN", "600519", "SSE", "EQUITY", "CNY");
+  const fields = Array.from({ length: 32 }, () => "");
+  fields[0] = "贵州茅台";
+  fields[3] = "1251.06";
+  const result = await provider.snapshot!(instrument, {
+    fetch: async () =>
+      new Response(`var hq_str_sh600519="${fields.join(",")}";`, {
+        headers: { "Content-Type": "application/javascript; charset=utf-8" },
+      }),
+    now,
+  });
+
+  assert.equal(result.data?.marketTime, "unknown");
+  assert.equal(result.asOf, "unknown");
+  assert.match(result.warnings?.join("\n") ?? "", /时间|asOf|unknown/i);
+});
+
 test("Sinafinance history bounds and filters daily bars", async () => {
   const provider = createSinafinanceProvider();
   const instrument = makeInstrument("CN", "600519", "SSE", "EQUITY", "CNY");

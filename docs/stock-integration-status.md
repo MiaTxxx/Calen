@@ -1,6 +1,6 @@
 # Calen 股票融合实施状态
 
-更新时间：2026-07-16
+更新时间：2026-07-18
 
 本文记录 `docs/stock-integration-plan.md` 的实际实现证据与剩余边界。它不是发布批准，也不能替代 Provider 条款、签名和真实安装验收。
 
@@ -41,7 +41,7 @@
 ### Windows 生命周期与发布
 
 - Windows x64 only Release workflow；构建 NSIS Setup.exe、MSI、各自 updater `.sig` 和 Windows-only `latest.json`。
-- 安装包携带 Node 24 x64、sidecar bundle、NOTICE 和许可证，不包含 `node_modules`。
+- 安装包携带固定为 Node 24.17.0 x64 的运行时、sidecar bundle、NOTICE 和许可证，不包含 `node_modules`。启动入口会把 Node-facing 的 `\\?\C:\...` 与 `\\?\UNC\...` 归一化为普通路径，拒绝 Windows 设备命名空间；开发 override 会在启动前校验入口和显式 Node 文件。
 - bundle verifier 在中文/空格路径和空 `PATH` 下直接运行 sidecar。
 - Tauri updater 私钥和匹配公钥是强制门禁；仅当私钥本身加密时才需要密码，未加密私钥允许密码为空。Provider 条款批准变量也是发布门禁。
 - Windows sidecar 使用 Job Object 进程树清理；更新、重启、退出均先停止 sidecar。
@@ -58,10 +58,10 @@
 
 ## 当前自动化验证
 
-- Sidecar：102 项测试，覆盖回退、缓存、节流、熔断、403/429、离线、取消、自动汇率、ETF 溢价、公告 PDF、市场报告会话/交易日、港美公司资料、量化确定性、时间切分与防未来函数。
+- Sidecar：123 项测试，覆盖回退、缓存、Provider 级节流、按能力/市场隔离的健康状态、单 Provider 尝试与整单截止时间分离、403/429、离线、取消、自动汇率、ETF 溢价、公告 PDF、市场报告会话/交易日、港美公司资料、缺失字段与时效语义、低样本降级、量化确定性、时间切分与防未来函数。
 - GUI 股票/结果卡：资产授权、Gateway 脱敏、五页 Hub、Tauri adapter、组合工作区、结构化研究和结果卡测试。
 - Gateway 资产隐私回归覆盖工具执行前的原始用户文本、附件元数据、标题、事件流、运行快照和历史读取；明确的本地持仓轮次从首条用户消息起即只向 Gateway 投影隐私占位。
-- Windows CI：bundle 隔离验证、Tauri backend check、股票 Rust 测试，以及使用临时 updater 密钥构建两个版本的 MSI/NSIS，在中文与空格路径执行安装、sidecar 启动、升级和卸载 smoke；临时安装器不上传。portfolio 测试使用独立 `crates/stock-portfolio-core-tests` harness，复用桌面端同一组 Rust ledger 源文件但不加载 Tauri/WebView2 DLL。
+- Windows CI：bundle 隔离验证、Tauri backend check、股票 Rust 测试，以及使用临时 updater 密钥构建两个版本的 MSI/NSIS，在中文与空格路径执行安装、sidecar 启动、升级和卸载 smoke；已暂存资源还会经 `StockResearchManager` 的真实请求路径执行 Node/entry 启动 smoke，而非只直启 `node.exe`。Release 在打包前运行同一 Manager smoke；临时安装器不上传。portfolio 测试使用独立 `crates/stock-portfolio-core-tests` harness，复用桌面端同一组 Rust ledger 源文件但不加载 Tauri/WebView2 DLL。
 - 实验室可独立运行技术指标、评分卡、策略信号和 Evaluator；GUI 保留结构化量化数据并提供原始实验数据折叠查看，回测仍独立展示时间切分结果。
 - 市场页保留并展示涨跌停、热门板块、资金流、龙虎榜、异动和情绪分项的真实条目；缺失分项继续显示 `partial/unavailable`，不再用摘要数量替代明细。
 - 数据源页增加 A 股、港股、美股和 ETF 能力矩阵，并显示 Provider 最近成功请求时间；未探测 Provider 仍明确显示 `unknown/待探测`。

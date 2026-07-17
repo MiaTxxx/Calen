@@ -88,6 +88,27 @@ test("backtest rejects invalid money and OHLC inputs instead of emitting complet
   assert.match(result.warnings.join("\n"), /initialCash|K 线/);
 });
 
+test("backtest domain rejects malformed instruments and volumes", async () => {
+  const service = createStockResearchService({ providers: [] });
+  const bars = weekdayBars(30, (index) => ({ close: 100 + index }));
+  const invalidInstrument = await service.backtest({
+    instrument: { bad: true } as never,
+    bars,
+    strategy: { shortWindow: 2, longWindow: 3 },
+  });
+  const invalidVolume = await service.backtest({
+    bars: bars.map((bar, index) =>
+      index === 0 ? { ...bar, volume: "not-a-number" as never } : bar
+    ),
+    strategy: { shortWindow: 2, longWindow: 3 },
+  });
+
+  assert.equal(invalidInstrument.status, "unavailable");
+  assert.match(invalidInstrument.warnings.join("\n"), /instrument|标的|证券/i);
+  assert.equal(invalidVolume.status, "unavailable");
+  assert.match(invalidVolume.warnings.join("\n"), /volume|成交量/i);
+});
+
 test("backtest reports benchmark and reproducible coverage for a complete sample", async () => {
   const bars = weekdayBars(10, (index) => ({ close: 10 + index }));
   const service = createStockResearchService({

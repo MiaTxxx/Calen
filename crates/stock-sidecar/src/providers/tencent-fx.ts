@@ -13,6 +13,7 @@ import type {
   StockFxRatesRequest,
   StockProvider,
 } from "../types.ts";
+import { strictFiniteNumber } from "../numbers.ts";
 import { ProviderError } from "./registry.ts";
 
 const TENCENT_FOREX_URL = "https://qt.gtimg.cn/?q=";
@@ -49,9 +50,8 @@ function planPair(pair: FxRatePairRequest): TencentPairPlan | null {
 }
 
 function finitePositive(value: string | undefined): number | null {
-  if (!value) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  const parsed = strictFiniteNumber(value);
+  return parsed !== undefined && parsed > 0 ? parsed : null;
 }
 
 function quoteTime(raw: string | undefined): string | null {
@@ -128,18 +128,19 @@ async function fxRates(
       );
       return [];
     }
-    return [{ ...plan, rate, asOf: quote.asOf ?? retrievedAt }].map(
+    return [{ ...plan, rate, asOf: quote.asOf ?? "unknown" }].map(
       ({ directPair: _directPair, inverted: _inverted, ...value }) => value
     );
   });
 
   return {
     data: rates.length ? rates : null,
-    asOf:
-      rates
-        .map((rate) => rate.asOf)
-        .sort()
-        .at(-1) ?? retrievedAt,
+    asOf: rates.some((rate) => rate.asOf === "unknown")
+      ? "unknown"
+      : (rates
+          .map((rate) => rate.asOf)
+          .sort()
+          .at(0) ?? retrievedAt),
     ...(warnings.length ? { warnings } : {}),
   };
 }

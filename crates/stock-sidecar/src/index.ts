@@ -1,5 +1,9 @@
 export { createStockResearchService } from "./service.ts";
-export { makeInstrument, normalizeInstrument } from "./instruments.ts";
+export {
+  isInstrumentRef,
+  makeInstrument,
+  normalizeInstrument,
+} from "./instruments.ts";
 export {
   MemoryThrottleStore,
   ProviderError,

@@ -1,4 +1,5 @@
 import { makeInstrument } from "../instruments.ts";
+import { strictFiniteNumber as number } from "../numbers.ts";
 import type {
   InstrumentRef,
   PriceBar,
@@ -26,11 +27,6 @@ function object(value: unknown): UnknownRecord | undefined {
   return value !== null && typeof value === "object"
     ? (value as UnknownRecord)
     : undefined;
-}
-
-function number(value: unknown): number | undefined {
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function quoteTime(value: unknown, fallback: string): string {
@@ -164,7 +160,7 @@ export function createEastmoneyProvider(): StockProvider {
       const price = number(data?.f43);
       if (price === undefined || price <= 0)
         throw new ProviderError("东方财富行情返回空数据");
-      const asOf = quoteTime(data?.f86, context.now().toISOString());
+      const asOf = quoteTime(data?.f86, "unknown");
       const code = typeof data?.f57 === "string" ? data.f57 : instrument.symbol;
       const name =
         typeof data?.f58 === "string" ? data.f58.trim() : instrument.name;
@@ -190,7 +186,15 @@ export function createEastmoneyProvider(): StockProvider {
         if (value !== undefined)
           (snapshot as unknown as Record<string, unknown>)[key] = value;
       }
-      return { data: snapshot, asOf };
+      const evidence: ProviderEvidence<StockSnapshot> = {
+        data: snapshot,
+        asOf,
+      };
+      if (asOf === "unknown")
+        evidence.warnings = [
+          "东方财富未提供有效行情时间；asOf 标记为 unknown，获取时间仅记录在 retrievedAt。",
+        ];
+      return evidence;
     },
     async history(
       instrument,
