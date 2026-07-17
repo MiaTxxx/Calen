@@ -396,14 +396,29 @@ function Assert-CalenShortcutIcon {
         throw "NSIS did not install the dedicated Calen shortcut icon: $expectedIconPath"
     }
 
-    $shell = New-Object -ComObject WScript.Shell
+    # WScript.Shell exposes IconLocation through the ANSI automation layer.
+    # On an English runner that turns Chinese install paths into '?' even when
+    # the Unicode .lnk data is correct. Shell.Application returns the link's
+    # Unicode icon path through IShellLinkW instead.
+    $shell = New-Object -ComObject Shell.Application
+    $desktopFolder = $null
+    $shortcutItem = $null
     $shortcut = $null
     try {
-        $shortcut = $shell.CreateShortcut($shortcutPath)
-        $iconLocation = [string]$shortcut.IconLocation
+        $desktopFolder = $shell.NameSpace((Split-Path -Parent $shortcutPath))
+        $shortcutItem = $desktopFolder.ParseName((Split-Path -Leaf $shortcutPath))
+        $shortcut = $shortcutItem.GetLink()
+        $iconLocation = ""
+        [void]$shortcut.GetIconLocation([ref]$iconLocation)
     } finally {
         if ($null -ne $shortcut) {
             [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut)
+        }
+        if ($null -ne $shortcutItem) {
+            [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcutItem)
+        }
+        if ($null -ne $desktopFolder) {
+            [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($desktopFolder)
         }
         if ($null -ne $shell) {
             [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)

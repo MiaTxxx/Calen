@@ -240,6 +240,18 @@ test("desktop release blocks on real Windows installer lifecycle validation", ()
   assert.match(windowsInstallerValidation, /function Assert-CalenShortcutIcon/);
   assert.match(
     windowsInstallerValidation,
+    /New-Object -ComObject Shell\.Application/
+  );
+  assert.match(
+    windowsInstallerValidation,
+    /GetIconLocation\(\[ref\]\$iconLocation\)/
+  );
+  assert.doesNotMatch(
+    windowsInstallerValidation,
+    /New-Object -ComObject WScript\.Shell/
+  );
+  assert.match(
+    windowsInstallerValidation,
     /Calen desktop shortcut still relies on the executable icon cache/
   );
   assert.match(
