@@ -216,6 +216,19 @@ test("desktop release publishes only Windows installers and a Windows updater ma
   assert.match(releaseWorkflow, /some\(k=>!k\.startsWith\("windows-"\)\)/);
 });
 
+test("Windows release build pins Cargo to the MSVC linker outside Git Bash", () => {
+  const buildStep = releaseWorkflow.slice(
+    releaseWorkflow.indexOf("- name: Build Windows installers"),
+    releaseWorkflow.indexOf("- name: Stage Windows artifacts")
+  );
+
+  assert.match(buildStep, /shell: pwsh/);
+  assert.doesNotMatch(buildStep, /shell: bash/);
+  assert.match(buildStep, /Get-Command link\.exe/);
+  assert.match(buildStep, /CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER/);
+  assert.match(buildStep, /\$env:LIVEAGENT_TAURI_VERSION_CONFIG/);
+});
+
 test("desktop release prefers curated tag notes for GitHub and updater metadata", () => {
   assert.match(
     releaseWorkflow,
