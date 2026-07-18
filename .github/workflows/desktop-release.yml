@@ -127,6 +127,10 @@ jobs:
           CALEN_STOCK_WINDOWS_INSTALL_ROOT: ${{ github.workspace }}\crates\agent-gui\src-tauri\resources\stock-sidecar
         run: cargo test --manifest-path crates/stock-sidecar-runtime/Cargo.toml packaged_sidecar_uses_production_launch_and_stdio -- --ignored
 
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Stage offline translation runtime
         shell: pwsh
         run: ./scripts/release/stage-translation-runtime.ps1

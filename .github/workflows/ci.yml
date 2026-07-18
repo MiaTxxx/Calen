@@ -318,6 +318,10 @@ jobs:
           CARGO_TERM_COLOR: always
         run: cargo test --manifest-path crates/stock-portfolio-core-tests/Cargo.toml
 
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Stage offline translation runtime
         shell: pwsh
         run: ./scripts/release/stage-translation-runtime.ps1

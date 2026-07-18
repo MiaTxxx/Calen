@@ -55,7 +55,15 @@ if ($LASTEXITCODE -ne 0 -or $actualCommit -ne $runtimeCommit) {
 # Build only llama-server, without OpenMP or shared project DLLs. The upstream
 # b10066 Windows ZIP copies libomp from Visual Studio's debug_nonredist tree;
 # building this pinned source ourselves avoids redistributing that binary.
-cmake -S "$sourcePath" -B "$buildPath" -G "Visual Studio 17 2022" -A x64 `
+if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
+    throw "MSVC compiler environment is unavailable. Initialize it before staging the translation runtime."
+}
+if (-not (Get-Command ninja.exe -ErrorAction SilentlyContinue)) {
+    throw "Ninja is unavailable. Install Ninja before staging the translation runtime."
+}
+
+cmake -S "$sourcePath" -B "$buildPath" -G "Ninja" `
+    -DCMAKE_BUILD_TYPE=Release `
     -DBUILD_SHARED_LIBS=OFF `
     -DGGML_BACKEND_DL=OFF `
     -DGGML_CPU_ALL_VARIANTS=OFF `
@@ -76,14 +84,17 @@ if ($LASTEXITCODE -ne 0) {
     throw "Failed to configure the pinned llama.cpp translation runtime."
 }
 
-cmake --build "$buildPath" --config Release --target llama-server --parallel
+cmake --build "$buildPath" --target llama-server --parallel
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to build the pinned llama.cpp translation runtime."
 }
 
-$builtServer = Join-Path $buildPath "bin\Release\llama-server.exe"
-if (-not (Test-Path -LiteralPath $builtServer -PathType Leaf)) {
-    throw "Pinned llama.cpp build did not produce llama-server.exe: $builtServer"
+$builtServer = @(
+    (Join-Path $buildPath "bin\llama-server.exe"),
+    (Join-Path $buildPath "bin\Release\llama-server.exe")
+) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if (-not $builtServer) {
+    throw "Pinned llama.cpp build did not produce llama-server.exe under $buildPath\bin."
 }
 
 $versionOutput = & $builtServer --version 2>&1
