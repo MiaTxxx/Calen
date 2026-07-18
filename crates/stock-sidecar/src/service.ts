@@ -12,6 +12,7 @@ import {
 } from "./providers/registry.ts";
 import type {
   EvidenceSource,
+  HistoryPeriod,
   InstrumentRef,
   InstrumentSearchResult,
   MarketBriefRequest,
@@ -291,20 +292,31 @@ export function createStockResearchService(
           warnings: quote.warnings,
         };
       }
+      const historyPeriod: HistoryPeriod =
+        request.historyPeriod === "minute" ||
+        request.historyPeriod === "week" ||
+        request.historyPeriod === "month"
+          ? request.historyPeriod
+          : "day";
+      // 分时一天最多约 240+ 根 1 分钟线，放宽上限；其余周期保持 120。
+      const historyLimitCap = historyPeriod === "minute" ? 360 : 120;
       const historyLimit = Math.min(
-        Math.max(request.historyLimit ?? 30, 1),
-        120
+        Math.max(
+          request.historyLimit ?? (historyPeriod === "minute" ? 360 : 30),
+          1
+        ),
+        historyLimitCap
       );
       const includeProfile = request.includeProfile ?? false;
       const [history, profile] = await Promise.all([
         request.includeHistory
           ? registry.query(
               "history",
-              `${request.instrument.id}:snapshot:${historyLimit}`,
+              `${request.instrument.id}:snapshot:${historyPeriod}:${historyLimit}`,
               (provider, context) =>
                 provider.history!(
                   request.instrument,
-                  { limit: historyLimit },
+                  { limit: historyLimit, period: historyPeriod },
                   context
                 ),
               signal,
@@ -357,7 +369,7 @@ export function createStockResearchService(
       }
       const data: StockSnapshot = { ...quote.data, metrics };
       if (request.includeHistory && bars.length)
-        data.chart = { bars, limit: historyLimit };
+        data.chart = { bars, limit: historyLimit, period: historyPeriod };
       if (includeProfile && profile?.data != null) data.profile = profile.data;
       const sources = [quote.source, history?.source, profile?.source].filter(
         (source) => source !== undefined

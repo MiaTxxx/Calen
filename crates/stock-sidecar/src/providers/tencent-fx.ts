@@ -14,6 +14,7 @@ import type {
   StockProvider,
 } from "../types.ts";
 import { strictFiniteNumber } from "../numbers.ts";
+import { decodeGbkAwareText } from "./encoding.ts";
 import { ProviderError } from "./registry.ts";
 
 const TENCENT_FOREX_URL = "https://qt.gtimg.cn/?q=";
@@ -111,7 +112,7 @@ async function fxRates(
       status: response.status,
     });
   }
-  const quotes = parseTencentQuotes(await response.text());
+  const quotes = parseTencentQuotes(await decodeGbkAwareText(response));
   const retrievedAt = context.now().toISOString();
   const rates = plans.flatMap((plan): StockFxRateQuote[] => {
     const quote = quotes.get(plan.directPair);

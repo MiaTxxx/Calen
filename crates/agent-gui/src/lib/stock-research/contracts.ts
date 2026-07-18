@@ -602,6 +602,14 @@ export function mapStockSnapshotResult(raw: unknown): StockEvidenceResult<QuoteS
   const instrument = mapInstrument(dataRecord.instrument ?? envelope.instrument);
   if (!instrument) return mapEnvelope<QuoteSnapshot>(raw, null, ["snapshot 缺少有效 instrument"]);
   const chart = mapChart(dataRecord.chart ?? dataRecord.history);
+  const chartPeriodRaw = asString(asRecord(dataRecord.chart).period);
+  const chartPeriod =
+    chartPeriodRaw === "minute" ||
+    chartPeriodRaw === "day" ||
+    chartPeriodRaw === "week" ||
+    chartPeriodRaw === "month"
+      ? chartPeriodRaw
+      : undefined;
   const facts = Array.isArray(dataRecord.facts)
     ? dataRecord.facts.flatMap((entry) => {
         const item = asRecord(entry);
@@ -621,6 +629,7 @@ export function mapStockSnapshotResult(raw: unknown): StockEvidenceResult<QuoteS
     previousClose: asNumber(dataRecord.previousClose),
     volume: asNumber(dataRecord.volume),
     ...(chart.length ? { chart } : {}),
+    ...(chart.length && chartPeriod ? { chartPeriod } : {}),
     ...(facts?.length ? { facts } : {}),
   };
   return mapEnvelope(raw, data);
@@ -1117,10 +1126,17 @@ export function toSidecarResolveRequest(request: {
 }
 
 export function toSidecarSnapshotRequest(request: StockSnapshotRequest): Record<string, unknown> {
+  const period = request.historyPeriod ?? "day";
   return {
     instrument: request.instrument,
     ...(request.includeHistory
-      ? { includeHistory: true, historyLimit: 120, includeProfile: true }
+      ? {
+          includeHistory: true,
+          // 分时一天约 240+ 根 1 分钟线，需要更大的上限。
+          historyLimit: period === "minute" ? 360 : 120,
+          historyPeriod: period,
+          includeProfile: true,
+        }
       : {}),
   };
 }

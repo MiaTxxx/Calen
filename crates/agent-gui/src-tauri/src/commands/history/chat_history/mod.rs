@@ -25,6 +25,8 @@ const HISTORY_SHARE_TOKEN_ALPHABET: &[u8] =
 const CHAT_HISTORY_FTS_REFRESH_BATCH_SIZE: usize = 8;
 const DEFAULT_HISTORY_SEARCH_LIMIT: usize = 6;
 const MAX_HISTORY_SEARCH_LIMIT: usize = 12;
+// 侧栏搜索允许比 memory 工具更大的结果集（chat_history_search 命令专用）。
+const SIDEBAR_HISTORY_SEARCH_LIMIT: usize = 40;
 const MAX_HISTORY_LIST_LIMIT: i64 = 200;
 
 include!("types.rs");

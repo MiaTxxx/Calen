@@ -407,6 +407,21 @@ test("sidecar snapshot envelope maps quote and bounded history", () => {
       instrument,
       includeHistory: true,
       historyLimit: 120,
+      historyPeriod: "day",
+      includeProfile: true,
+    }
+  );
+  assert.deepEqual(
+    toSidecarSnapshotRequest({
+      instrument,
+      includeHistory: true,
+      historyPeriod: "minute",
+    }),
+    {
+      instrument,
+      includeHistory: true,
+      historyLimit: 360,
+      historyPeriod: "minute",
       includeProfile: true,
     }
   );

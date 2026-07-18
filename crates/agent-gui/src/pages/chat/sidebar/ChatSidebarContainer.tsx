@@ -6,6 +6,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { ChatHistorySidebar } from "../../../components/chat/ChatHistorySidebar";
 import { useLocale } from "../../../i18n";
+import { useSidebarSearch } from "../../../lib/chat/history/useSidebarSearch";
 import { normalizeConversationTitle } from "../../../lib/chat/page/chatPageHelpers";
 import type { WorkspaceProject } from "../../../lib/settings";
 import {
@@ -92,6 +93,8 @@ export function ChatSidebarContainer(props: ChatSidebarContainerProps) {
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+
+  const search = useSidebarSearch(items);
 
   const sortedProjects = useMemo(
     () =>
@@ -215,6 +218,10 @@ export function ChatSidebarContainer(props: ChatSidebarContainerProps) {
       canHideDefaultProject={props.canHideDefaultProject}
       onNewConversation={props.onNewConversation}
       onSelectConversation={props.onSelectConversation}
+      searchQuery={search.query}
+      onSearchQueryChange={search.setQuery}
+      searchResults={search.results}
+      searchStatus={search.status}
       onStartRenaming={handleStartRenaming}
       onRenameDraftChange={setRenameDraft}
       onCommitRename={handleCommitRename}

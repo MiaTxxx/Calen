@@ -4,6 +4,7 @@
  * Opptrix (Apache-2.0):
  * packages/a-stock-layer/src/providers/tencent/api/{hk,us}-detail-service.ts.
  */
+import { decodeGbkAwareText } from "./encoding.ts";
 import { ProviderError } from "./registry.ts";
 import { makeInstrument, normalizeInstrument } from "../instruments.ts";
 import { strictFiniteNumber as numeric } from "../numbers.ts";
@@ -261,6 +262,87 @@ function marketTime(
   return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T${value.slice(8, 10)}:${value.slice(10, 12)}:${value.slice(12, 14)}.000${offset}`;
 }
 
+function marketUtcOffset(
+  market: InstrumentRef["market"],
+  month: number
+): string {
+  if (market !== "US") return "+08:00";
+  return month >= 3 && month <= 11 ? "-04:00" : "-05:00";
+}
+
+/**
+ * 当日分时（1 分钟粒度）。腾讯 minute/query 每个点只有价格与累计成交量，
+ * 因此 OHLC 同价，成交量按相邻点差分还原；时间输出为带市场时区偏移的
+ * ISO 字符串，供前端换算为时间轴坐标。
+ */
+async function fetchTencentMinuteBars(
+  instrument: InstrumentRef,
+  symbol: string,
+  limit: number,
+  context: ProviderContext
+): Promise<ProviderEvidence<PriceBar[]>> {
+  const url = new URL("https://web.ifzq.gtimg.cn/appstock/app/minute/query");
+  url.searchParams.set("code", symbol);
+  const init: RequestInit = {
+    headers: { Accept: "application/json", Referer: "https://gu.qq.com/" },
+  };
+  if (context.signal) init.signal = context.signal;
+  const response = await context.fetch(url, init);
+  if (!response.ok)
+    throw new ProviderError(`HTTP ${response.status}`, {
+      status: response.status,
+    });
+  const payload = record(await response.json());
+  const security = record(record(payload?.data)?.[symbol]);
+  const minuteData = record(security?.data);
+  const date =
+    typeof minuteData?.date === "string" && /^\d{8}$/.test(minuteData.date)
+      ? minuteData.date
+      : undefined;
+  const rows = Array.isArray(minuteData?.data) ? minuteData.data : [];
+  if (!date || rows.length === 0) {
+    return {
+      data: null,
+      asOf: context.now().toISOString(),
+      warnings: ["腾讯分时接口没有返回当日分时数据"],
+    };
+  }
+  const offset = marketUtcOffset(instrument.market, Number(date.slice(4, 6)));
+  const dateIso = `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
+  let previousCumulativeVolume: number | undefined;
+  const bars = rows
+    .flatMap((row): PriceBar[] => {
+      if (typeof row !== "string") return [];
+      const [hhmm, priceText, cumVolumeText] = row.trim().split(/\s+/);
+      if (!hhmm || !/^\d{4}$/.test(hhmm)) return [];
+      const price = numeric(priceText ?? "");
+      if (price === undefined || price <= 0) return [];
+      const time = `${dateIso}T${hhmm.slice(0, 2)}:${hhmm.slice(2, 4)}:00${offset}`;
+      const bar: PriceBar = {
+        time,
+        open: price,
+        close: price,
+        high: price,
+        low: price,
+      };
+      const cumulativeVolume = numeric(cumVolumeText ?? "");
+      if (cumulativeVolume !== undefined) {
+        const delta =
+          previousCumulativeVolume === undefined
+            ? cumulativeVolume
+            : cumulativeVolume - previousCumulativeVolume;
+        previousCumulativeVolume = cumulativeVolume;
+        if (delta >= 0) bar.volume = delta;
+      }
+      return [bar];
+    })
+    .slice(-limit);
+  return {
+    data: bars.length ? bars : null,
+    asOf: bars.at(-1)?.time ?? context.now().toISOString(),
+  };
+}
+
 export function createTencentProvider(): StockProvider {
   return {
     id: "tencent",
@@ -284,7 +366,7 @@ export function createTencentProvider(): StockProvider {
         throw new ProviderError(`HTTP ${response.status}`, {
           status: response.status,
         });
-      const text = await response.text();
+      const text = await decodeGbkAwareText(response);
       const payload = /="([^"]*)"/.exec(text)?.[1];
       const fields = payload?.split("~");
       const price = numeric(fields?.[3]);
@@ -328,10 +410,14 @@ export function createTencentProvider(): StockProvider {
     ): Promise<ProviderEvidence<PriceBar[]>> {
       const symbol = providerSymbol(instrument);
       const limit = Math.min(Math.max(request.limit ?? 120, 1), 2_000);
+      const period = request.period ?? "day";
+      if (period === "minute") {
+        return fetchTencentMinuteBars(instrument, symbol, limit, context);
+      }
       const url = new URL("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get");
       url.searchParams.set(
         "param",
-        `${symbol},day,${request.start ?? ""},${request.end ?? ""},${limit},qfq`
+        `${symbol},${period},${request.start ?? ""},${request.end ?? ""},${limit},qfq`
       );
       const init: RequestInit = {
         headers: { Accept: "application/json", Referer: "https://gu.qq.com/" },
@@ -351,10 +437,11 @@ export function createTencentProvider(): StockProvider {
         data?.[symbol] && typeof data[symbol] === "object"
           ? (data[symbol] as Record<string, unknown>)
           : undefined;
-      const rows = Array.isArray(security?.qfqday)
-        ? security.qfqday
-        : Array.isArray(security?.day)
-          ? security.day
+      // 前复权数据键为 qfq{period}（如 qfqday/qfqweek），无复权时回退到 {period}。
+      const rows = Array.isArray(security?.[`qfq${period}`])
+        ? (security[`qfq${period}`] as unknown[])
+        : Array.isArray(security?.[period])
+          ? (security[period] as unknown[])
           : [];
       const bars = rows
         .flatMap((row): PriceBar[] => {

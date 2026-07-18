@@ -84,6 +84,69 @@ pub async fn chat_history_get(id: String) -> Result<ChatHistoryRecord, String> {
     .map_err(|e| format!("chat_history_get join 失败：{e}"))?
 }
 
+const PEEK_DEFAULT_MAX_MESSAGES: i64 = 4;
+const PEEK_MAX_MESSAGES: i64 = 10;
+const PEEK_TEXT_MAX_CHARS: usize = 200;
+
+#[tauri::command]
+pub async fn chat_history_peek(
+    id: String,
+    max_messages: Option<i64>,
+) -> Result<ChatHistoryPeekResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let chat_id = id.trim().to_string();
+        if chat_id.is_empty() {
+            return Err("历史对话 id 不能为空".to_string());
+        }
+        let max_messages = max_messages
+            .unwrap_or(PEEK_DEFAULT_MAX_MESSAGES)
+            .clamp(1, PEEK_MAX_MESSAGES);
+
+        let conn = open_db()?;
+        let record = get_record_by_id(&conn, &chat_id)?;
+        let segments = load_tail_segments(&conn, &record.id, max_messages)?;
+
+        let mut messages = Vec::new();
+        for segment in &segments {
+            let Ok(parsed) = serde_json::from_str::<Value>(&segment.messages_json) else {
+                continue;
+            };
+            let Some(items) = parsed.as_array() else {
+                continue;
+            };
+            for item in items {
+                let Some(object) = item.as_object() else {
+                    continue;
+                };
+                let text = extract_content_text(object.get("content"));
+                let text = text.trim();
+                if text.is_empty() {
+                    continue;
+                }
+                messages.push(ChatHistoryPeekMessage {
+                    role: read_trimmed_string_field(object, "role"),
+                    text: text.chars().take(PEEK_TEXT_MAX_CHARS).collect(),
+                });
+            }
+        }
+        let tail_start = messages.len().saturating_sub(max_messages as usize);
+        let messages = messages.split_off(tail_start);
+
+        Ok(ChatHistoryPeekResponse {
+            id: record.id,
+            title: record.title,
+            provider_id: record.provider_id,
+            model: record.model,
+            cwd: record.cwd,
+            total_message_count: record.total_message_count,
+            updated_at: record.updated_at,
+            messages,
+        })
+    })
+    .await
+    .map_err(|e| format!("chat_history_peek join 失败：{e}"))?
+}
+
 pub(crate) async fn chat_history_get_tail(
     id: String,
     max_messages: i64,

@@ -65,6 +65,9 @@ export interface InstrumentSearchResult extends StockEvidenceMetadata {
   instruments: InstrumentRef[];
 }
 
+// K 线周期：minute 为当日分时（折线渲染），其余为蜡烛图。
+export type StockHistoryPeriod = "minute" | "day" | "week" | "month";
+
 export interface QuoteSnapshot {
   instrument: InstrumentRef;
   price: number | null;
@@ -82,6 +85,7 @@ export interface QuoteSnapshot {
     low?: number;
     close: number;
   }>;
+  chartPeriod?: StockHistoryPeriod;
   facts?: Array<{ label: string; value: string; hint?: string }>;
 }
 
@@ -451,6 +455,7 @@ export interface StockResolveRequest {
 export interface StockSnapshotRequest {
   instrument: InstrumentRef;
   includeHistory?: boolean;
+  historyPeriod?: StockHistoryPeriod;
 }
 export interface StockResearchRequest {
   instrument: InstrumentRef;

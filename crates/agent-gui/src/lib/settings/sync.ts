@@ -1,5 +1,6 @@
 import {
   type AppSettings,
+  DEFAULT_BACKGROUND_SETTINGS,
   normalizeChatRuntimeControls,
   normalizeRightDockSettings,
   normalizeSettings,
@@ -334,6 +335,8 @@ function syncableCustomSettings(
     },
     // fontScale 是本机 UI 偏好：固定为默认值，避免本地调整触发网关广播
     fontScale: { sidebar: 1, chat: 1, rightDock: 1 },
+    // background 引用本机文件路径：固定为默认值，避免路径外泄或被网关回写覆盖
+    background: DEFAULT_BACKGROUND_SETTINGS,
   };
 }
 
@@ -908,6 +911,8 @@ export function applyGatewaySettingsSyncPayload(
       chatSidebar: current.customSettings.chatSidebar,
       // fontScale 是本机 UI 偏好，不参与网关同步
       fontScale: current.customSettings.fontScale,
+      // background 引用本机文件路径，不参与网关同步
+      background: current.customSettings.background,
     },
     skills: (source.skills as AppSettings["skills"] | undefined) ?? current.skills,
     chatRuntimeControls: Object.hasOwn(source, "chatRuntimeControls")

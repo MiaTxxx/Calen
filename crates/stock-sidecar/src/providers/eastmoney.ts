@@ -208,11 +208,21 @@ export function createEastmoneyProvider(): StockProvider {
           asOf: context.now().toISOString(),
           warnings: ["东方财富历史行情仅支持已归一化的沪深北 A 股标的"],
         };
+      const period = request.period ?? "day";
+      // klt：1=1 分钟，101=日，102=周，103=月。
+      const klt =
+        period === "minute"
+          ? "1"
+          : period === "week"
+            ? "102"
+            : period === "month"
+              ? "103"
+              : "101";
       const url = new URL(
         "https://push2his.eastmoney.com/api/qt/stock/kline/get"
       );
       url.searchParams.set("secid", securityId);
-      url.searchParams.set("klt", "101");
+      url.searchParams.set("klt", klt);
       url.searchParams.set("fqt", "1");
       url.searchParams.set(
         "lmt",
@@ -246,7 +256,14 @@ export function createEastmoneyProvider(): StockProvider {
           low === undefined
         )
           return [];
-        const bar: PriceBar = { time: fields[0], open, close, high, low };
+        // 分钟线时间形如 "2026-07-18 09:31"；secid 仅覆盖 A 股，固定 +08:00，
+        // 与腾讯分时的 ISO 时间格式保持一致。
+        const time =
+          period === "minute" &&
+          /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(fields[0])
+            ? `${fields[0].replace(" ", "T")}:00+08:00`
+            : fields[0];
+        const bar: PriceBar = { time, open, close, high, low };
         if (volume !== undefined) bar.volume = volume;
         return [bar];
       });

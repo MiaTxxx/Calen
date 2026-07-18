@@ -78,6 +78,27 @@ pub struct ChatHistoryRecord {
     pub redact_tool_content: bool,
 }
 
+// 悬停快速预览：服务端抽取尾部消息纯文本，避免向前端传输完整 messagesJson。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatHistoryPeekMessage {
+    pub role: Option<String>,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatHistoryPeekResponse {
+    pub id: String,
+    pub title: String,
+    pub provider_id: String,
+    pub model: String,
+    pub cwd: Option<String>,
+    pub total_message_count: i64,
+    pub updated_at: i64,
+    pub messages: Vec<ChatHistoryPeekMessage>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatHistoryShareStatus {

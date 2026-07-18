@@ -548,7 +548,7 @@ fn search_chat_history_fts(
 
     let per_table_limit = limit
         .saturating_mul(2)
-        .clamp(1, MAX_HISTORY_SEARCH_LIMIT * 2);
+        .clamp(1, SIDEBAR_HISTORY_SEARCH_LIMIT * 2);
     let mut by_key = HashMap::new();
     for term in terms {
         let fts_query = history_fts_phrase(&term);
@@ -602,7 +602,7 @@ fn search_chat_history_sync(
     let limit = args
         .limit
         .unwrap_or(DEFAULT_HISTORY_SEARCH_LIMIT)
-        .clamp(1, MAX_HISTORY_SEARCH_LIMIT);
+        .clamp(1, SIDEBAR_HISTORY_SEARCH_LIMIT);
     let filter = resolve_history_search_filter(
         args.history_since,
         args.history_until,

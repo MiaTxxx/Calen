@@ -21,7 +21,8 @@ export type StockChartBar = {
 };
 
 export type StockChartPoint = {
-  time: string;
+  // 字符串为 "YYYY-MM-DD" 业务日；数字为 UNIX 秒时间戳（分时等日内数据）。
+  time: string | number;
   value: number;
 };
 
@@ -50,7 +51,8 @@ function candleData(bars: readonly StockChartBar[]): CandlestickData<Time>[] {
 
 function lineData(points: readonly StockChartPoint[]): LineData<Time>[] {
   return points.flatMap((point) =>
-    point.time && Number.isFinite(point.value)
+    (typeof point.time === "number" ? Number.isFinite(point.time) : point.time) &&
+    Number.isFinite(point.value)
       ? [{ time: point.time as Time, value: point.value }]
       : [],
   );
@@ -125,8 +127,9 @@ function TimeSeriesChart(props: {
   positive: boolean;
   className?: string;
   label: string;
+  timeVisible?: boolean;
 }) {
-  const { data, height, positive, className, label } = props;
+  const { data, height, positive, className, label, timeVisible = false } = props;
   const hostRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -148,7 +151,7 @@ function TimeSeriesChart(props: {
         horzLines: { color: border },
       },
       rightPriceScale: { borderColor: border },
-      timeScale: { borderColor: border, timeVisible: false },
+      timeScale: { borderColor: border, timeVisible, secondsVisible: false },
       localization: { locale: "zh-CN" },
     });
     const series = chart.addSeries(LineSeries, {
@@ -240,6 +243,8 @@ export function StockChart(props: {
   positive?: boolean;
   className?: string;
   label?: string;
+  // 日内数据（分时）需要在时间轴上显示时刻。
+  timeVisible?: boolean;
 }) {
   const {
     values = [],
@@ -249,6 +254,7 @@ export function StockChart(props: {
     positive = true,
     className,
     label = "价格走势",
+    timeVisible = false,
   } = props;
   const candles = useMemo(() => candleData(bars), [bars]);
   const line = useMemo(() => lineData(points), [points]);
@@ -265,6 +271,7 @@ export function StockChart(props: {
         positive={positive}
         className={className}
         label={label}
+        timeVisible={timeVisible}
       />
     );
   }

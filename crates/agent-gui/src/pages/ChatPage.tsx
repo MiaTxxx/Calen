@@ -5214,7 +5214,7 @@ export function ChatPage(props: ChatPageProps) {
             像素字号，整列缩放会造成混排（聊天区设置也只应影响聊天区）。 */}
         <div
           className={cn(
-            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
+            "chat-main-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
             activeView === "chat" && "zone-font-scale",
           )}
           style={

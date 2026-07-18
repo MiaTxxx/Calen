@@ -2,6 +2,10 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { type CSSProperties, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import iconSimpleUrl from "../../../src-tauri/icons/icon-simple.png";
 import { useLocale } from "../../i18n";
+import type {
+  SidebarSearchResult,
+  SidebarSearchStatus,
+} from "../../lib/chat/history/useSidebarSearch";
 import {
   DEFAULT_WORKSPACE_PROJECT_ID,
   type WorkspaceProject,
@@ -28,6 +32,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  Search,
   Share2,
   SkillIcon,
   SquarePen,
@@ -44,6 +49,11 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
+import {
+  ConversationHoverPreview,
+  type ConversationHoverPreviewTarget,
+} from "./ConversationHoverPreview";
+import { SidebarSearchResults } from "./SidebarSearchResults";
 
 type ChatHistorySidebarProps = {
   items: readonly SidebarConversation[];
@@ -95,6 +105,11 @@ type ChatHistorySidebarProps = {
   canHideDefaultProject?: boolean;
   onNewConversation: () => void;
   onSelectConversation: (id: string) => void;
+  // 侧栏搜索（GUI 端）：query 非空时结果面板替换虚拟化列表。
+  searchQuery?: string;
+  onSearchQueryChange?: (value: string) => void;
+  searchResults?: readonly SidebarSearchResult[];
+  searchStatus?: SidebarSearchStatus;
   onStartRenaming: (item: SidebarConversation) => void;
   onRenameDraftChange: (value: string) => void;
   onCommitRename: () => void;
@@ -116,6 +131,7 @@ const HISTORY_ROW_ESTIMATED_HEIGHT = 44;
 const HISTORY_ROW_GAP = 6;
 const HISTORY_ROW_OVERSCAN_COUNT = 8;
 const HISTORY_LOAD_MORE_THRESHOLD = 12;
+const HOVER_PREVIEW_DELAY_MS = 450;
 const PROJECT_HEADER_BUTTON_CLASS =
   "transition-colors hover:!bg-foreground/[0.06] hover:text-foreground active:!bg-foreground/[0.1] focus-visible:!bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-ring";
 const PROJECT_ICON_BUTTON_CLASS =
@@ -128,6 +144,7 @@ const SIDEBAR_PROJECT_MIN_BODY_HEIGHT = 96;
 const SIDEBAR_RECENT_MIN_BODY_HEIGHT = 160;
 const PROJECT_LIST_COLLAPSED_MAX = 30;
 const EMPTY_PROJECT_PATH_KEYS = new Set<string>();
+const EMPTY_SEARCH_RESULTS: readonly SidebarSearchResult[] = [];
 const HISTORY_LOADING_SKELETON_ROWS = [
   { title: "w-36", meta: "w-20" },
   { title: "w-44", meta: "w-24" },
@@ -168,6 +185,8 @@ const HistoryRow = memo(function HistoryRow(props: {
   onShareConversation: (item: SidebarConversation) => void;
   onDeleteConversation: (id: string) => void;
   onSetPendingDelete: (id: string | null) => void;
+  onHoverPreviewStart?: (item: SidebarConversation, element: HTMLElement) => void;
+  onHoverPreviewEnd?: () => void;
 }) {
   const {
     item,
@@ -188,6 +207,8 @@ const HistoryRow = memo(function HistoryRow(props: {
     onShareConversation,
     onDeleteConversation,
     onSetPendingDelete,
+    onHoverPreviewStart,
+    onHoverPreviewEnd,
   } = props;
   const { t } = useLocale();
 
@@ -225,6 +246,14 @@ const HistoryRow = memo(function HistoryRow(props: {
   const handleCancelDelete = useCallback(() => {
     onSetPendingDelete(null);
   }, [onSetPendingDelete]);
+
+  const handleMenuOpenChange = useCallback(
+    (open: boolean) => {
+      setMenuOpen(open);
+      if (open) onHoverPreviewEnd?.();
+    },
+    [onHoverPreviewEnd],
+  );
 
   useEffect(() => {
     if (!isRenaming) return;
@@ -276,6 +305,11 @@ const HistoryRow = memo(function HistoryRow(props: {
             ? "border-primary/20 bg-primary/[0.06] hover:border-primary/30 hover:bg-primary/[0.09]"
             : "border-transparent bg-transparent hover:border-border/50 hover:bg-background/70",
       )}
+      onPointerEnter={(event) => {
+        if (isRenaming || menuOpen) return;
+        onHoverPreviewStart?.(item, event.currentTarget);
+      }}
+      onPointerLeave={() => onHoverPreviewEnd?.()}
     >
       {isRenaming ? (
         <div className="px-1 py-0.5">
@@ -357,7 +391,7 @@ const HistoryRow = memo(function HistoryRow(props: {
               </span>
             ) : null}
 
-            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownMenu open={menuOpen} onOpenChange={handleMenuOpenChange}>
               <DropdownMenuTrigger
                 render={
                   <Button
@@ -926,6 +960,10 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
     canHideDefaultProject,
     onNewConversation,
     onSelectConversation,
+    searchQuery = "",
+    onSearchQueryChange,
+    searchResults = EMPTY_SEARCH_RESULTS,
+    searchStatus = "idle",
     onStartRenaming,
     onRenameDraftChange,
     onCommitRename,
@@ -943,6 +981,14 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
     onOpenStockHub,
   } = props;
   const { t } = useLocale();
+
+  const handleSelectSearchResult = useCallback(
+    (id: string) => {
+      onSelectConversation(id);
+      onSearchQueryChange?.("");
+    },
+    [onSelectConversation, onSearchQueryChange],
+  );
 
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pendingProjectRemoveId, setPendingProjectRemoveId] = useState<string | null>(null);
@@ -1114,6 +1160,46 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
     virtualHistoryRows.length > 0 ? virtualHistoryRows[virtualHistoryRows.length - 1].index : -1;
 
   const isListLoading = listStatus === "loading" || listStatus === "initial";
+
+  // 悬停快速预览：单实例控制器。450ms 悬停意图延迟；滚动/离开/行菜单打开即关闭。
+  const [hoverPreviewTarget, setHoverPreviewTarget] =
+    useState<ConversationHoverPreviewTarget | null>(null);
+  const hoverPreviewTimerRef = useRef<number | null>(null);
+
+  const cancelHoverPreview = useCallback(() => {
+    if (hoverPreviewTimerRef.current !== null) {
+      window.clearTimeout(hoverPreviewTimerRef.current);
+      hoverPreviewTimerRef.current = null;
+    }
+    setHoverPreviewTarget(null);
+  }, []);
+
+  const handleHoverPreviewStart = useCallback((item: SidebarConversation, element: HTMLElement) => {
+    if (hoverPreviewTimerRef.current !== null) {
+      window.clearTimeout(hoverPreviewTimerRef.current);
+    }
+    hoverPreviewTimerRef.current = window.setTimeout(() => {
+      hoverPreviewTimerRef.current = null;
+      // 虚拟化滚动可能已回收该行，锚定前确认元素仍在文档中。
+      if (!element.isConnected) return;
+      setHoverPreviewTarget({
+        conversationId: item.id,
+        title: item.title,
+        updatedAt: item.updatedAt,
+        anchorRect: element.getBoundingClientRect(),
+      });
+    }, HOVER_PREVIEW_DELAY_MS);
+  }, []);
+
+  useEffect(() => cancelHoverPreview, [cancelHoverPreview]);
+
+  useEffect(() => {
+    const scroller = historyScrollRef.current;
+    if (!scroller) return;
+    const handleScroll = () => cancelHoverPreview();
+    scroller.addEventListener("scroll", handleScroll, { passive: true });
+    return () => scroller.removeEventListener("scroll", handleScroll);
+  }, [cancelHoverPreview]);
 
   // Workspace switch: land the new scope at the top; the keyed content
   // wrapper below replays the soft enter transition at the same time.
@@ -1341,6 +1427,8 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
         onShareConversation={handleShareConversation}
         onDeleteConversation={handleDeleteConversation}
         onSetPendingDelete={setPendingDeleteId}
+        onHoverPreviewStart={handleHoverPreviewStart}
+        onHoverPreviewEnd={cancelHoverPreview}
       />
     ),
     [
@@ -1359,6 +1447,8 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
       renameDraft,
       renamingId,
       runningConversationIds,
+      handleHoverPreviewStart,
+      cancelHoverPreview,
     ],
   );
 
@@ -1679,6 +1769,35 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
                 : "translate-y-0 opacity-100",
             )}
           >
+            {onSearchQueryChange ? (
+              <div className="shrink-0 px-3 pb-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
+                  <Input
+                    value={searchQuery}
+                    onChange={(event) => onSearchQueryChange(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape" && searchQuery) {
+                        event.stopPropagation();
+                        onSearchQueryChange("");
+                      }
+                    }}
+                    placeholder={t("chat.searchConversations")}
+                    className="h-8 rounded-xl border-border/60 bg-background/70 pl-8 pr-7 text-[calc(12.5px*var(--zone-font-scale,1))] shadow-none"
+                  />
+                  {searchQuery ? (
+                    <button
+                      type="button"
+                      aria-label={t("chat.cancel")}
+                      onClick={() => onSearchQueryChange("")}
+                      className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-muted/60 hover:text-foreground"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             {errorMessage ? (
               <div className="shrink-0 px-3 pb-2">
                 <SidebarStateCard
@@ -1695,12 +1814,19 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
               aria-busy={isListLoading || isLoadingMore}
               className="chat-history-list min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3"
             >
-              {/* Render priority: skeleton (loading with zero rows) → rows
-                  (with a syncing pill) → empty state only when ready without
-                  error. The error banner above never replaces the rows. The
-                  scope-keyed wrapper replays a soft enter transition when the
-                  workspace scope changes. */}
-              {isListLoading && items.length === 0 ? (
+              {/* Render priority: search results (query non-empty) → skeleton
+                  (loading with zero rows) → rows (with a syncing pill) → empty
+                  state only when ready without error. The error banner above
+                  never replaces the rows. The scope-keyed wrapper replays a
+                  soft enter transition when the workspace scope changes. */}
+              {searchQuery.trim() ? (
+                <SidebarSearchResults
+                  results={searchResults}
+                  status={searchStatus}
+                  currentConversationId={currentConversationId}
+                  onSelect={handleSelectSearchResult}
+                />
+              ) : isListLoading && items.length === 0 ? (
                 <HistoryListLoadingSkeleton />
               ) : (
                 <div key={scopeKey || "scope"} className="chat-history-scope-enter">
@@ -1752,7 +1878,7 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
                   )}
                 </div>
               )}
-              {items.length > 0 && (hasMore || isLoadingMore) ? (
+              {!searchQuery.trim() && items.length > 0 && (hasMore || isLoadingMore) ? (
                 <div className="px-2 pb-2 pt-1 text-center text-[calc(11px*var(--zone-font-scale,1))] leading-5 text-muted-foreground/70">
                   {isLoadingMore
                     ? t("sidebar.loadingMoreHistory")
@@ -1763,6 +1889,7 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
           </div>
         </div>
       </div>
+      {hoverPreviewTarget ? <ConversationHoverPreview target={hoverPreviewTarget} /> : null}
     </aside>
   );
 });

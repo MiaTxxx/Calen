@@ -120,6 +120,16 @@ export type FontScaleSettings = {
   rightDock: number;
 };
 
+// 主界面自定义背景：图片文件落盘在 ~/.liveagent/backgrounds，这里只存路径与遮罩参数。
+export type BackgroundSettings = {
+  enabled: boolean;
+  imagePath: string;
+  // 遮罩不透明度（0.1-0.9），越大背景越暗淡、内容越可读。
+  opacity: number;
+  // 遮罩模糊半径（0-24px）。
+  blur: number;
+};
+
 export type CustomSettings = {
   conversationTitleModel?: SelectedModel;
   // 技能商店等处的描述翻译模型；未设置时回退到当前对话模型。
@@ -127,6 +137,7 @@ export type CustomSettings = {
   chatSidebar: ChatSidebarSettings;
   rightDock: RightDockSettings;
   fontScale: FontScaleSettings;
+  background: BackgroundSettings;
 };
 
 export type UpdateSettings = {
@@ -1727,6 +1738,32 @@ export function normalizeFontScaleSettings(input: unknown): FontScaleSettings {
   };
 }
 
+export const DEFAULT_BACKGROUND_SETTINGS: BackgroundSettings = {
+  enabled: false,
+  imagePath: "",
+  opacity: 0.55,
+  blur: 8,
+};
+
+export function normalizeBackgroundSettings(input: unknown): BackgroundSettings {
+  const obj = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const imagePath = typeof obj.imagePath === "string" ? obj.imagePath.trim() : "";
+  const rawOpacity =
+    typeof obj.opacity === "number" && Number.isFinite(obj.opacity)
+      ? obj.opacity
+      : DEFAULT_BACKGROUND_SETTINGS.opacity;
+  const rawBlur =
+    typeof obj.blur === "number" && Number.isFinite(obj.blur)
+      ? obj.blur
+      : DEFAULT_BACKGROUND_SETTINGS.blur;
+  return {
+    enabled: obj.enabled === true && imagePath.length > 0,
+    imagePath,
+    opacity: Math.min(0.9, Math.max(0.1, Math.round(rawOpacity * 100) / 100)),
+    blur: Math.min(24, Math.max(0, Math.round(rawBlur))),
+  };
+}
+
 export function normalizeCustomSettings(
   input: unknown,
   customProviders: CustomProvider[],
@@ -1750,6 +1787,7 @@ export function normalizeCustomSettings(
     },
     rightDock: normalizeRightDockSettings(obj.rightDock),
     fontScale: normalizeFontScaleSettings(obj.fontScale),
+    background: normalizeBackgroundSettings(obj.background),
   };
 }
 

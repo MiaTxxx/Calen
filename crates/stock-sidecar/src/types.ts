@@ -122,7 +122,7 @@ export interface StockSnapshot {
   change?: number;
   changePercent?: number;
   marketTime: string;
-  chart?: { bars: PriceBar[]; limit: number };
+  chart?: { bars: PriceBar[]; limit: number; period?: HistoryPeriod };
   profile?: unknown;
   metrics?: Record<string, number | string | null>;
 }
@@ -198,6 +198,7 @@ export interface StockSnapshotRequest {
   maxAgeMs?: number;
   includeHistory?: boolean;
   historyLimit?: number;
+  historyPeriod?: HistoryPeriod;
   includeProfile?: boolean;
 }
 export interface StockResearchRequest {
@@ -364,10 +365,17 @@ export interface StockProvider {
   ): Promise<ProviderEvidence<unknown>>;
 }
 
+/**
+ * K 线周期：minute 为当日分时（1 分钟粒度，OHLC 同价），
+ * day/week/month 为前复权 K 线。
+ */
+export type HistoryPeriod = "minute" | "day" | "week" | "month";
+
 export interface HistoryRequest {
   limit?: number;
   start?: string;
   end?: string;
+  period?: HistoryPeriod;
 }
 
 export interface ProviderEvidence<T> {

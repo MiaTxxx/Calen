@@ -5,6 +5,7 @@ import {
   type AppSettings,
   type ChatRuntimeControls,
   getDefaultSettings,
+  normalizeBackgroundSettings,
   normalizeChatRuntimeControls,
   normalizeFontScaleSettings,
   normalizeRightDockSettings,
@@ -84,6 +85,7 @@ function readLocalUiSettings(): {
       },
       rightDock: normalizeRightDockSettings(obj.rightDock),
       fontScale: normalizeFontScaleSettings(obj.fontScale),
+      background: normalizeBackgroundSettings(obj.background),
     };
   }
 

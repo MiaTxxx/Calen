@@ -2538,6 +2538,16 @@ body > div:not(#root) [data-streamdown="mermaid"] svg {
   contain: layout paint style;
 }
 
+/* 自定义背景模式：<html> 带 has-custom-bg 时，把主界面大面积表面透明化，
+   让 AppChrome 里的背景图层（-z-10）透出来。卡片/弹层保持不透明以保证可读性。 */
+.has-custom-bg .app-chrome-surface,
+.has-custom-bg .chat-main-surface {
+  background-color: transparent;
+}
+.has-custom-bg .chat-history-sidebar {
+  background-color: hsl(var(--sidebar-bg) / 0.62);
+}
+
 /*
  * The history list already virtualizes once it grows large. Avoid
  * content-visibility on rows: after pin/unpin reorders the list, WKWebView can

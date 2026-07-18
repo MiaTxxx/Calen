@@ -33,6 +33,7 @@ import {
   type StockBacktestStrategyId,
   type StockEvidenceMetadata,
   type StockEvidenceResult,
+  type StockHistoryPeriod,
   type StockResearchModelSettings,
   type StockResultStatus,
   type StockServiceStatus,
@@ -219,6 +220,8 @@ function ResearchView({ modelSettings }: { modelSettings: StockResearchModelSett
   const [snapshot, setSnapshot] = useState<AsyncResource<StockEvidenceResult<QuoteSnapshot>>>({
     state: "idle",
   });
+  const [chartPeriod, setChartPeriod] = useState<StockHistoryPeriod>("day");
+  const [chartPeriodLoading, setChartPeriodLoading] = useState(false);
   const [research, setResearch] = useState<AsyncResource<StockEvidenceResult<ResearchBundle>>>({
     state: "idle",
   });
@@ -250,7 +253,7 @@ function ResearchView({ modelSettings }: { modelSettings: StockResearchModelSett
     }
   }
 
-  async function inspect(instrument: InstrumentRef) {
+  async function inspect(instrument: InstrumentRef, period: StockHistoryPeriod = chartPeriod) {
     const sequence = ++inspectSequence.current;
     researchSequence.current += 1;
     setSelected(instrument);
@@ -261,12 +264,36 @@ function ResearchView({ modelSettings }: { modelSettings: StockResearchModelSett
       const data = await stockResearch.snapshot({
         instrument,
         includeHistory: true,
+        historyPeriod: period,
       });
       if (sequence !== inspectSequence.current) return;
       setSnapshot({ state: "ready", data });
     } catch (error) {
       if (sequence !== inspectSequence.current) return;
       setSnapshot({ state: "error", message: formatStockError(error) });
+    }
+  }
+
+  // 切换 K 线周期：仅刷新快照数据，加载期间保留旧图避免整卡闪烁。
+  async function changeChartPeriod(period: StockHistoryPeriod) {
+    if (period === chartPeriod && snapshot.state === "ready") return;
+    setChartPeriod(period);
+    if (!selected) return;
+    const sequence = ++inspectSequence.current;
+    setChartPeriodLoading(true);
+    try {
+      const data = await stockResearch.snapshot({
+        instrument: selected,
+        includeHistory: true,
+        historyPeriod: period,
+      });
+      if (sequence !== inspectSequence.current) return;
+      setSnapshot({ state: "ready", data });
+    } catch (error) {
+      if (sequence !== inspectSequence.current) return;
+      setSnapshot({ state: "error", message: formatStockError(error) });
+    } finally {
+      if (sequence === inspectSequence.current) setChartPeriodLoading(false);
     }
   }
 
@@ -385,6 +412,9 @@ function ResearchView({ modelSettings }: { modelSettings: StockResearchModelSett
         {snapshot.state === "ready" ? (
           <SnapshotCard
             result={snapshot.data}
+            chartPeriod={chartPeriod}
+            chartPeriodLoading={chartPeriodLoading}
+            onChartPeriodChange={(period) => void changeChartPeriod(period)}
             onResearch={runResearch}
             researchLoading={research.state === "loading"}
           />
@@ -413,12 +443,25 @@ function WelcomeCard() {
   );
 }
 
+const CHART_PERIOD_OPTIONS: Array<{ value: StockHistoryPeriod; label: string }> = [
+  { value: "minute", label: "分时" },
+  { value: "day", label: "日K" },
+  { value: "week", label: "周K" },
+  { value: "month", label: "月K" },
+];
+
 function SnapshotCard({
   result,
+  chartPeriod,
+  chartPeriodLoading,
+  onChartPeriodChange,
   onResearch,
   researchLoading,
 }: {
   result: StockEvidenceResult<QuoteSnapshot>;
+  chartPeriod: StockHistoryPeriod;
+  chartPeriodLoading: boolean;
+  onChartPeriodChange: (period: StockHistoryPeriod) => void;
   onResearch: () => void;
   researchLoading: boolean;
 }) {
@@ -426,6 +469,14 @@ function SnapshotCard({
   if (!data) return <UnavailableCard result={result} />;
   const chart = data.chart?.map((point) => point.close) ?? [];
   const up = (data.changePercent ?? 0) >= 0;
+  // 分时数据每点 OHLC 同价，画折线（时间轴按 UNIX 秒显示时刻）；其余周期画蜡烛。
+  const intraday = (data.chartPeriod ?? chartPeriod) === "minute";
+  const intradayPoints = intraday
+    ? (data.chart ?? []).flatMap((point) => {
+        const epochSeconds = Math.floor(Date.parse(point.time) / 1000);
+        return Number.isFinite(epochSeconds) ? [{ time: epochSeconds, value: point.close }] : [];
+      })
+    : [];
   return (
     <GlassPanel>
       <EvidenceHeader
@@ -445,7 +496,40 @@ function SnapshotCard({
         </span>
         <span className="pb-1 text-xs text-muted-foreground">{data.instrument.currency}</span>
       </div>
-      <StockChart values={chart} bars={data.chart} positive={up} className="mt-4" />
+      <div className="mt-4 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-0.5">
+          {CHART_PERIOD_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              disabled={chartPeriodLoading}
+              onClick={() => onChartPeriodChange(option.value)}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs transition-all disabled:opacity-60",
+                chartPeriod === option.value
+                  ? "bg-background font-semibold text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        {chartPeriodLoading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+        ) : null}
+      </div>
+      {intraday ? (
+        <StockChart
+          points={intradayPoints}
+          values={chart}
+          positive={up}
+          timeVisible
+          className="mt-3"
+        />
+      ) : (
+        <StockChart values={chart} bars={data.chart} positive={up} className="mt-3" />
+      )}
       {data.facts?.length ? (
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           {data.facts.map((fact) => (

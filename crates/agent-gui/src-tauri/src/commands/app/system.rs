@@ -87,6 +87,62 @@ fn app_storage_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+fn backgrounds_dir() -> Result<PathBuf, String> {
+    let dir = app_storage_dir()?.join("backgrounds");
+    fs::create_dir_all(&dir).map_err(|e| format!("创建背景图目录失败：{e}"))?;
+    Ok(dir)
+}
+
+fn system_pick_background_image_sync() -> Result<Option<String>, String> {
+    let selected = FileDialog::new()
+        .add_filter("Image", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
+        .pick_file();
+    let Some(source) = selected else {
+        return Ok(None);
+    };
+
+    let ext = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .filter(|value| matches!(value.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp"))
+        .ok_or_else(|| format!("{} 不是受支持的图片文件", source.display()))?;
+
+    let dir = backgrounds_dir()?;
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let target = dir.join(format!("bg-{timestamp}.{ext}"));
+    fs::copy(&source, &target).map_err(|e| {
+        format!(
+            "复制背景图失败 {} -> {}: {e}",
+            source.display(),
+            target.display()
+        )
+    })?;
+
+    // 单图策略：仅保留最新一张，避免目录膨胀
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path == target {
+                continue;
+            }
+            let is_old_background = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .map(|name| name.starts_with("bg-"))
+                .unwrap_or(false);
+            if is_old_background {
+                let _ = fs::remove_file(&path);
+            }
+        }
+    }
+
+    Ok(Some(target.to_string_lossy().into_owned()))
+}
+
 fn debug_root_dir() -> Result<PathBuf, String> {
     let dir = app_storage_dir()?.join("debug");
     fs::create_dir_all(&dir).map_err(|e| format!("创建 debug 目录失败：{e}"))?;
@@ -1068,6 +1124,13 @@ pub(crate) fn system_create_project_folder_sync(
     Ok(SystemCreateProjectFolderResponse {
         path: canonicalize_project_folder(&target),
     })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn system_pick_background_image() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(system_pick_background_image_sync)
+        .await
+        .map_err(|e| format!("system_pick_background_image join 失败：{e}"))?
 }
 
 #[tauri::command(rename_all = "snake_case")]

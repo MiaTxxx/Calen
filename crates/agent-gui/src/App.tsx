@@ -1,4 +1,5 @@
 import type { Context } from "@earendil-works/pi-ai";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
@@ -10,6 +11,7 @@ import { type AppUpdateController, useAppUpdateController } from "./lib/appUpdat
 import { initAutomation } from "./lib/automation";
 import {
   type AppSettings,
+  type BackgroundSettings,
   getDefaultSettings,
   getNextTheme,
   normalizeSettings,
@@ -46,17 +48,42 @@ function asErrorMessage(error: unknown, fallback: string) {
 
 const GATEWAY_SETTINGS_SYNC_EVENT = "gateway:settings-sync";
 
-function AppChrome(props: { children: ReactNode; appUpdate?: AppUpdateController }) {
+function AppChrome(props: {
+  children: ReactNode;
+  appUpdate?: AppUpdateController;
+  background?: BackgroundSettings;
+}) {
+  const background = props.background;
+  const backgroundActive = Boolean(background?.enabled && background.imagePath);
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: the application shell suppresses the native context menu globally.
     <div
-      className="relative flex h-full w-full flex-col overflow-hidden bg-background"
+      className="app-chrome-surface relative flex h-full w-full flex-col overflow-hidden bg-background"
       onContextMenu={(event) => {
         event.preventDefault();
       }}
     >
+      {backgroundActive && background ? (
+        <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+          <img
+            src={convertFileSrc(background.imagePath)}
+            alt=""
+            draggable={false}
+            className="h-full w-full object-cover"
+          />
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundColor: `hsl(var(--background) / ${background.opacity})`,
+              backdropFilter: background.blur > 0 ? `blur(${background.blur}px)` : undefined,
+            }}
+          />
+        </div>
+      ) : null}
       <WindowsTitleBar appUpdate={props.appUpdate} />
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-background">{props.children}</div>
+      <div className="app-chrome-surface relative min-h-0 flex-1 overflow-hidden bg-background">
+        {props.children}
+      </div>
     </div>
   );
 }
@@ -158,11 +185,17 @@ export default function App() {
     });
   }, [settings.theme]);
 
+  const backgroundSettings = settings.customSettings.background;
+  const customBackgroundActive = Boolean(
+    backgroundSettings.enabled && backgroundSettings.imagePath,
+  );
+
   // 同步主题 class 到 <html> 根节点
   useEffect(() => {
     const root = document.documentElement;
     root.classList.toggle("dark", effectiveTheme === "dark");
-  }, [effectiveTheme]);
+    root.classList.toggle("has-custom-bg", customBackgroundActive);
+  }, [effectiveTheme, customBackgroundActive]);
 
   useEffect(() => {
     let cancelled = false;
@@ -388,7 +421,7 @@ export default function App() {
   if (!settingsReady) {
     return (
       <LocaleContext.Provider value={localeContextValue}>
-        <AppChrome appUpdate={appUpdate}>
+        <AppChrome appUpdate={appUpdate} background={backgroundSettings}>
           <div className="flex h-full w-full items-center justify-center bg-background text-sm text-muted-foreground">
             {translate("chat.loading", settings.locale)}
           </div>
@@ -402,7 +435,7 @@ export default function App() {
 
   return (
     <LocaleContext.Provider value={localeContextValue}>
-      <AppChrome appUpdate={appUpdate}>
+      <AppChrome appUpdate={appUpdate} background={backgroundSettings}>
         <CronPromptRunner settings={settings} />
         <MemoryOrganizerHost settings={settings} setSettings={setSettings} />
         <AppErrorBoundary>
