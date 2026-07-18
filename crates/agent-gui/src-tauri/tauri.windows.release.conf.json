@@ -17,6 +17,7 @@
     "createUpdaterArtifacts": true,
     "resources": {
       "resources/stock-sidecar/": "stock-sidecar/",
+      "resources/translation-runtime/": "translation-runtime/",
       "icons/icon-windows.ico": "calen-icon.ico"
     },
     "targets": ["nsis", "msi"],

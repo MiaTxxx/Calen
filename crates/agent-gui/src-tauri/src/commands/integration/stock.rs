@@ -582,12 +582,24 @@ impl StockResearchManager {
                 StockSpawnFailure::launch(format!("序列化股票 Provider Key 失败：{error}"))
             })?;
         self.set_diagnostic_secrets(provider_keys.values());
+        let proxy_env = match crate::services::network::global()
+            .and_then(|network| network.app_process_env())
+        {
+            Ok(proxy_env) => proxy_env,
+            Err(error) => {
+                self.clear_diagnostic_secrets();
+                return Err(StockSpawnFailure::launch(format!(
+                    "配置股票 sidecar 网络代理失败：{error}"
+                )));
+            }
+        };
 
         self.spawn_resolved_launch(
             launch,
             &data_dir,
             &serialized_settings,
             serialized_provider_keys.as_deref(),
+            &proxy_env,
         )
         .await
     }
@@ -598,6 +610,7 @@ impl StockResearchManager {
         data_dir: &Path,
         serialized_settings: &str,
         serialized_provider_keys: Option<&str>,
+        proxy_env: &crate::services::network::ProcessProxyEnv,
     ) -> Result<StockProcess, StockSpawnFailure> {
         self.clear_stderr_tail();
         let mut command = launch.command();
@@ -607,6 +620,12 @@ impl StockResearchManager {
             .env_remove("CALEN_STOCK_PROVIDER_KEYS");
         if let Some(serialized_provider_keys) = serialized_provider_keys {
             command.env("CALEN_STOCK_PROVIDER_KEYS", serialized_provider_keys);
+        }
+        for key in &proxy_env.remove {
+            command.env_remove(key);
+        }
+        for (key, value) in &proxy_env.set {
+            command.env(key, value);
         }
 
         let mut child = match command.spawn() {
@@ -776,6 +795,16 @@ impl StockResearchManager {
         state.last_failure = None;
         self.clear_stderr_tail();
         Ok(())
+    }
+
+    /// Stops an existing sidecar so its next launch picks up changed process settings.
+    /// A stopped service remains stopped and does not get started as a side effect.
+    pub async fn restart_if_running(&self) -> Result<bool, String> {
+        if !self.state.lock().await.process.is_some() {
+            return Ok(false);
+        }
+        self.restart().await?;
+        Ok(true)
     }
 
     pub async fn local_status(&self) -> StockRuntimeStatus {
@@ -1557,6 +1586,7 @@ pub async fn stock_settings_save(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "windows")]
     use std::ffi::OsString;
     use std::pin::Pin;
     use std::process::Stdio;
@@ -2026,6 +2056,40 @@ esac
         assert!(failure.stderr_tail.iter().any(|line| line == "crash-tail"));
         assert!(!failure.first_error.is_empty());
         manager.stop().await.expect("stop replacement sidecar");
+    }
+
+    #[tokio::test]
+    async fn restart_if_running_stops_the_existing_sidecar_for_new_process_settings() {
+        let manager = StockResearchManager::default();
+        let root = scripted_sidecar_dir();
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+        manager
+            .call_locked_with_spawns(
+                "status",
+                json!({}),
+                "proxy-change",
+                2_000,
+                cancel_rx,
+                spawn_scripted_test_process(&manager, root.path(), "reorder", "proxy-change"),
+                async {
+                    Err(StockSpawnFailure::launch(
+                        "proxy-change probe unexpectedly required replacement",
+                    ))
+                },
+            )
+            .await
+            .expect("start scripted sidecar");
+        assert!(manager.local_status().await.running);
+
+        assert!(manager
+            .restart_if_running()
+            .await
+            .expect("restart running sidecar"));
+        assert!(!manager.local_status().await.running);
+        assert!(!manager
+            .restart_if_running()
+            .await
+            .expect("stopped sidecar is a no-op"));
     }
 
     #[tokio::test]

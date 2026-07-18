@@ -62,6 +62,7 @@ export const AssistantRow = memo(function AssistantRow(props: AssistantRowProps)
       {row.rounds.length > 0 ? (
         <AssistantBubble
           rounds={row.rounds}
+          navAnchorPrefix={row.key}
           showUsage={showUsage}
           usageContextWindow={usageContextWindow}
           isLive={row.live}

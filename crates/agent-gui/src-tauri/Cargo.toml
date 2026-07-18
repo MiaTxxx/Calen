@@ -22,7 +22,7 @@ tonic-prost-build = "0.14.6"
 
 [dependencies]
 calen-stock-sidecar-runtime = { path = "../../stock-sidecar-runtime" }
-tauri = { version = "2.11.5", features = ["tray-icon", "image-png"] }
+tauri = { version = "2.11.5", features = ["tray-icon", "image-png", "protocol-asset"] }
 tauri-plugin-opener = "2.5.4"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
@@ -74,4 +74,5 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 [target.'cfg(windows)'.dependencies]
 calen-stock-process-tree = { path = "../../stock-process-tree" }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
+winreg = "0.55.0"
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }

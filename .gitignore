@@ -42,3 +42,8 @@ workspace.zip
 
 # Local donor/reference source; Calen imports selected capabilities instead of vendoring the app.
 /Opptrix-main/
+
+# Generated Windows offline-translation runtime binaries. The pinned manifest,
+# notices and licenses remain tracked; release CI stages the executable files.
+/crates/agent-gui/src-tauri/resources/translation-runtime/*.exe
+/crates/agent-gui/src-tauri/resources/translation-runtime/*.dll

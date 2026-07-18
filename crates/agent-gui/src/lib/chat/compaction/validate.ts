@@ -52,8 +52,40 @@ export function parseCompactionSummaryXml(raw: string): CompactionSummaryParsed 
   return result;
 }
 
+export type VerificationSignal = {
+  // 展示用（错误信息 / repair 提示 / breadcrumbs 追加），可能被截断。
+  display: string;
+  // 归一化匹配键：任意一个命中即视为该信号被摘要保留。
+  matchKeys: string[];
+};
+
+// 匹配前的归一化：大小写、路径分隔符、空白都不应成为“摘要丢了技术引用”
+// 的判定依据——摘要把 D:\NDM\ 写成 D:\NDM 或 d:/ndm 都算保留。
+function normalizeForMatch(text: string): string {
+  return text.toLowerCase().replace(/\\/g, "/").replace(/\s+/g, " ").trim();
+}
+
+function buildMatchKeys(candidate: string): string[] {
+  const keys: string[] = [];
+  let full = normalizeForMatch(candidate);
+  // 尾部的分隔符/标点是提取噪声（`D:\NDM\`、`policy.ts,`），不参与匹配。
+  full = full.replace(/[/.,;:)\]}]+$/, "");
+  if (full.length >= 4) keys.push(full);
+
+  if (!full.includes(" ")) {
+    // 路径类信号：末段（文件名/目录名）命中即可——摘要常写相对路径或裸文件名。
+    const tail = full.split("/").filter(Boolean).pop() ?? "";
+    if (tail.length >= 3 && tail !== full) keys.push(tail);
+  } else {
+    // 命令类信号：完整命令行几乎不会被逐字复述，命令头（前两个词）命中即可。
+    const headTokens = full.split(" ").slice(0, 2).join(" ");
+    if (headTokens.length >= 6 && headTokens !== full) keys.push(headTokens);
+  }
+  return keys;
+}
+
 function pushVerificationSignal(
-  out: string[],
+  out: VerificationSignal[],
   seen: Set<string>,
   candidate: string,
   maxChars = 160,
@@ -62,15 +94,22 @@ function pushVerificationSignal(
   if (normalized.length < 4) return;
   if (!/[./_:\\-]/.test(normalized) && !/\s/.test(normalized)) return;
 
-  const truncated =
-    normalized.length > maxChars ? `${normalized.slice(0, maxChars - 3)}...` : normalized;
-  const key = truncated.toLowerCase();
+  const matchKeys = buildMatchKeys(normalized);
+  if (matchKeys.length === 0) return;
+  const key = matchKeys[0];
   if (seen.has(key)) return;
   seen.add(key);
-  out.push(truncated);
+
+  const display =
+    normalized.length > maxChars ? `${normalized.slice(0, maxChars - 3)}...` : normalized;
+  out.push({ display, matchKeys });
 }
 
-function extractVerificationSignalsFromText(text: string, out: string[], seen: Set<string>) {
+function extractVerificationSignalsFromText(
+  text: string,
+  out: VerificationSignal[],
+  seen: Set<string>,
+) {
   if (!text.trim()) return;
 
   for (const match of text.matchAll(COMMAND_SIGNAL_RE)) {
@@ -90,9 +129,9 @@ function extractVerificationSignalsFromText(text: string, out: string[], seen: S
 }
 
 // 从 payload 的近期消息中抽取路径/命令等技术引用；摘要若一个都没保留，
-// 视为幻觉性丢失，触发校验失败（self-repair 会带着错误原因重试）。
-export function buildVerificationSignals(payload: CompactionPayload) {
-  const out: string[] = [];
+// 视为幻觉性丢失，触发校验失败（self-repair 会带着具体缺失的引用重试）。
+export function collectVerificationSignals(payload: CompactionPayload): VerificationSignal[] {
+  const out: VerificationSignal[] = [];
   const seen = new Set<string>();
   const recentMessages = payload.active_segment_messages.slice(-6).reverse();
 
@@ -114,13 +153,17 @@ export function buildVerificationSignals(payload: CompactionPayload) {
       for (const toolCall of message.toolCalls) {
         if (typeof toolCall !== "string") continue;
         extractVerificationSignalsFromText(toolCall, out, seen);
-        if (out.length >= 6) return out;
+        if (out.length >= 6) return out.slice(0, 6);
       }
     }
     if (out.length >= 6) break;
   }
 
   return out.slice(0, 6);
+}
+
+export function buildVerificationSignals(payload: CompactionPayload) {
+  return collectVerificationSignals(payload).map((signal) => signal.display);
 }
 
 function collectSummarySearchCorpus(parsed: CompactionSummaryParsed) {
@@ -146,10 +189,18 @@ export function formatSummaryForContext(s: CompactionSummaryParsed): string {
   return sections.join("\n\n");
 }
 
+export type CompactionValidationOptions = {
+  // lenient：self-repair 之后的最后一搏。此时若唯一的问题仍是"摘要没有
+  // 逐字保留近期技术引用"，就把这些引用自动追加进 breadcrumbs 并放行——
+  // 压缩整体失败（上下文继续膨胀）比摘要少几条引用的代价大得多。
+  mode?: "strict" | "lenient";
+};
+
 export function validateCompactionSummary(
   raw: string,
   sourceTokens: number,
   payload: CompactionPayload,
+  options?: CompactionValidationOptions,
 ) {
   const parsed = parseCompactionSummaryXml(raw);
   const errors: string[] = [];
@@ -175,14 +226,25 @@ export function validateCompactionSummary(
     errors.push("summary too short");
   }
 
-  const verificationSignals = buildVerificationSignals(payload);
+  const verificationSignals = collectVerificationSignals(payload);
   if (verificationSignals.length > 0) {
-    const corpus = collectSummarySearchCorpus(parsed);
-    const matchedCount = verificationSignals.filter((signal) =>
-      corpus.some((entry) => entry.includes(signal.toLowerCase())),
-    ).length;
-    if (matchedCount === 0) {
-      errors.push("verification pass missing recent technical refs");
+    const corpus = collectSummarySearchCorpus(parsed).map(normalizeForMatch);
+    const matched = verificationSignals.some((signal) =>
+      signal.matchKeys.some((key) => corpus.some((entry) => entry.includes(key))),
+    );
+    if (!matched) {
+      if (options?.mode === "lenient" && errors.length === 0) {
+        const appended = verificationSignals.map((signal) => `- ${signal.display}`).join("\n");
+        parsed.breadcrumbs = parsed.breadcrumbs ? `${parsed.breadcrumbs}\n${appended}` : appended;
+      } else {
+        const expected = verificationSignals
+          .slice(0, 3)
+          .map((signal) => `"${signal.display}"`)
+          .join(", ");
+        errors.push(
+          `verification pass missing recent technical refs — quote at least one of these verbatim (e.g. in <artifacts> or <breadcrumbs>): ${expected}`,
+        );
+      }
     }
   }
 

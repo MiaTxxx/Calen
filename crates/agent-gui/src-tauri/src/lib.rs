@@ -174,6 +174,20 @@ macro_rules! app_invoke_handler {
             commands::app::app_runtime_platform,
             commands::app::app_confirmed_exit,
             commands::app::app_macos_traffic_light_metrics,
+            commands::network_proxy::network_proxy_get,
+            commands::network_proxy::network_proxy_save,
+            commands::network_proxy::network_proxy_status,
+            commands::network_proxy::network_proxy_test,
+            // Device-local offline translation runtime and model catalog
+            services::translation::commands::translation_catalog_list,
+            services::translation::commands::translation_status,
+            services::translation::commands::translation_download_start,
+            services::translation::commands::translation_download_status,
+            services::translation::commands::translation_download_cancel,
+            services::translation::commands::translation_import,
+            services::translation::commands::translation_delete,
+            services::translation::commands::translation_translate,
+            services::translation::commands::translation_stop,
             // Hooks
             commands::hook::hook_run_script,
             commands::hook::hook_run_http_requests,
@@ -448,6 +462,12 @@ pub fn run() {
         &terminal_registry,
     )));
     let allow_exit = Arc::new(AtomicBool::new(false));
+    let network_manager = Arc::new(
+        services::network::AppNetworkManager::new()
+            .expect("failed to initialize Calen app network manager"),
+    );
+    services::network::install_global(Arc::clone(&network_manager))
+        .expect("failed to install Calen app network manager");
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -464,6 +484,7 @@ pub fn run() {
         .manage(Arc::clone(&allow_exit))
         .manage(Arc::clone(&automation_store))
         .manage(Arc::clone(&automation_scheduler))
+        .manage(Arc::clone(&network_manager))
         .manage(Arc::new(commands::hook::HookScopeRegistry::default()))
         .setup({
             let allow_exit = Arc::clone(&allow_exit);
@@ -479,7 +500,13 @@ pub fn run() {
                 )?;
                 #[cfg(target_os = "windows")]
                 configure_windows_window_chrome(app)?;
-                app.manage(services::proxy::start_proxy_server()?);
+                app.manage(services::proxy::start_proxy_server(Arc::clone(
+                    &network_manager,
+                ))?);
+                app.manage(services::translation::create_managed_translation_manager(
+                    app.handle(),
+                    network_manager.as_ref().clone(),
+                )?);
                 if let Err(error) = services::skills::ensure_builtin_agent_skills_sync() {
                     eprintln!("failed to seed builtin skills: {error}");
                 }
@@ -578,6 +605,11 @@ pub fn run() {
                     _app.try_state::<Arc<commands::stock::StockResearchManager>>()
                 {
                     stock_manager.shutdown_cleanup();
+                }
+                if let Some(translation_manager) =
+                    _app.try_state::<Arc<services::translation::TranslationManager>>()
+                {
+                    tauri::async_runtime::block_on(translation_manager.shutdown_cleanup());
                 }
                 managed_process_registry.shutdown_cleanup();
                 power_activity.clear_all();

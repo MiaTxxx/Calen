@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener as TokioTcpListener;
 use uuid::Uuid;
 
+use crate::services::network::AppNetworkManager;
+
 const ACCESS_CONTROL_REQUEST_HEADERS: &str = "access-control-request-headers";
 const ACCESS_CONTROL_REQUEST_METHOD: &str = "access-control-request-method";
 const ACCESS_CONTROL_PREFIX: &str = "access-control-";
@@ -55,7 +57,7 @@ pub struct ProxyServerInfo {
 
 pub struct ProxyServerState {
     info: ProxyServerInfo,
-    client: reqwest::Client,
+    network: Arc<AppNetworkManager>,
 }
 
 #[derive(Deserialize)]
@@ -75,7 +77,9 @@ pub fn proxy_get_server_info(state: tauri::State<'_, Arc<ProxyServerState>>) -> 
     state.info.clone()
 }
 
-pub fn start_proxy_server() -> Result<Arc<ProxyServerState>, String> {
+pub fn start_proxy_server(
+    network: Arc<AppNetworkManager>,
+) -> Result<Arc<ProxyServerState>, String> {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .map_err(|err| format!("绑定本地代理端口失败：{err}"))?;
     listener
@@ -90,9 +94,7 @@ pub fn start_proxy_server() -> Result<Arc<ProxyServerState>, String> {
             base_url: format!("http://{addr}"),
             token: Uuid::new_v4().to_string(),
         },
-        client: reqwest::Client::builder()
-            .build()
-            .map_err(|err| format!("创建本地代理 HTTP 客户端失败：{err}"))?,
+        network,
     });
 
     let app = Router::new()
@@ -127,8 +129,17 @@ async fn handle_image_proxy(
         Err(message) => return error_response(StatusCode::BAD_REQUEST, &message, &headers),
     };
 
-    let image_request = state
-        .client
+    let client = match state.network.async_client() {
+        Ok(client) => client,
+        Err(err) => {
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                &format!("Failed to configure image proxy network client: {err}"),
+                &headers,
+            );
+        }
+    };
+    let image_request = client
         .get(target_url.clone())
         .timeout(Duration::from_secs(IMAGE_PROXY_TIMEOUT_SECS));
 
@@ -351,7 +362,17 @@ async fn handle_proxy(
         }
     };
 
-    let mut request = state.client.request(method, target_url);
+    let client = match state.network.async_client() {
+        Ok(client) => client,
+        Err(err) => {
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                &format!("Failed to configure provider proxy network client: {err}"),
+                &headers,
+            );
+        }
+    };
+    let mut request = client.request(method, target_url);
     for (name, value) in &headers {
         if should_forward_request_header(name) {
             request = request.header(name, value);

@@ -4,9 +4,14 @@ import { DEFAULT_LOCALE, type Locale, normalizeLocale } from "../../i18n/config"
 import { getAvailableThinkingLevelsForModel } from "../providers/runtime/modelFactory";
 import { mergeAlwaysEnabledSkillNames } from "../skills/builtin";
 import { SYSTEM_TOOL_OPTIONS, type SystemToolId } from "../tools/systemToolOptions";
+import {
+  normalizeTranslationPreferences,
+  type TranslationPreferences,
+} from "../translation/policy";
 import { normalizeApiKey, normalizeBaseUrl, normalizeModels } from "./normalize";
 
 export type { SystemToolId } from "../tools/systemToolOptions";
+export type { TranslationMode, TranslationPreferences } from "../translation/policy";
 
 export type ProviderId = "codex" | "claude_code" | "gemini";
 
@@ -134,6 +139,8 @@ export type CustomSettings = {
   conversationTitleModel?: SelectedModel;
   // 技能商店等处的描述翻译模型；未设置时回退到当前对话模型。
   translationModel?: SelectedModel;
+  // 翻译路由与本地模型选择只在当前设备生效，不进入 Gateway 同步。
+  translation: TranslationPreferences;
   chatSidebar: ChatSidebarSettings;
   rightDock: RightDockSettings;
   fontScale: FontScaleSettings;
@@ -1781,6 +1788,7 @@ export function normalizeCustomSettings(
       normalizeSelectedModel(obj.translationModel),
       customProviders,
     ),
+    translation: normalizeTranslationPreferences(obj.translation),
     chatSidebar: {
       projectsCollapsed: chatSidebar.projectsCollapsed === true,
       recentCollapsed: chatSidebar.recentCollapsed === true,

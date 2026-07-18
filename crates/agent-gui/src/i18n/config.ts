@@ -800,6 +800,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.navSystem": "系统设置",
     "settings.navSystemTools": "系统工具",
     "settings.navProviders": "供应商配置",
+    "settings.navTranslation": "翻译",
     "settings.navHooks": "Hooks",
     "settings.navAgents": "全局提示词",
     "settings.navSsh": "SSH",
@@ -815,6 +816,76 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.groupOther": "其他",
     "settings.backToChat": "返回对话",
     "settings.title": "设置",
+
+    /* ── Settings Translation ── */
+    "settings.translationTitle": "翻译服务",
+    "settings.translationDescription":
+      "为 Skills 商店等场景选择远程或本地翻译。离线模型只保存在本机，且仅在你点击下载或导入后才会占用磁盘。",
+    "settings.translationServiceType": "服务模式",
+    "settings.translationServiceTypeHint":
+      "本地优先模式只会在运行时不可用等可恢复错误时回退远程；取消和非法输入不会回退。",
+    "settings.translationModeRemoteOnly": "仅远程",
+    "settings.translationModeRemoteOnlyDesc": "使用所选远程模型，不启动本地翻译。",
+    "settings.translationModeOfflinePreferred": "本地优先",
+    "settings.translationModeOfflinePreferredDesc":
+      "先在本机翻译；本地模型未安装或运行失败时回退远程。",
+    "settings.translationModeOfflineOnly": "仅本地",
+    "settings.translationModeOfflineOnlyDesc": "文本不会发送到远程模型；本地不可用时直接报错。",
+    "settings.translationOfflineModels": "离线翻译模型",
+    "settings.translationOfflineModelsHint":
+      "推荐 Qwen3 0.6B Q8（约 639 MB，Apache-2.0）。下载后无需额外 API Key。",
+    "settings.translationSelectedLocalModel": "使用的本地模型",
+    "settings.translationNotInstalled": "未安装",
+    "settings.translationLoadingModels": "正在读取本地模型状态…",
+    "settings.translationRecommended": "推荐",
+    "settings.translationBuiltInCatalog": "内置下载渠道",
+    "settings.translationUserImport": "用户导入",
+    "settings.translationDownload": "下载",
+    "settings.translationCancelDownload": "取消",
+    "settings.translationDeleteModel": "删除",
+    "settings.translationDownloadFailed": "模型下载失败",
+    "settings.translationNoModels": "暂无可用的离线模型。",
+    "settings.translationImportGguf": "导入 GGUF",
+    "settings.translationImportHint":
+      "HY-MT 暂不进入全球公开下载目录；如你已合法获得 GGUF 文件，可以在此自行导入。",
+    "settings.translationRemoteFallback": "远程翻译模型",
+    "settings.translationRemoteFallbackHint":
+      "仅远程和本地优先模式会使用。未单独选择时，跟随当前对话模型。",
+    "settings.translationRemoteFollowCurrent": "跟随当前对话模型",
+    "settings.translationRuntime": "本地翻译运行时",
+    "settings.translationRuntimeRunning": "正在运行",
+    "settings.translationRuntimeStopped": "未启动（首次翻译时按需加载）",
+    "settings.translationRuntimeUnavailable": "本地翻译运行时不可用",
+    "settings.translationStopRuntime": "释放内存",
+    "settings.translationDownloadPhase.queued": "等待下载",
+    "settings.translationDownloadPhase.downloading": "正在下载",
+    "settings.translationDownloadPhase.verifying": "正在校验",
+    "settings.networkProxy": "应用网络代理",
+    "settings.networkProxyDesc":
+      "统一控制模型请求、股票研究、Skills 商店、更新检查和离线模型下载的联网方式。",
+    "settings.networkProxyModeSystem": "跟随系统",
+    "settings.networkProxyModeSystemDesc":
+      "Windows 使用系统静态代理或环境变量；其他平台当前仅读取代理环境变量。",
+    "settings.networkProxyModeDirect": "直连",
+    "settings.networkProxyModeDirectDesc": "忽略所有继承的代理配置，直接连接目标服务。",
+    "settings.networkProxyModeManual": "手动 HTTP 代理",
+    "settings.networkProxyModeManualDesc": "所有 Calen 自有网络请求使用指定的 HTTP(S) 代理。",
+    "settings.networkProxyManualUrl": "代理地址",
+    "settings.networkProxyBypass": "不使用代理的地址",
+    "settings.networkProxyChildProcesses": "同时应用到用户子进程",
+    "settings.networkProxyChildProcessesDesc":
+      "向 Shell、后台任务和自动化脚本注入代理环境变量；Calen 自有 sidecar 始终遵循上方模式。",
+    "settings.networkProxyStatus": "当前状态",
+    "settings.networkProxyNoProxyDetected": "未检测到静态代理",
+    "settings.networkProxyPacUnsupported": "检测到 PAC，但当前版本暂不支持解析",
+    "settings.networkProxyTest": "测试连接",
+    "settings.networkProxySave": "保存",
+    "settings.networkProxySaving": "保存中…",
+    "settings.skillsStoreTranslatedOffline": "本地",
+    "settings.skillsStoreTranslatedRemote": "远程",
+    "settings.skillsStoreTranslationOpenSettings":
+      "请前往「设置 → 翻译」选择可用的本地或远程翻译模型。",
+    "settings.skillsStoreTranslationNeedsSetup": "设置 → 翻译",
 
     /* ── Settings Memory ── */
     "settings.memoryTitle": "记忆",
@@ -2608,6 +2679,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.navSystem": "System",
     "settings.navSystemTools": "System Tools",
     "settings.navProviders": "Providers",
+    "settings.navTranslation": "Translation",
     "settings.navHooks": "Hooks",
     "settings.navAgents": "Prompt",
     "settings.navSsh": "SSH",
@@ -2623,6 +2695,80 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.groupOther": "Other",
     "settings.backToChat": "Back to Chat",
     "settings.title": "Settings",
+
+    /* ── Settings Translation ── */
+    "settings.translationTitle": "Translation Service",
+    "settings.translationDescription":
+      "Choose remote or on-device translation for the Skills store and similar surfaces. Offline models stay on this device and use disk space only after you explicitly download or import one.",
+    "settings.translationServiceType": "Service mode",
+    "settings.translationServiceTypeHint":
+      "Offline preferred falls back only for recoverable runtime failures. Cancellation and invalid input never fall back to a remote model.",
+    "settings.translationModeRemoteOnly": "Remote only",
+    "settings.translationModeRemoteOnlyDesc":
+      "Use the selected remote model without starting the local translation runtime.",
+    "settings.translationModeOfflinePreferred": "Offline preferred",
+    "settings.translationModeOfflinePreferredDesc":
+      "Translate on this device first, then use the remote model if the local model is missing or fails to run.",
+    "settings.translationModeOfflineOnly": "Offline only",
+    "settings.translationModeOfflineOnlyDesc":
+      "Never send text to a remote model; report an error when local translation is unavailable.",
+    "settings.translationOfflineModels": "Offline translation models",
+    "settings.translationOfflineModelsHint":
+      "Qwen3 0.6B Q8 is recommended (about 639 MB, Apache-2.0). It needs no additional API key after download.",
+    "settings.translationSelectedLocalModel": "Local model to use",
+    "settings.translationNotInstalled": "not installed",
+    "settings.translationLoadingModels": "Loading local model status…",
+    "settings.translationRecommended": "Recommended",
+    "settings.translationBuiltInCatalog": "Built-in channel",
+    "settings.translationUserImport": "User import",
+    "settings.translationDownload": "Download",
+    "settings.translationCancelDownload": "Cancel",
+    "settings.translationDeleteModel": "Delete",
+    "settings.translationDownloadFailed": "Model download failed",
+    "settings.translationNoModels": "No offline translation models are available.",
+    "settings.translationImportGguf": "Import GGUF",
+    "settings.translationImportHint":
+      "HY-MT is not included in the global public download catalog. If you have lawfully obtained a GGUF file, you may import it here.",
+    "settings.translationRemoteFallback": "Remote translation model",
+    "settings.translationRemoteFallbackHint":
+      "Used by remote-only and offline-preferred modes. When unset, translation follows the current chat model.",
+    "settings.translationRemoteFollowCurrent": "Follow current chat model",
+    "settings.translationRuntime": "Local translation runtime",
+    "settings.translationRuntimeRunning": "Running",
+    "settings.translationRuntimeStopped": "Stopped (loads on the first translation)",
+    "settings.translationRuntimeUnavailable": "Local translation runtime is unavailable",
+    "settings.translationStopRuntime": "Release memory",
+    "settings.translationDownloadPhase.queued": "Queued",
+    "settings.translationDownloadPhase.downloading": "Downloading",
+    "settings.translationDownloadPhase.verifying": "Verifying",
+    "settings.networkProxy": "Application network proxy",
+    "settings.networkProxyDesc":
+      "Control how model requests, stock research, Skills Store, updates, and offline model downloads connect to the network.",
+    "settings.networkProxyModeSystem": "Follow system",
+    "settings.networkProxyModeSystemDesc":
+      "Windows uses the static system proxy or environment variables; other platforms currently read proxy environment variables only.",
+    "settings.networkProxyModeDirect": "Direct",
+    "settings.networkProxyModeDirectDesc":
+      "Ignore inherited proxy settings and connect directly to destination services.",
+    "settings.networkProxyModeManual": "Manual HTTP proxy",
+    "settings.networkProxyModeManualDesc":
+      "Route Calen-owned network requests through the specified HTTP(S) proxy.",
+    "settings.networkProxyManualUrl": "Proxy URL",
+    "settings.networkProxyBypass": "Proxy bypass list",
+    "settings.networkProxyChildProcesses": "Also apply to user child processes",
+    "settings.networkProxyChildProcessesDesc":
+      "Inject proxy environment variables into Shell, background tasks, and automation scripts. Calen-owned sidecars always follow the selected mode.",
+    "settings.networkProxyStatus": "Current status",
+    "settings.networkProxyNoProxyDetected": "No static proxy detected",
+    "settings.networkProxyPacUnsupported": "PAC detected, but PAC parsing is not supported yet",
+    "settings.networkProxyTest": "Test connection",
+    "settings.networkProxySave": "Save",
+    "settings.networkProxySaving": "Saving…",
+    "settings.skillsStoreTranslatedOffline": "Local",
+    "settings.skillsStoreTranslatedRemote": "Remote",
+    "settings.skillsStoreTranslationOpenSettings":
+      "Open Settings → Translation and choose an available local or remote model.",
+    "settings.skillsStoreTranslationNeedsSetup": "Settings → Translation",
 
     /* ── Settings Memory ── */
     "settings.memoryTitle": "Memory",

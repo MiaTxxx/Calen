@@ -8,6 +8,7 @@ import {
   Cpu,
   Info,
   Key,
+  Languages,
   Settings2,
   Wrench,
   Zap,
@@ -25,6 +26,7 @@ import { RemoteSection } from "./settings/RemoteSection";
 import { SshSection } from "./settings/SshSection";
 import { SystemSettingsForm } from "./settings/SystemSettingsForm";
 import { SystemToolsSection } from "./settings/SystemToolsSection";
+import { TranslationSettingsForm } from "./settings/TranslationSettingsForm";
 import type { SectionId, SettingsPageProps } from "./settings/types";
 
 function getSaveIndicator(state: SettingsPageProps["saveState"], t: (key: string) => string) {
@@ -102,6 +104,7 @@ const NAV_GROUPS: NavGroup[] = [
     labelKey: "settings.groupIntelligence",
     items: [
       { id: "memory", icon: <Brain className="h-3.5 w-3.5" /> },
+      { id: "translation", icon: <Languages className="h-3.5 w-3.5" /> },
       { id: "systemTools", icon: <Wrench className="h-3.5 w-3.5" /> },
     ],
   },
@@ -142,6 +145,7 @@ export function SettingsPage(props: SettingsPageProps) {
     system: t("settings.navSystem"),
     systemTools: t("settings.navSystemTools"),
     providers: t("settings.navProviders"),
+    translation: t("settings.navTranslation"),
     agents: t("settings.navAgents"),
     ssh: t("settings.navSsh"),
     memory: t("settings.navMemory"),
@@ -184,6 +188,8 @@ export function SettingsPage(props: SettingsPageProps) {
         return <SystemSettingsForm settings={settings} setSettings={setSettings} />;
       case "systemTools":
         return <SystemToolsSection settings={settings} setSettings={setSettings} />;
+      case "translation":
+        return <TranslationSettingsForm settings={settings} setSettings={setSettings} />;
       case "hooks":
         return <HooksSection settings={settings} setSettings={setSettings} />;
       case "cron":

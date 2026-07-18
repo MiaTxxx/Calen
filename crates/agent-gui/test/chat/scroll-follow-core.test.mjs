@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 import { createTsModuleLoader } from "../helpers/load-ts-module.mjs";
 
 const rootDir = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
-const modulePath = path.join(rootDir, "src/lib/chat-scroll/scrollFollowCore.ts");
+const modulePath = path.join(
+  rootDir,
+  "src/lib/chat-scroll/scrollFollowCore.ts"
+);
 const {
   BOTTOM_ATTACH_THRESHOLD_PX,
   BOTTOM_REATTACH_ZONE_PX,
@@ -15,7 +18,10 @@ const {
   reduceFollowEvent,
 } = createTsModuleLoader({ rootDir }).loadModule(modulePath);
 
-function run(events, { state = createFollowState(), config = DEFAULT_FOLLOW_CONFIG } = {}) {
+function run(
+  events,
+  { state = createFollowState(), config = DEFAULT_FOLLOW_CONFIG } = {}
+) {
   let pin = false;
   for (const event of events) {
     const step = reduceFollowEvent(state, event, config);
@@ -76,11 +82,62 @@ test("ResizeObserver deliveries never change follow state (80ae9aa)", () => {
 
 test("growth bookkeeping keeps the next scroll's direction honest (80ae9aa)", () => {
   // Content growth widens the gap between scroll events; without recording it
-  // the user's next downward arrival would read as "moving away".
+  // the user's next downward arrival would read as "moving away". The latch
+  // must come from real downward input (wheel-down).
   const { state, pin } = run([
-    wheelUp({ now: 1000 }), // detach + latch until 1500
+    wheelUp({ now: 1000 }),
     growth(200),
+    wheelDown({ now: 1100 }), // latch until 1600
     scroll(150, 1200),
+  ]);
+  assert.equal(state.following, true);
+  assert.equal(pin, true);
+});
+
+test("layout shrink right after wheel-up must not re-attach", () => {
+  // The user scrolls up and stops inside the reattach zone (the reserve band
+  // spans 192px, so that's the normal reading position). A virtualizer
+  // re-measure or content settle then shrinks scrollHeight — the gap sample
+  // reads "moved toward bottom" with no user input. Upward input never arms
+  // the latch, so this must stay detached.
+  const { state, pin } = run([
+    wheelUp({ now: 1000 }), // upward intent — no latch armed
+    growth(200),
+    scroll(150, 1200), // shrink-driven "downward" sample inside the zone
+  ]);
+  assert.equal(state.following, false);
+  assert.equal(pin, false);
+});
+
+test("smooth-scroll clamp frames after wheel-up never snap back (twitchy lock)", () => {
+  // Passive wheel smooth-scrolling emits its first scroll frames while still
+  // inside the attach threshold. Attaching there would let the corrector pin
+  // the view back down on the next frame — the "dragged back to bottom"
+  // twitch. During the upward-intent hold the clamp frame must not attach.
+  const { state, pin } = run([
+    wheelUp({ now: 1000 }), // detach at the clamp
+    scroll(2, 1016), // first smooth-scroll frame, still inside the threshold
+    scroll(40, 1032), // the gesture actually leaves the bottom
+  ]);
+  assert.equal(state.following, false);
+  assert.equal(pin, false);
+});
+
+test("after the upward hold expires, landing at the clamp attaches again", () => {
+  const { state } = run([
+    wheelUp({ now: 1000 }),
+    growth(300),
+    scroll(2, 2000), // hold expired — physical clamp arrival attaches
+  ]);
+  assert.equal(state.following, true);
+});
+
+test("wheel-down cancels the upward hold immediately", () => {
+  const { state, pin } = run([
+    wheelUp({ now: 1000 }),
+    growth(140),
+    wheelDown({ now: 1100 }), // explicit downward intent inside the hold
+    scroll(60, 1150),
   ]);
   assert.equal(state.following, true);
   assert.equal(pin, true);
@@ -143,7 +200,11 @@ test("away-move during a real pointer drag detaches (c4d6471)", () => {
 test("a static click plus a layout echo never detaches", () => {
   // pointerHeld without drag promotion (no movement past the slop) must not
   // turn a virtualizer compensation event into a drag-detach.
-  const { state, pin } = run([growth(20), { type: "pointerDown" }, scroll(90, 0)]);
+  const { state, pin } = run([
+    growth(20),
+    { type: "pointerDown" },
+    scroll(90, 0),
+  ]);
   assert.equal(state.following, true);
   assert.equal(pin, true);
 });
@@ -174,7 +235,9 @@ test("held pointer suppresses zone attach; release inside the zone re-engages", 
   assert.equal(midDrag.state.following, false);
   assert.equal(midDrag.state.dragTowardBottom, true);
 
-  const released = run([{ type: "pointerRelease", gap: 60 }], { state: midDrag.state });
+  const released = run([{ type: "pointerRelease", gap: 60 }], {
+    state: midDrag.state,
+  });
   assert.equal(released.state.following, true);
   assert.equal(released.pin, true);
   assert.equal(released.state.pointerHeld, false);
@@ -251,17 +314,35 @@ test("history keys detach; follow keys only arm the latch", () => {
 
 test("touch drags detach off the clamp; upward finger at the clamp does not", () => {
   const down = run([
-    { type: "touchMove", fingerMovedDown: true, gap: 0, hasOverflow: true, now: 0 },
+    {
+      type: "touchMove",
+      fingerMovedDown: true,
+      gap: 0,
+      hasOverflow: true,
+      now: 0,
+    },
   ]);
   assert.equal(down.state.following, false);
 
   const atClamp = run([
-    { type: "touchMove", fingerMovedDown: false, gap: 5, hasOverflow: true, now: 0 },
+    {
+      type: "touchMove",
+      fingerMovedDown: false,
+      gap: 5,
+      hasOverflow: true,
+      now: 0,
+    },
   ]);
   assert.equal(atClamp.state.following, true);
 
   const offClamp = run([
-    { type: "touchMove", fingerMovedDown: false, gap: 50, hasOverflow: true, now: 0 },
+    {
+      type: "touchMove",
+      fingerMovedDown: false,
+      gap: 50,
+      hasOverflow: true,
+      now: 0,
+    },
   ]);
   assert.equal(offClamp.state.following, false);
 });
@@ -292,7 +373,7 @@ test("zone-less config (thinking block) still re-engages on release at the clamp
       scroll(5, 100), // lands at the clamp mid-drag → attach branch
       { type: "pointerRelease", gap: 5 },
     ],
-    { config },
+    { config }
   );
   assert.equal(state.following, true);
   assert.equal(pin, true);
@@ -308,7 +389,7 @@ test("zone-less config (thinking block) still re-engages on release at the clamp
       scroll(60, 100),
       { type: "pointerRelease", gap: 60 },
     ],
-    { config },
+    { config }
   );
   assert.equal(detached.state.following, false);
 });

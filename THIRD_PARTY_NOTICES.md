@@ -1,5 +1,23 @@
 # Third-Party Notices
 
+## llama.cpp 与可选离线翻译模型
+
+Calen Windows 安装包携带 llama.cpp 的固定 CPU x64 运行时，用于执行用户明确下载或导入的本地 GGUF 翻译模型。
+
+- 上游项目：llama.cpp
+- 上游地址：https://github.com/ggml-org/llama.cpp
+- 固定版本：b10066
+- 固定提交：`86a9c79f866799eb0e7e89c03578ccfbcc5d808e`
+- 上游许可证：MIT License
+- Calen 资源目录：`crates/agent-gui/src-tauri/resources/translation-runtime`
+- 构建方式：Release CI 从固定源码构建 OpenMP-free、静态项目库与静态 MSVC runtime 的 `llama-server.exe`
+
+Calen 不复用上游 Windows CPU ZIP 中从 Visual Studio `debug_nonredist` 目录复制的 `libomp140.x86_64.dll`，也不随安装包分发该 DLL。生成的 `runtime-manifest.json` 记录固定提交、构建约束和最终二进制 SHA-256。
+
+安装包不包含模型权重。首个应用内下载目录项为 Qwen3-0.6B-GGUF Q8_0，模型由 Qwen Team 以 Apache License 2.0 发布；下载前会展示来源、大小、哈希和许可证，下载文件保存在本机应用数据目录。用户自行导入的 GGUF 不视为 Calen 分发内容，用户负责确认该文件的使用授权。
+
+HY-MT1.5 使用 Tencent HY Community License Agreement，并带有地区和再分发限制，因此未加入 Calen 的全球公开下载目录；在未获得书面合规确认前仅允许用户自行导入其已合法取得的本地文件。
+
 ## Opptrix
 
 Calen 的股票研究模块参考并可能包含源自 Opptrix 的代码或经修改的实现。

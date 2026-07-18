@@ -23,6 +23,8 @@ export const AssistantBubble = memo(function AssistantBubble(props: {
   renderMode?: "streaming" | "static";
   toolStatus?: string | null;
   toolStatusVariant?: "default" | "compaction";
+  // 消息导航条锚点前缀（行 key）；设置后每个 round 会带 data-nav-anchor。
+  navAnchorPrefix?: string;
 }) {
   const {
     rounds,
@@ -32,6 +34,7 @@ export const AssistantBubble = memo(function AssistantBubble(props: {
     renderMode,
     toolStatus,
     toolStatusVariant,
+    navAnchorPrefix,
   } = props;
   const showLabels = rounds.length > 1;
 
@@ -43,6 +46,7 @@ export const AssistantBubble = memo(function AssistantBubble(props: {
           <RoundContent
             key={round.key}
             round={round}
+            navAnchor={navAnchorPrefix ? `${navAnchorPrefix}::${round.key}` : undefined}
             showLabel={showLabels}
             showUsage={showUsage}
             usageContextWindow={usageContextWindow}

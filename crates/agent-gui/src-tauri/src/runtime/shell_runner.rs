@@ -500,6 +500,15 @@ where
         let mut c = Command::new(&candidate.program);
         c.args(&candidate.args);
         c.envs(envs.iter().map(|(key, value)| (key.as_str(), value.as_str())));
+        if let Some(network) = crate::services::network::try_global() {
+            let proxy_env = network.process_env()?;
+            for key in proxy_env.remove {
+                c.env_remove(key);
+            }
+            for (key, value) in proxy_env.set {
+                c.env(key, value);
+            }
+        }
         if candidate.augment_macos_path {
             maybe_augment_macos_path(&mut c);
         }

@@ -8,6 +8,7 @@ export type SectionId =
   | "system"
   | "systemTools"
   | "providers"
+  | "translation"
   | "agents"
   | "ssh"
   | "memory"

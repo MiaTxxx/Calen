@@ -127,6 +127,10 @@ jobs:
           CALEN_STOCK_WINDOWS_INSTALL_ROOT: ${{ github.workspace }}\crates\agent-gui\src-tauri\resources\stock-sidecar
         run: cargo test --manifest-path crates/stock-sidecar-runtime/Cargo.toml packaged_sidecar_uses_production_launch_and_stdio -- --ignored
 
+      - name: Stage offline translation runtime
+        shell: pwsh
+        run: ./scripts/release/stage-translation-runtime.ps1
+
       - name: Validate updater signing configuration
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

@@ -54,7 +54,13 @@ import {
   listClawHubSkills,
   searchClawHubSkills,
 } from "../../lib/skills/clawHub";
-import { type TranslationSettings, translateText } from "../../lib/translation";
+import {
+  createTranslationPort,
+  isTranslationSetupRequired,
+  type TranslationPort,
+  type TranslationResult,
+  type TranslationSettings,
+} from "../../lib/translation";
 
 type SkillsHubView = "installed" | "store" | "import";
 
@@ -1930,33 +1936,56 @@ type StoreTranslationEntry = {
   error: string | null;
   visible: boolean;
   requestKey: string;
+  backend: TranslationResult["backend"] | null;
+  modelId: string | null;
+  cached: boolean;
+  warnings: string[];
+  needsSetup: boolean;
 };
 
 // 商店描述翻译：按「字段:slug」缓存于会话内，重复点击只在原文/译文之间切换，不重复调用模型。
-function useStoreTranslations(settings: TranslationSettings) {
-  const { locale } = useLocale();
+function useStoreTranslations(translationPort: TranslationPort) {
+  const { locale, t } = useLocale();
   const [entries, setEntries] = useState<Record<string, StoreTranslationEntry>>({});
   const entriesRef = useRef(entries);
   entriesRef.current = entries;
-
-  useEffect(() => {
-    setEntries({});
-  }, [locale]);
+  const portScopeRef = useRef({ port: translationPort, id: 0 });
+  if (portScopeRef.current.port !== translationPort) {
+    portScopeRef.current = { port: translationPort, id: portScopeRef.current.id + 1 };
+  }
+  const portScope = portScopeRef.current.id;
+  const requestScope = `${portScope}:${locale}:`;
 
   const toggle = useCallback(
     (key: string, text: string) => {
-      const entry = entriesRef.current[key];
-      const requestKey = `${locale}\u0000${text}`;
+      const currentEntry = entriesRef.current[key];
+      const entry = currentEntry?.requestKey.startsWith(requestScope) ? currentEntry : undefined;
+      const requestKey = `${requestScope}${JSON.stringify([key, text])}`;
       if ((entry?.loading && entry.requestKey === requestKey) || !text.trim()) return;
       if (entry?.text && entry.requestKey === requestKey) {
-        setEntries((state) => ({ ...state, [key]: { ...entry, visible: !entry.visible } }));
+        setEntries((state) => ({
+          ...state,
+          [key]: { ...entry, visible: !entry.visible, cached: true },
+        }));
         return;
       }
       setEntries((state) => ({
         ...state,
-        [key]: { loading: true, text: null, error: null, visible: false, requestKey },
+        [key]: {
+          loading: true,
+          text: null,
+          error: null,
+          visible: false,
+          requestKey,
+          backend: null,
+          modelId: null,
+          cached: false,
+          warnings: [],
+          needsSetup: false,
+        },
       }));
-      void translateText({ settings, text, targetLocale: locale })
+      void translationPort
+        .translate({ text, targetLocale: locale, purpose: "skills-store" })
         .then((translated) => {
           setEntries((state) =>
             state[key]?.requestKey === requestKey
@@ -1964,16 +1993,22 @@ function useStoreTranslations(settings: TranslationSettings) {
                   ...state,
                   [key]: {
                     loading: false,
-                    text: translated,
+                    text: translated.text,
                     error: null,
                     visible: true,
                     requestKey,
+                    backend: translated.backend,
+                    modelId: translated.modelId,
+                    cached: translated.cached,
+                    warnings: translated.warnings,
+                    needsSetup: false,
                   },
                 }
               : state,
           );
         })
         .catch((error) => {
+          const needsSetup = isTranslationSetupRequired(error);
           setEntries((state) =>
             state[key]?.requestKey === requestKey
               ? {
@@ -1981,19 +2016,37 @@ function useStoreTranslations(settings: TranslationSettings) {
                   [key]: {
                     loading: false,
                     text: null,
-                    error: error instanceof Error ? error.message : String(error),
+                    error: (() => {
+                      const message = error instanceof Error ? error.message : String(error);
+                      return needsSetup
+                        ? `${message} ${t("settings.skillsStoreTranslationOpenSettings")}`
+                        : message;
+                    })(),
                     visible: false,
                     requestKey,
+                    backend: null,
+                    modelId: null,
+                    cached: false,
+                    warnings: [],
+                    needsSetup,
                   },
                 }
               : state,
           );
         });
     },
-    [locale, settings],
+    [locale, requestScope, t, translationPort],
   );
 
-  return { entries, toggle };
+  const activeEntries = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(entries).filter(([, entry]) => entry.requestKey.startsWith(requestScope)),
+      ),
+    [entries, requestScope],
+  );
+
+  return { entries: activeEntries, toggle };
 }
 
 function storeSummaryTranslationKey(slug: string) {
@@ -2023,31 +2076,54 @@ function TranslateIconButton(props: {
         ? t("settings.skillsStoreShowOriginal")
         : t("settings.skillsStoreTranslate");
   return (
-    <button
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        onToggle();
-      }}
-      onKeyDown={(event) => event.stopPropagation()}
-      title={title}
-      aria-label={title}
-      className={cn(
-        "shrink-0 transition-colors",
-        entry?.error
-          ? "text-destructive hover:text-destructive"
-          : entry?.visible
-            ? "text-foreground"
-            : "text-muted-foreground hover:text-foreground",
-        className,
-      )}
-    >
-      {entry?.loading ? (
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-      ) : (
-        <Languages className="h-3.5 w-3.5" />
-      )}
-    </button>
+    <span className="inline-flex shrink-0 items-center gap-1.5">
+      {entry?.error && entry.needsSetup ? (
+        <span className="text-[9px] font-medium text-destructive">
+          {t("settings.skillsStoreTranslationNeedsSetup")}
+        </span>
+      ) : null}
+      {entry?.visible && entry.backend ? (
+        <span
+          className={cn(
+            "rounded-full px-1.5 py-0.5 text-[9px] font-medium leading-none",
+            entry.warnings.length > 0
+              ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+              : "bg-muted text-muted-foreground",
+          )}
+          title={entry.warnings.join("\n") || entry.modelId || undefined}
+        >
+          {entry.backend === "offline"
+            ? t("settings.skillsStoreTranslatedOffline")
+            : t("settings.skillsStoreTranslatedRemote")}
+          {entry.warnings.length > 0 ? " ⚠" : ""}
+        </span>
+      ) : null}
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
+        onKeyDown={(event) => event.stopPropagation()}
+        title={title}
+        aria-label={title}
+        className={cn(
+          "shrink-0 transition-colors",
+          entry?.error
+            ? "text-destructive hover:text-destructive"
+            : entry?.visible
+              ? "text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          className,
+        )}
+      >
+        {entry?.loading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Languages className="h-3.5 w-3.5" />
+        )}
+      </button>
+    </span>
   );
 }
 
@@ -2090,8 +2166,12 @@ function SkillsStoreView(props: {
   const [previewDetail, setPreviewDetail] = useState<ClawHubSkillDetail | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const translationPort = useMemo(
+    () => createTranslationPort(translationSettings),
+    [translationSettings],
+  );
   const { entries: translations, toggle: toggleTranslation } =
-    useStoreTranslations(translationSettings);
+    useStoreTranslations(translationPort);
 
   useEffect(() => {
     if (!previewSkill) {

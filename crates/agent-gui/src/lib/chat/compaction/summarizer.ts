@@ -144,7 +144,8 @@ async function requestSummary(params: SummarizerRequest): Promise<AssistantMessa
 
 /**
  * 摘要请求 + 恢复流水线：溢出 → 收缩 payload 重试（一次）；瞬态错误 → 退避重试
- * （一次）；校验失败 → 把无效输出回喂做一次 self-repair。所有 attempt 间检查 abort。
+ * （一次）；校验失败 → 把无效输出与具体错误回喂做一次 self-repair，修复结果用
+ * lenient 校验兜底（技术引用缺失时自动补进 breadcrumbs）。所有 attempt 间检查 abort。
  */
 export async function summarizeConversation(params: {
   providerId: ProviderId;
@@ -193,11 +194,15 @@ export async function summarizeConversation(params: {
     }
 
     const payloadTokens = estimateCompactionPayloadTokens(payload);
-    const finalize = (validated: AssistantMessage): SummarizeConversationResult => {
+    const finalize = (
+      validated: AssistantMessage,
+      mode: "strict" | "lenient" = "strict",
+    ): SummarizeConversationResult => {
       const { summaryText } = validateCompactionSummary(
         assistantMessageToText(validated),
         payloadTokens,
         payload,
+        { mode },
       );
       return {
         summaryText,
@@ -226,7 +231,9 @@ export async function summarizeConversation(params: {
               validationError instanceof Error ? validationError.message : String(validationError),
           },
         });
-        return finalize(repaired);
+        // 修复后的输出用 lenient 校验：若唯一残留问题是技术引用缺失，
+        // 由校验器把引用补进 breadcrumbs 放行，避免压缩整体失败。
+        return finalize(repaired, "lenient");
       } catch (repairError) {
         if (params.signal?.aborted) throw repairError;
         if (isOverflowError(repairError) && tryShrink()) continue;

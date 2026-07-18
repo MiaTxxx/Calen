@@ -14,11 +14,15 @@
 //   after a programmatic pin (the abort lands with the next main-thread
 //   commit); those frames carry no input and no drag, so they can never
 //   detach.
-// - ATTACH is position-driven: landing at the physical clamp always attaches;
-//   a gesture-latched downward arrival inside the reattach zone attaches; a
-//   pointer released inside the zone after downward movement attaches. The
-//   gesture latch is the only timing heuristic left and it gates attach only —
-//   a false positive re-pins, it can never tear follow down.
+// - ATTACH is position-driven but direction-gated: landing at the physical
+//   clamp attaches (unless the user JUST expressed upward intent — see the
+//   upward-intent hold below); a gesture-latched downward arrival inside the
+//   reattach zone attaches; a pointer released inside the zone after downward
+//   movement attaches. The gesture latch is armed by downward input only —
+//   upward input arms the upward-intent hold instead, so neither smooth-scroll
+//   frames still at the clamp nor layout shrink (virtualizer re-measure)
+//   can re-pin a user who is scrolling up. Both timing heuristics gate attach
+//   only — a false positive re-pins, it can never tear follow down.
 // - While following, a scroll event that leaves a gap open is corrected by
 //   re-pinning rather than classified.
 // - ResizeObserver deliveries (contentGrowth) never change follow state; they
@@ -55,16 +59,31 @@ export const DIRECTION_SLOP_PX = 1;
 // can never read as "dragged away from the bottom".
 export const POINTER_DRAG_SLOP_PX = 4;
 
-// Attach-side gesture latch. Refreshed by wheel/touch/key input and extended
-// by chained downward scroll events (touchscreen momentum carries no input
-// events); it can extend an active latch but never create one.
+// Attach-side gesture latch. Armed only by DOWNWARD input (wheel-down, touch
+// drag toward the bottom, follow keys) and extended by chained downward scroll
+// events (touchscreen momentum carries no input events); it can extend an
+// active latch but never create one. Upward input must never arm it: with the
+// latch armed, a virtualizer re-measure or content settle that shrinks
+// scrollHeight reads as "moved toward the bottom" and would re-pin a user who
+// just scrolled up (the reattach zone spans the whole reserve band, so
+// stopping "just above the bottom" is the common reading position).
 export const GESTURE_LATCH_MS = 500;
+
+// Upward-intent hold. After an explicit upward gesture (wheel-up, history
+// keys), a scroll frame that still sits inside the attach threshold must not
+// re-attach: passive wheel smooth-scrolling emits its first frames at the
+// clamp, and the unconditional clamp-attach + corrector pin would drag the
+// view back down — the "twitchy lock to bottom" feel. Downward input clears
+// the hold immediately; pointer drags ignore it (dragging to the clamp is an
+// explicit downward act).
+export const UP_INTENT_HOLD_MS = 500;
 
 export type FollowConfig = {
   attachThresholdPx: number;
   reattachZonePx: number;
   directionSlopPx: number;
   latchMs: number;
+  upIntentHoldMs: number;
 };
 
 export const DEFAULT_FOLLOW_CONFIG: FollowConfig = {
@@ -72,6 +91,7 @@ export const DEFAULT_FOLLOW_CONFIG: FollowConfig = {
   reattachZonePx: BOTTOM_REATTACH_ZONE_PX,
   directionSlopPx: DIRECTION_SLOP_PX,
   latchMs: GESTURE_LATCH_MS,
+  upIntentHoldMs: UP_INTENT_HOLD_MS,
 };
 
 export type FollowState = {
@@ -83,8 +103,12 @@ export type FollowState = {
   // Scroll direction observed during the current press; release re-engages
   // only after downward movement.
   dragTowardBottom: boolean | null;
-  // Gesture-latch deadline (epoch ms); attach-side only.
+  // Gesture-latch deadline (epoch ms); attach-side only, armed by downward
+  // input exclusively.
   latchUntil: number;
+  // Upward-intent hold deadline (epoch ms): while active, a detached state
+  // ignores clamp-frame attaches (smooth-scroll frames still at the bottom).
+  upIntentUntil: number;
   // Last observed bottom gap, for direction detection.
   lastGap: number;
 };
@@ -96,6 +120,7 @@ export function createFollowState(): FollowState {
     pointerDragging: false,
     dragTowardBottom: null,
     latchUntil: 0,
+    upIntentUntil: 0,
     lastGap: 0,
   };
 }
@@ -152,8 +177,11 @@ export function reduceFollowEvent(
 ): FollowStep {
   switch (event.type) {
     case "wheel": {
-      const next = { ...state, latchUntil: event.now + config.latchMs };
+      const next = { ...state };
       if (!isDominantVerticalWheel(event.deltaX, event.deltaY)) {
+        // Horizontal pans keep the user "active" for attach purposes but carry
+        // no vertical intent either way.
+        next.latchUntil = event.now + config.latchMs;
         return { state: next, pin: false };
       }
       if (event.deltaY < 0) {
@@ -162,9 +190,16 @@ export function reduceFollowEvent(
         // while visually pinned at the bottom.
         if (event.hasOverflow && !event.nestedCanConsume) {
           next.following = false;
+          // Upward intent: never arm the attach latch, and hold off clamp
+          // attaches while the smooth scroll is still leaving the bottom.
+          next.latchUntil = 0;
+          next.upIntentUntil = event.now + config.upIntentHoldMs;
         }
         return { state: next, pin: false };
       }
+      // Downward wheel: arm the attach latch and cancel any upward hold.
+      next.latchUntil = event.now + config.latchMs;
+      next.upIntentUntil = 0;
       // Wheeling down while already clamped at the bottom produces no scroll
       // event (scrollTop can't change), so a detached-at-bottom state must
       // re-engage here explicitly.
@@ -176,7 +211,17 @@ export function reduceFollowEvent(
     }
 
     case "touchMove": {
-      const next = { ...state, latchUntil: event.now + config.latchMs };
+      const next = { ...state };
+      if (event.fingerMovedDown === true) {
+        // Finger down = view scrolls up: upward intent, same as wheel-up.
+        next.latchUntil = 0;
+        next.upIntentUntil = event.now + config.upIntentHoldMs;
+      } else {
+        // Downward drag (or first sample with no direction yet) arms the
+        // latch so momentum scroll events can re-attach through the zone.
+        next.latchUntil = event.now + config.latchMs;
+        if (event.fingerMovedDown === false) next.upIntentUntil = 0;
+      }
       // Any touch drag off the clamp detaches; downward re-engagement flows
       // through the scroll/zone/release paths.
       if (
@@ -194,6 +239,15 @@ export function reduceFollowEvent(
       const next = { ...state, lastGap: gap };
 
       if (isAtBottom(gap, config)) {
+        // A detached state during an active upward hold must NOT re-attach at
+        // the clamp: passive wheel smooth-scrolling emits its first frames
+        // while still inside the threshold, and attaching here would let the
+        // corrector below drag the user straight back down. Pointer holds are
+        // exempt — dragging the thumb to the clamp is explicit downward
+        // intent.
+        if (!state.following && !state.pointerHeld && now <= state.upIntentUntil) {
+          return { state: next, pin: false };
+        }
         // At the physical clamp — attaching is always safe, whether the user
         // landed here or our own pin write echoed back. Also counts as
         // downward movement for the pointer-release re-check.
@@ -271,7 +325,12 @@ export function reduceFollowEvent(
     }
 
     case "historyKey": {
-      const next = { ...state, latchUntil: event.now + config.latchMs };
+      // Upward keys (ArrowUp/PageUp/Home): same intent handling as wheel-up.
+      const next = {
+        ...state,
+        latchUntil: 0,
+        upIntentUntil: event.now + config.upIntentHoldMs,
+      };
       if (event.hasOverflow) {
         next.following = false;
       }
@@ -281,7 +340,10 @@ export function reduceFollowEvent(
     case "followKey": {
       // Downward keys only arm the latch — their scroll events then attach
       // through the clamp/zone checks.
-      return { state: { ...state, latchUntil: event.now + config.latchMs }, pin: false };
+      return {
+        state: { ...state, latchUntil: event.now + config.latchMs, upIntentUntil: 0 },
+        pin: false,
+      };
     }
 
     case "contentGrowth": {
@@ -299,6 +361,7 @@ export function reduceFollowEvent(
           pointerDragging: false,
           dragTowardBottom: null,
           latchUntil: 0,
+          upIntentUntil: 0,
         },
         pin: true,
       };

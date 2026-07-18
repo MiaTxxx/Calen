@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
@@ -7,6 +7,8 @@ use reqwest::StatusCode;
 use serde::Serialize;
 use tauri::{AppHandle, Url};
 use tauri_plugin_updater::UpdaterExt;
+
+use crate::services::network::{AppNetworkManager, UpdaterProxyPolicy};
 
 const DEFAULT_UPDATE_REPOSITORY: &str = "MiaTxxx/Calen";
 const UPDATE_MANIFEST_ASSET: &str = "latest.json";
@@ -304,11 +306,8 @@ fn selected_release_candidates_from_entries(
         .collect()
 }
 
-fn github_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .map_err(|error| format!("failed to create GitHub client: {error}"))
+fn github_client(network: &AppNetworkManager) -> Result<reqwest::Client, String> {
+    network.async_client_with(reqwest::Client::builder().timeout(Duration::from_secs(20)))
 }
 
 async fn manifest_exists(client: &reqwest::Client, manifest_url: &str) -> Result<bool, String> {
@@ -432,10 +431,11 @@ fn missing_platform_response(
 }
 
 async fn select_release_manifest(
+    network: &AppNetworkManager,
     repository: &str,
     include_prerelease: bool,
 ) -> Result<Option<SelectedRelease>, String> {
-    let client = github_client()?;
+    let client = github_client(network)?;
     let feed_url = release_feed_url(repository)?;
     let response = client
         .get(feed_url)
@@ -476,17 +476,25 @@ async fn select_release_manifest(
 
 fn build_updater(
     app: &AppHandle,
+    network: &AppNetworkManager,
     manifest_url: &str,
     public_key: String,
 ) -> Result<tauri_plugin_updater::Updater, String> {
     let manifest_url = Url::parse(manifest_url)
         .map_err(|error| format!("invalid updater manifest URL: {error}"))?;
 
-    app.updater_builder()
+    let builder = app
+        .updater_builder()
         .pubkey(public_key)
         .endpoints(vec![manifest_url])
         .map_err(|error| format!("invalid updater endpoint: {error}"))?
-        .timeout(Duration::from_secs(60))
+        .timeout(Duration::from_secs(60));
+    let builder = match network.updater_proxy_policy()? {
+        UpdaterProxyPolicy::NoProxy => builder.no_proxy(),
+        UpdaterProxyPolicy::SystemDefault => builder,
+        UpdaterProxyPolicy::Proxy(proxy) => builder.proxy(proxy),
+    };
+    builder
         .build()
         .map_err(|error| format!("failed to initialize updater: {error}"))
 }
@@ -494,6 +502,7 @@ fn build_updater(
 #[tauri::command(rename_all = "snake_case")]
 pub async fn app_update_check(
     app: AppHandle,
+    network: tauri::State<'_, Arc<AppNetworkManager>>,
     include_prerelease: bool,
 ) -> Result<AppUpdateCheckResponse, String> {
     let repository = update_repository();
@@ -506,10 +515,17 @@ pub async fn app_update_check(
         return Ok(updater_not_configured_response(&app, repository, channel));
     };
 
-    let Some(release) = select_release_manifest(&repository, include_prerelease).await? else {
+    let Some(release) =
+        select_release_manifest(network.inner().as_ref(), &repository, include_prerelease).await?
+    else {
         return Ok(no_update_response(&app, repository, channel));
     };
-    let updater = build_updater(&app, &release.manifest_url, public_key)?;
+    let updater = build_updater(
+        &app,
+        network.inner().as_ref(),
+        &release.manifest_url,
+        public_key,
+    )?;
     let update = match updater.check().await {
         Ok(update) => update,
         Err(
@@ -539,6 +555,8 @@ pub async fn app_update_check(
 pub async fn app_update_install(
     app: AppHandle,
     stock: tauri::State<'_, std::sync::Arc<crate::commands::stock::StockResearchManager>>,
+    translation: tauri::State<'_, std::sync::Arc<crate::services::translation::TranslationManager>>,
+    network: tauri::State<'_, Arc<AppNetworkManager>>,
     include_prerelease: bool,
 ) -> Result<AppUpdateCheckResponse, String> {
     let repository = update_repository();
@@ -551,10 +569,17 @@ pub async fn app_update_install(
         return Ok(updater_not_configured_response(&app, repository, channel));
     };
 
-    let Some(release) = select_release_manifest(&repository, include_prerelease).await? else {
+    let Some(release) =
+        select_release_manifest(network.inner().as_ref(), &repository, include_prerelease).await?
+    else {
         return Ok(no_update_response(&app, repository, channel));
     };
-    let updater = build_updater(&app, &release.manifest_url, public_key)?;
+    let updater = build_updater(
+        &app,
+        network.inner().as_ref(),
+        &release.manifest_url,
+        public_key,
+    )?;
     let update = match updater.check().await {
         Ok(update) => update,
         Err(
@@ -576,6 +601,7 @@ pub async fn app_update_install(
     let date = update.date.map(|date| date.to_string());
     let body = update.body.clone();
     stock.stop().await?;
+    translation.shutdown_cleanup().await;
     update
         .download_and_install(|_, _| {}, || {})
         .await
@@ -596,11 +622,13 @@ pub async fn app_update_install(
 pub async fn app_restart(
     app: AppHandle,
     stock: tauri::State<'_, std::sync::Arc<crate::commands::stock::StockResearchManager>>,
+    translation: tauri::State<'_, std::sync::Arc<crate::services::translation::TranslationManager>>,
 ) -> Result<(), String> {
     // restart() tears the process down without firing ExitRequested/Exit, so
     // cleanup must run here or managed processes can leak across a restart.
     use tauri::Manager;
     stock.stop().await?;
+    translation.shutdown_cleanup().await;
     if let Some(registry) =
         app.try_state::<std::sync::Arc<crate::runtime::managed_process::ManagedProcessRegistry>>()
     {

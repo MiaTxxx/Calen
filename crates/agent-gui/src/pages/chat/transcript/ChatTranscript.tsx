@@ -63,6 +63,9 @@ export const ChatTranscript = memo(function ChatTranscript(props: ChatTranscript
   // dead node (the old querySelector retry loop's silent failure mode).
   const [scrollViewport, setScrollViewport] = useState<HTMLDivElement | null>(null);
   const [scrollAreaRoot, setScrollAreaRoot] = useState<HTMLDivElement | null>(null);
+  // 消息导航条的挂载点：TranscriptList 把导航条 portal 到这里，使其固定在
+  // 聊天区右缘（不随内容滚动、不受虚拟化容器裁剪）。
+  const [navOverlayEl, setNavOverlayEl] = useState<HTMLDivElement | null>(null);
   const transcriptRootRef = useRef<HTMLDivElement | null>(null);
   const transcriptContextMenuRef = useRef<HTMLDivElement | null>(null);
   const [transcriptContextMenu, setTranscriptContextMenu] =
@@ -193,6 +196,8 @@ export const ChatTranscript = memo(function ChatTranscript(props: ChatTranscript
               historyItems={historyItems}
               liveTranscriptStore={liveTranscriptStore}
               scrollViewport={scrollViewport}
+              navOverlayEl={navOverlayEl}
+              onDetachFollow={scrollFollowHandle.detachForNavigation}
               isSending={isSending}
               isAgentMode={isAgentMode}
               isCompactionRunning={isCompactionRunning}
@@ -207,6 +212,11 @@ export const ChatTranscript = memo(function ChatTranscript(props: ChatTranscript
           <div style={{ height: transcriptBottomReservePx }} />
         </div>
       </ScrollArea>
+      {/* right-2.5 让开 ScrollArea 的自定义滚动条（w-2.5），避免挡住拖拽。 */}
+      <div
+        ref={setNavOverlayEl}
+        className="pointer-events-none absolute inset-y-0 right-2.5 z-20 flex flex-col items-end justify-center"
+      />
       {!following ? (
         <button
           type="button"

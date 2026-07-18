@@ -58,6 +58,11 @@ export type ScrollFollowHandle = {
   // (the jump button); programmatic pins (conversation switch, run start)
   // stay instant via stickToBottom.
   jumpToBottom: () => void;
+  // Detach follow before a programmatic in-transcript jump (nav rail). Routed
+  // through the historyKey event so it carries explicit upward intent: while
+  // following, the corrector would otherwise re-pin the very next scroll
+  // frame and drag the jump straight back to the bottom.
+  detachForNavigation: () => void;
   isFollowing: () => boolean;
 };
 
@@ -141,6 +146,13 @@ export function useScrollFollow(args: UseScrollFollowArgs): {
   const stickToBottom = useCallback(() => {
     dispatch({ type: "forceFollow" });
   }, [dispatch]);
+
+  const detachForNavigation = useCallback(() => {
+    cancelJumpAnimation();
+    const el = boundViewportRef.current;
+    const hasOverflow = el ? el.scrollHeight - el.clientHeight > SCROLLABLE_OVERFLOW_MIN_PX : false;
+    dispatch({ type: "historyKey", hasOverflow, now: Date.now() });
+  }, [cancelJumpAnimation, dispatch]);
 
   // Ease toward the bottom without engaging follow mode: with following still
   // false the corrector can't snap the animation to the end, and CSS smooth
@@ -383,9 +395,10 @@ export function useScrollFollow(args: UseScrollFollowArgs): {
     () => ({
       stickToBottom,
       jumpToBottom,
+      detachForNavigation,
       isFollowing: () => stateRef.current.following,
     }),
-    [jumpToBottom, stickToBottom],
+    [detachForNavigation, jumpToBottom, stickToBottom],
   );
 
   return { handle, following };

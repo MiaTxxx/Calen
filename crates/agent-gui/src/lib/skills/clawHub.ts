@@ -1,3 +1,5 @@
+import { prepareRelayRequest } from "../providers/proxy";
+
 export type ClawHubSort = "downloads" | "stars" | "installs" | "updated" | "newest";
 
 export type ClawHubSkillCard = {
@@ -119,8 +121,11 @@ function normalizeSkillDetail(raw: unknown): ClawHubSkillDetail | null {
 }
 
 async function fetchClawHubJson(url: URL): Promise<unknown> {
-  const response = await fetch(url.toString(), {
-    headers: { Accept: "application/json" },
+  const request = await prepareRelayRequest("clawhub", url.toString(), {
+    Accept: "application/json",
+  });
+  const response = await fetch(request.url, {
+    headers: request.headers,
   });
   if (!response.ok) {
     throw new Error(`ClawHub request failed with HTTP ${response.status}`);

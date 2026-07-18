@@ -26,6 +26,7 @@ import {
   updateCustomSettings,
   updateSystem,
 } from "../../lib/settings";
+import { NetworkProxySettingsCard } from "./NetworkProxySettingsCard";
 import { AgentActivationSwitch } from "./shared";
 import type { SettingsSectionProps } from "./types";
 
@@ -527,6 +528,8 @@ export function SystemSettingsForm(props: SettingsSectionProps) {
           </span>
         </div>
       </section>
+
+      <NetworkProxySettingsCard />
     </div>
   );
 }

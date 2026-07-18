@@ -36,7 +36,9 @@ export type GatewaySshSyncPatch = {
 export type GatewaySettingsSyncProvider = Omit<AppSettings["customProviders"][number], "apiKey"> & {
   apiKeyConfigured?: boolean;
 };
-export type GatewaySettingsSyncCustomSettings = Partial<AppSettings["customSettings"]>;
+export type GatewaySettingsSyncCustomSettings = Partial<
+  Omit<AppSettings["customSettings"], "translation">
+>;
 
 export type GatewaySettingsSyncPayload = {
   system: AppSettings["system"];
@@ -327,8 +329,9 @@ export function buildGatewaySshSyncPatch(
 function syncableCustomSettings(
   customSettings: AppSettings["customSettings"],
 ): GatewaySettingsSyncCustomSettings {
+  const { translation: _localTranslation, ...syncable } = customSettings;
   return {
-    ...customSettings,
+    ...syncable,
     chatSidebar: {
       projectsCollapsed: false,
       recentCollapsed: false,
@@ -901,6 +904,7 @@ export function applyGatewaySettingsSyncPayload(
         : current.ssh,
     memory: memory as AppSettings["memory"],
     customSettings: {
+      ...current.customSettings,
       ...incomingCustomSettings,
       rightDock: Object.hasOwn(incomingCustomSettings, "rightDock")
         ? mergeSyncedRightDockSettings(
@@ -913,6 +917,8 @@ export function applyGatewaySettingsSyncPayload(
       fontScale: current.customSettings.fontScale,
       // background 引用本机文件路径，不参与网关同步
       background: current.customSettings.background,
+      // 离线模型 ID 和路由模式只属于当前设备。
+      translation: current.customSettings.translation,
     },
     skills: (source.skills as AppSettings["skills"] | undefined) ?? current.skills,
     chatRuntimeControls: Object.hasOwn(source, "chatRuntimeControls")

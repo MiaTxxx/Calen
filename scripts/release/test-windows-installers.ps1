@@ -181,6 +181,45 @@ function Invoke-SidecarSmoke {
     return $sidecarRoot
 }
 
+function Assert-TranslationRuntime {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+
+    $runtimeRoot = Join-Path $InstallRoot "translation-runtime"
+    $requiredFiles = @(
+        "llama-server.exe",
+        "runtime-manifest.json",
+        "NOTICE.md",
+        "licenses\llama.cpp-MIT.txt"
+    )
+    foreach ($relativePath in $requiredFiles) {
+        $path = Join-Path $runtimeRoot $relativePath
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Installed offline translation runtime is missing: $path"
+        }
+    }
+
+    $versionOutput = & (Join-Path $runtimeRoot "llama-server.exe") --version 2>&1
+    if ($LASTEXITCODE -ne 0 -or -not ($versionOutput -match "(?m)\bversion:\s*10066\b")) {
+        throw "Installed offline translation runtime did not report the pinned b10066 version: $versionOutput"
+    }
+    $manifest = Get-Content -LiteralPath (Join-Path $runtimeRoot "runtime-manifest.json") -Raw |
+        ConvertFrom-Json
+    if (
+        $manifest.sourceCommit -ne "86a9c79f866799eb0e7e89c03578ccfbcc5d808e" -or
+        $manifest.build.openmp -ne $false -or
+        $manifest.build.sharedLibraries -ne $false
+    ) {
+        throw "Installed offline translation runtime manifest is not the pinned OpenMP-free static build."
+    }
+    $actualSha256 = (Get-FileHash -LiteralPath (
+        Join-Path $runtimeRoot "llama-server.exe"
+    ) -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualSha256 -ne [string]$manifest.binarySha256) {
+        throw "Installed offline translation runtime hash does not match its manifest."
+    }
+    Write-Host "Installed offline translation runtime is complete and executable: $runtimeRoot"
+}
+
 function Get-CalenUninstallEntries {
     $patterns = @(
         "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
@@ -633,6 +672,7 @@ try {
         throw "MSI did not honor the required Chinese and space-containing INSTALLDIR: requested=$msiRequestedRoot actual=$msiInstallRoot"
     }
     Write-Host "MSI honored the Chinese and space-containing INSTALLDIR: $msiInstallRoot"
+    Assert-TranslationRuntime -InstallRoot $msiInstallRoot
     Invoke-SidecarSmoke -InstallRoot $msiInstallRoot | Out-Null
     Invoke-MsiUninstall -Entry $msiEntry
     Wait-InstallRootReleased -InstallRoot $msiInstallRoot
@@ -640,6 +680,7 @@ try {
     Write-Step "Installing NSIS silently into a Chinese and space-containing path"
     Invoke-NsisInstall -PackagePath $SetupPath -InstallRoot $nsisInstallRoot -ExpectedVersion $CurrentVersion | Out-Null
     Assert-CalenShortcutIcon -InstallRoot $nsisInstallRoot
+    Assert-TranslationRuntime -InstallRoot $nsisInstallRoot
     Invoke-SidecarSmoke -InstallRoot $nsisInstallRoot | Out-Null
     Invoke-NsisUninstall -InstallRoot $nsisInstallRoot
 
@@ -678,6 +719,7 @@ try {
                 throw "NSIS upgrade did not reuse the previous install root: old=$oldNsisRoot current=$currentNsisRoot"
             }
             Assert-CalenShortcutIcon -InstallRoot $currentNsisRoot
+            Assert-TranslationRuntime -InstallRoot $currentNsisRoot
             Invoke-SidecarSmoke -InstallRoot $nsisUpgradeRoot | Out-Null
             Invoke-NsisUninstall -InstallRoot $nsisUpgradeRoot
         } finally {
@@ -713,6 +755,7 @@ try {
             }
             $upgradeRoot = Get-InstallRootFromEntry -Entry $currentEntry
             $upgradeRoots.Add($upgradeRoot)
+            Assert-TranslationRuntime -InstallRoot $upgradeRoot
             Invoke-SidecarSmoke -InstallRoot $upgradeRoot | Out-Null
             Invoke-MsiUninstall -Entry $currentEntry
             Wait-InstallRootReleased -InstallRoot $upgradeRoot

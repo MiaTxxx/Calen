@@ -1,0 +1,15 @@
+{
+  "runtime": "llama.cpp",
+  "version": "b10066",
+  "sourceRepository": "https://github.com/ggml-org/llama.cpp.git",
+  "sourceCommit": "86a9c79f866799eb0e7e89c03578ccfbcc5d808e",
+  "binarySha256": "generated-by-stage-translation-runtime.ps1",
+  "build": {
+    "architecture": "windows-x64",
+    "sharedLibraries": false,
+    "openmp": false,
+    "msvcRuntime": "MultiThreaded",
+    "webUi": false,
+    "openssl": false
+  }
+}

@@ -89,6 +89,8 @@ export const RoundContent = memo(function RoundContent(props: {
   toolStatusVariant?: "default" | "compaction";
   runningToolCallIds?: string[];
   thinkingOpen?: boolean;
+  // 消息导航条的跳转锚点（data-nav-anchor），由转录行注入。
+  navAnchor?: string;
 }) {
   const {
     round,
@@ -102,6 +104,7 @@ export const RoundContent = memo(function RoundContent(props: {
     toolStatusVariant,
     runningToolCallIds,
     thinkingOpen,
+    navAnchor,
   } = props;
   const hasContent =
     round.blocks.some((block) => {
@@ -126,7 +129,7 @@ export const RoundContent = memo(function RoundContent(props: {
   if (!hasContent) return null;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-nav-anchor={navAnchor}>
       {showLabel ? <div className="h-px bg-border/40" /> : null}
 
       {isActive && isLive && normalizedToolStatus ? (

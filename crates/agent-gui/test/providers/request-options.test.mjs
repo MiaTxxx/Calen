@@ -158,6 +158,46 @@ test("image proxy URL builder encodes the source URL", () => {
   );
 });
 
+test("generic local relay preserves target path and query for Skills Store traffic", () => {
+  assert.deepEqual(
+    proxy.buildRelayRequest(
+      "clawhub",
+      "https://clawhub.ai/api/v1/search?q=calendar&limit=24",
+      "http://127.0.0.1:18080/",
+      "relay-token",
+      { Accept: "application/json" }
+    ),
+    {
+      url: "http://127.0.0.1:18080/proxy/clawhub/api/v1/search?q=calendar&limit=24",
+      headers: {
+        Accept: "application/json",
+        "x-liveagent-upstream-origin": "https://clawhub.ai",
+        "x-liveagent-proxy-token": "relay-token",
+      },
+    }
+  );
+  assert.throws(
+    () =>
+      proxy.buildRelayRequest(
+        "../escape",
+        "https://clawhub.ai/api/v1/skills",
+        "http://127.0.0.1:18080",
+        "relay-token"
+      ),
+    /route ID/
+  );
+  assert.throws(
+    () =>
+      proxy.buildRelayRequest(
+        "clawhub",
+        "https://user:secret@clawhub.ai/api/v1/skills",
+        "http://127.0.0.1:18080",
+        "relay-token"
+      ),
+    /embedded username or password/
+  );
+});
+
 test("provider request helpers normalize auth, metadata, errors, and model values", () => {
   assert.deepEqual(providers.buildDualAuthHeaders("secret"), {
     Authorization: "Bearer secret",
