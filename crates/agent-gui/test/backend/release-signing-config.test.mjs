@@ -31,6 +31,18 @@ const windowsInstallerValidation = readFileSync(
   path.join(repoRoot, "scripts/release/test-windows-installers.ps1"),
   "utf8"
 );
+const translationRuntimeStaging = readFileSync(
+  path.join(repoRoot, "scripts/release/stage-translation-runtime.ps1"),
+  "utf8"
+);
+const translationRuntimeIdentity = readFileSync(
+  path.join(repoRoot, "scripts/release/translation-runtime-identity.ps1"),
+  "utf8"
+);
+const translationRuntimeIdentityProbe = readFileSync(
+  path.join(repoRoot, "scripts/release/test-translation-runtime-identity.ps1"),
+  "utf8"
+);
 const windowsInstallerArguments = readFileSync(
   path.join(repoRoot, "scripts/release/msiexec-arguments.ps1"),
   "utf8"
@@ -123,6 +135,40 @@ test("Windows installers use Calen branding and Simplified Chinese", () => {
   assert.match(nsisHooks, /FileExists/);
   assert.match(nsisHooks, /CreateShortcut/);
   assert.match(nsisHooks, /SHChangeNotify/);
+});
+
+test("translation runtime validation identifies shallow builds by pinned commit", () => {
+  const runtimeCommit = translationRuntimeStaging.match(
+    /\$runtimeCommit\s*=\s*"([0-9a-f]{40})"/
+  )?.[1];
+  assert.ok(runtimeCommit);
+
+  const observedShallowBuildVersion =
+    "version: 1 (86a9c79) built with MSVC 19.51.36248.0 for Windows AMD64";
+  assert.match(
+    observedShallowBuildVersion,
+    new RegExp(`\\(${runtimeCommit.slice(0, 7)}\\)`)
+  );
+
+  assert.match(translationRuntimeStaging, /translation-runtime-identity\.ps1/);
+  assert.match(
+    translationRuntimeStaging,
+    /Test-CalenPinnedLlamaRuntimeVersion/
+  );
+  assert.match(translationRuntimeIdentity, /\[0-9a-f\]\{7,40\}/);
+  assert.match(translationRuntimeIdentity, /StartsWith/);
+  assert.match(translationRuntimeIdentityProbe, /version: 1 \(86a9c79\)/);
+  assert.match(translationRuntimeIdentityProbe, /wrong commit/);
+  assert.match(translationRuntimeIdentityProbe, /missing commit/);
+  assert.match(translationRuntimeIdentityProbe, /non-numeric version/);
+  assert.match(translationRuntimeIdentityProbe, /non-zero exit/);
+  assert.doesNotMatch(windowsInstallerValidation, /version:\\s\*10066/);
+  assert.match(
+    windowsInstallerValidation,
+    /Test-CalenPinnedLlamaRuntimeVersion/
+  );
+  assert.match(releaseWorkflow, /test-translation-runtime-identity\.ps1/);
+  assert.match(ciWorkflow, /test-translation-runtime-identity\.ps1/);
 });
 
 test("release validation requires explicit updater signing keys", () => {

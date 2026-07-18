@@ -19,6 +19,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "msiexec-arguments.ps1")
+. (Join-Path $PSScriptRoot "translation-runtime-identity.ps1")
 
 if (-not $IsWindows) {
     throw "Windows installer validation must run on Windows."
@@ -198,10 +199,6 @@ function Assert-TranslationRuntime {
         }
     }
 
-    $versionOutput = & (Join-Path $runtimeRoot "llama-server.exe") --version 2>&1
-    if ($LASTEXITCODE -ne 0 -or -not ($versionOutput -match "(?m)\bversion:\s*10066\b")) {
-        throw "Installed offline translation runtime did not report the pinned b10066 version: $versionOutput"
-    }
     $manifest = Get-Content -LiteralPath (Join-Path $runtimeRoot "runtime-manifest.json") -Raw |
         ConvertFrom-Json
     if (
@@ -210,6 +207,17 @@ function Assert-TranslationRuntime {
         $manifest.build.sharedLibraries -ne $false
     ) {
         throw "Installed offline translation runtime manifest is not the pinned OpenMP-free static build."
+    }
+    $versionOutput = & (Join-Path $runtimeRoot "llama-server.exe") --version 2>&1
+    $versionExitCode = $LASTEXITCODE
+    $renderedVersionOutput = @($versionOutput) -join "`n"
+    if (-not (Test-CalenPinnedLlamaRuntimeVersion `
+        -VersionOutput $versionOutput `
+        -SourceCommit ([string]$manifest.sourceCommit) `
+        -ExitCode $versionExitCode
+    )) {
+        $runtimeShortCommit = ([string]$manifest.sourceCommit).Substring(0, 7)
+        throw "Installed offline translation runtime did not report the pinned commit ${runtimeShortCommit}: $renderedVersionOutput"
     }
     $actualSha256 = (Get-FileHash -LiteralPath (
         Join-Path $runtimeRoot "llama-server.exe"

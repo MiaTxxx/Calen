@@ -5,6 +5,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "translation-runtime-identity.ps1")
+
 $runtimeTag = "b10066"
 $runtimeCommit = "86a9c79f866799eb0e7e89c03578ccfbcc5d808e"
 $sourceRepository = "https://github.com/ggml-org/llama.cpp.git"
@@ -98,8 +100,15 @@ if (-not $builtServer) {
 }
 
 $versionOutput = & $builtServer --version 2>&1
-if ($LASTEXITCODE -ne 0 -or -not ($versionOutput -match "(?m)\bversion:\s*10066\b")) {
-    throw "Built llama-server did not report the pinned b10066 version: $versionOutput"
+$versionExitCode = $LASTEXITCODE
+$renderedVersionOutput = @($versionOutput) -join "`n"
+if (-not (Test-CalenPinnedLlamaRuntimeVersion `
+    -VersionOutput $versionOutput `
+    -SourceCommit $runtimeCommit `
+    -ExitCode $versionExitCode
+)) {
+    $runtimeShortCommit = $runtimeCommit.Substring(0, 7)
+    throw "Built llama-server did not report the pinned commit ${runtimeShortCommit}: $renderedVersionOutput"
 }
 
 New-Item -ItemType Directory -Force -Path $resolvedOutput | Out-Null

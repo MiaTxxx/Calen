@@ -322,6 +322,10 @@ jobs:
         with:
           arch: x64
 
+      - name: Test offline translation runtime identity matcher
+        shell: pwsh
+        run: ./scripts/release/test-translation-runtime-identity.ps1
+
       - name: Stage offline translation runtime
         shell: pwsh
         run: ./scripts/release/stage-translation-runtime.ps1
