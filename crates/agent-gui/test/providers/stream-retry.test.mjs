@@ -3,8 +3,12 @@ import test from "node:test";
 import { createTsModuleLoader } from "../helpers/load-ts-module.mjs";
 
 const loader = createTsModuleLoader();
-const { withStreamRetry, computeStreamRetryBackoffMs, DEFAULT_STREAM_RETRY_MAX_ATTEMPTS } =
-  loader.loadModule("src/lib/providers/runtime/streamRetry.ts");
+const {
+  withStreamRetry,
+  computeStreamRetryBackoffMs,
+  DEFAULT_STREAM_RETRY_MAX_ATTEMPTS,
+  isTransientStreamError,
+} = loader.loadModule("src/lib/providers/runtime/streamRetry.ts");
 
 function createUsage() {
   return {
@@ -34,7 +38,10 @@ function createAssistant(text, stopReason, extra = {}) {
 function createErrorStream(errorMessage) {
   return {
     async *[Symbol.asyncIterator]() {
-      yield { type: "error", error: createAssistant(undefined, "error", { errorMessage }) };
+      yield {
+        type: "error",
+        error: createAssistant(undefined, "error", { errorMessage }),
+      };
     },
     async result() {
       return createAssistant(undefined, "error", { errorMessage });
@@ -106,14 +113,14 @@ test("withStreamRetry succeeds after N retryable errors without leaking failed-a
       if (calls < 3) return createErrorStream("503 service unavailable");
       return createSuccessStream("final answer");
     },
-    { maxAttempts: 5 },
+    { maxAttempts: 5 }
   );
 
   const events = await collectEvents(wrapped);
   assert.equal(calls, 3);
   assert.deepEqual(
     events.map((event) => event.type),
-    ["start", "text_delta", "done"],
+    ["start", "text_delta", "done"]
   );
   const final = await wrapped.result();
   assert.equal(final.stopReason, "stop");
@@ -131,7 +138,7 @@ test("withStreamRetry does not retry once content has been committed", async () 
   assert.equal(calls, 1);
   assert.deepEqual(
     events.map((event) => event.type),
-    ["start", "text_delta", "error"],
+    ["start", "text_delta", "error"]
   );
   const final = await wrapped.result();
   assert.equal(final.stopReason, "error");
@@ -148,7 +155,7 @@ test("withStreamRetry never retries an aborted stream", async () => {
   assert.equal(calls, 1);
   assert.deepEqual(
     events.map((event) => event.type),
-    ["done"],
+    ["done"]
   );
   const final = await wrapped.result();
   assert.equal(final.stopReason, "aborted");
@@ -161,7 +168,7 @@ test("withStreamRetry respects maxAttempts and surfaces the last failure", async
       calls += 1;
       return createErrorStream(`rate limit exceeded (attempt ${calls})`);
     },
-    { maxAttempts: 3 },
+    { maxAttempts: 3 }
   );
 
   const events = await collectEvents(wrapped);
@@ -180,12 +187,50 @@ test("withStreamRetry does not retry non-retryable errors", async () => {
       calls += 1;
       return createErrorStream("insufficient_quota: billing required");
     },
-    { maxAttempts: 5 },
+    { maxAttempts: 5 }
   );
 
   const events = await collectEvents(wrapped);
   assert.equal(calls, 1);
   assert.equal(events[0].type, "error");
+});
+
+test("withStreamRetry retries expanded transport failures like ECONNRESET", async () => {
+  let calls = 0;
+  const wrapped = withStreamRetry(
+    () => {
+      calls += 1;
+      if (calls < 2) return createErrorStream("read ECONNRESET");
+      return createSuccessStream("recovered");
+    },
+    { maxAttempts: 4 }
+  );
+  const final = await wrapped.result();
+  assert.equal(calls, 2);
+  assert.equal(final.stopReason, "stop");
+  assert.equal(final.content[0].text, "recovered");
+});
+
+test("withStreamRetry onRetry callback fires before each reconnect attempt", async () => {
+  let calls = 0;
+  const retries = [];
+  const wrapped = withStreamRetry(
+    () => {
+      calls += 1;
+      if (calls < 3) return createErrorStream("502 bad gateway");
+      return createSuccessStream("ok");
+    },
+    {
+      maxAttempts: 5,
+      onRetry: (info) => retries.push(info),
+    }
+  );
+  await collectEvents(wrapped);
+  assert.equal(calls, 3);
+  assert.equal(retries.length, 2);
+  assert.equal(retries[0].attempt, 1);
+  assert.equal(retries[1].attempt, 2);
+  assert.match(retries[0].errorMessage ?? "", /502/);
 });
 
 test("withStreamRetry backoff aborted before it can fire prevents any further attempt", async () => {
@@ -200,7 +245,7 @@ test("withStreamRetry backoff aborted before it can fire prevents any further at
       calls += 1;
       return createErrorStream("503 service unavailable");
     },
-    { maxAttempts: 5, signal: controller.signal },
+    { maxAttempts: 5, signal: controller.signal }
   );
 
   const events = await collectEvents(wrapped);
@@ -216,7 +261,7 @@ test("withStreamRetry with disabled:true never retries", async () => {
       calls += 1;
       return createErrorStream("503 service unavailable");
     },
-    { maxAttempts: 5, disabled: true },
+    { maxAttempts: 5, disabled: true }
   );
 
   await collectEvents(wrapped);
@@ -227,10 +272,39 @@ test("computeStreamRetryBackoffMs stays within the full-jitter cap and grows wit
   for (let attempt = 1; attempt <= 6; attempt += 1) {
     const delay = computeStreamRetryBackoffMs(attempt);
     assert.ok(delay >= 0);
-    assert.ok(delay <= 8000);
+    assert.ok(delay <= 12000);
   }
 });
 
 test("DEFAULT_STREAM_RETRY_MAX_ATTEMPTS is a sane positive default", () => {
-  assert.ok(DEFAULT_STREAM_RETRY_MAX_ATTEMPTS >= 1);
+  assert.ok(DEFAULT_STREAM_RETRY_MAX_ATTEMPTS >= 3);
+});
+
+test("isTransientStreamError classifies transport and quota failures", () => {
+  assert.equal(
+    isTransientStreamError(
+      createAssistant(undefined, "error", { errorMessage: "fetch failed" })
+    ),
+    true
+  );
+  assert.equal(
+    isTransientStreamError(
+      createAssistant(undefined, "error", { errorMessage: "read ECONNRESET" })
+    ),
+    true
+  );
+  assert.equal(
+    isTransientStreamError(
+      createAssistant(undefined, "error", {
+        errorMessage: "insufficient_quota",
+      })
+    ),
+    false
+  );
+  assert.equal(
+    isTransientStreamError(
+      createAssistant(undefined, "aborted", { errorMessage: "cancelled" })
+    ),
+    false
+  );
 });

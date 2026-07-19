@@ -100,6 +100,8 @@ function buildTextOnlyStreamOptions(params: {
     // Text-only mode cannot execute local tools. Provider-native web search is
     // hosted by the upstream provider, so it can stay on auto when explicitly enabled.
     toolChoice: usesOpenAIChatNativeWebSearch ? undefined : nativeWebSearch ? "auto" : "none",
+    // Pre-content provider/transport auto-reconnect (same policy as agent mode).
+    streamRetry: {},
   };
   return finalizeProviderStreamOptions({
     providerId: params.providerId,

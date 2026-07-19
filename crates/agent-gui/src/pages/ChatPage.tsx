@@ -4620,6 +4620,7 @@ export function ChatPage(props: ChatPageProps) {
             },
             agentTemplates: settings.agents,
             selectedSystemToolIds: effectiveSelectedSystemToolIds,
+            defaultShell: settings.system.defaultShell,
             getMcpSettings,
             applyMcpOps: (ops) => {
               setSettings((prev) => applyMcpOpsToAppSettings(prev, ops));

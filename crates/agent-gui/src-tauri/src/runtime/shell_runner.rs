@@ -6,7 +6,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Condvar, Mutex,
+    Arc, Condvar, Mutex, OnceLock, RwLock,
 };
 use std::time::{Duration, Instant};
 
@@ -20,6 +20,55 @@ pub(crate) const MIN_SHELL_TIMEOUT_MS: u64 = 1_000;
 pub(crate) const MAX_SHELL_TIMEOUT_MS: u64 = 10 * 60_000;
 const TERMINATION_GRACE_MS: u64 = 300;
 const STREAM_EOF_GRACE_MS: u64 = 300;
+
+/// Windows agent shell preference. Persisted via system settings (`defaultShell`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum PreferredShell {
+    /// Platform default chain (Windows: pwsh → powershell → cmd).
+    #[default]
+    Auto,
+    /// Prefer bash (Git Bash / bash.exe), then fall back to the PowerShell chain.
+    Bash,
+    /// Prefer the PowerShell chain only (pwsh → powershell → cmd).
+    PowerShell,
+}
+
+impl PreferredShell {
+    pub(crate) fn parse(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "bash" => Self::Bash,
+            "powershell" | "pwsh" => Self::PowerShell,
+            _ => Self::Auto,
+        }
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Bash => "bash",
+            Self::PowerShell => "powershell",
+        }
+    }
+}
+
+static PREFERRED_SHELL: OnceLock<RwLock<PreferredShell>> = OnceLock::new();
+
+fn preferred_shell_lock() -> &'static RwLock<PreferredShell> {
+    PREFERRED_SHELL.get_or_init(|| RwLock::new(PreferredShell::Auto))
+}
+
+pub(crate) fn set_preferred_shell(value: &str) {
+    if let Ok(mut guard) = preferred_shell_lock().write() {
+        *guard = PreferredShell::parse(value);
+    }
+}
+
+pub(crate) fn preferred_shell() -> PreferredShell {
+    preferred_shell_lock()
+        .read()
+        .map(|guard| *guard)
+        .unwrap_or(PreferredShell::Auto)
+}
 
 pub(crate) type ShellCancelToken = Arc<AtomicBool>;
 
@@ -330,11 +379,45 @@ pub(crate) struct SpawnedPlatformShell {
     pub profile: ShellExecutionProfile,
 }
 
-fn platform_shell_candidates(cmd: &str) -> Vec<ShellCandidate> {
+fn is_program_on_path(program: &str) -> bool {
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    for dir in std::env::split_paths(&path_var) {
+        if dir.join(program).is_file() {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(windows)]
+fn discover_windows_bash_program() -> Option<PathBuf> {
+    // Prefer PATH first (Git for Windows usually installs bash.exe on PATH).
+    if is_program_on_path("bash.exe") || is_program_on_path("bash") {
+        return Some(PathBuf::from("bash.exe"));
+    }
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(program_files) = std::env::var("ProgramFiles") {
+        candidates.push(PathBuf::from(program_files).join(r"Git\bin\bash.exe"));
+    }
+    if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
+        candidates.push(PathBuf::from(program_files_x86).join(r"Git\bin\bash.exe"));
+    }
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        candidates.push(PathBuf::from(local_app_data).join(r"Programs\Git\bin\bash.exe"));
+    }
+    candidates.push(PathBuf::from(r"C:\Program Files\Git\bin\bash.exe"));
+    candidates.push(PathBuf::from(r"C:\Program Files (x86)\Git\bin\bash.exe"));
+
+    candidates.into_iter().find(|path| path.is_file())
+}
+
+pub(crate) fn platform_shell_candidates(cmd: &str) -> Vec<ShellCandidate> {
     #[cfg(windows)]
     {
+        let preference = preferred_shell();
         let powershell_command = windows_powershell_command(cmd);
-        return vec![
+        let mut powershell_chain = vec![
             ShellCandidate {
                 profile: ShellExecutionProfile {
                     platform: "windows",
@@ -388,10 +471,39 @@ fn platform_shell_candidates(cmd: &str) -> Vec<ShellCandidate> {
                 augment_macos_path: false,
             },
         ];
+
+        let bash_candidate = discover_windows_bash_program().map(|program| ShellCandidate {
+            profile: ShellExecutionProfile {
+                platform: "windows",
+                profile: "windows-bash",
+                shell_family: "posix",
+                display_shell: "bash",
+            },
+            program,
+            args: vec!["-lc".to_string(), cmd.to_string()],
+            augment_macos_path: false,
+        });
+
+        return match preference {
+            PreferredShell::Bash => {
+                let mut ordered = Vec::new();
+                if let Some(bash) = bash_candidate {
+                    ordered.push(bash);
+                }
+                ordered.append(&mut powershell_chain);
+                ordered
+            }
+            PreferredShell::PowerShell => powershell_chain,
+            PreferredShell::Auto => {
+                // Historical default: native Windows shells only.
+                powershell_chain
+            }
+        };
     }
 
     #[cfg(target_os = "macos")]
     {
+        let _ = preferred_shell();
         vec![
             ShellCandidate {
                 profile: ShellExecutionProfile {
@@ -431,6 +543,7 @@ fn platform_shell_candidates(cmd: &str) -> Vec<ShellCandidate> {
 
     #[cfg(all(not(windows), not(target_os = "macos")))]
     {
+        let _ = preferred_shell();
         vec![
             ShellCandidate {
                 profile: ShellExecutionProfile {
@@ -709,14 +822,12 @@ process output to a log file, for example: `nohup command > /tmp/liveagent-task.
 #[cfg(test)]
 mod tests {
     use super::{
-        default_platform_shell_profile, normalize_timeout_ms, run_shell_script,
-        sanitize_rel_path_core, ShellRunRegistry, DEFAULT_SHELL_TIMEOUT_MS, MAX_SHELL_TIMEOUT_MS,
-        MIN_SHELL_TIMEOUT_MS,
+        default_platform_shell_profile, normalize_timeout_ms, platform_shell_candidates,
+        run_shell_script, sanitize_rel_path_core, set_preferred_shell, PreferredShell,
+        ShellRunRegistry, DEFAULT_SHELL_TIMEOUT_MS, MAX_SHELL_TIMEOUT_MS, MIN_SHELL_TIMEOUT_MS,
     };
     use std::fs;
     use std::path::PathBuf;
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
 
     #[test]
     fn sanitize_rel_path_accepts_windows_style_separators() {
@@ -766,6 +877,47 @@ mod tests {
             assert_eq!(profile.profile, "posix-bash");
             assert_eq!(profile.shell_family, "posix");
         }
+    }
+
+    #[test]
+    fn preferred_shell_parse_accepts_known_values() {
+        assert_eq!(PreferredShell::parse("auto"), PreferredShell::Auto);
+        assert_eq!(PreferredShell::parse("bash"), PreferredShell::Bash);
+        assert_eq!(
+            PreferredShell::parse("powershell"),
+            PreferredShell::PowerShell
+        );
+        assert_eq!(PreferredShell::parse("pwsh"), PreferredShell::PowerShell);
+        assert_eq!(PreferredShell::parse("unknown"), PreferredShell::Auto);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_shell_candidate_order_respects_preference() {
+        set_preferred_shell("powershell");
+        let powershell_first = platform_shell_candidates("echo hi");
+        assert_eq!(powershell_first[0].profile.profile, "windows-pwsh");
+        assert!(powershell_first
+            .iter()
+            .all(|c| c.profile.profile != "windows-bash"));
+
+        set_preferred_shell("bash");
+        let bash_pref = platform_shell_candidates("echo hi");
+        // If bash is available it should be first; otherwise PowerShell chain remains.
+        if bash_pref
+            .iter()
+            .any(|c| c.profile.profile == "windows-bash")
+        {
+            assert_eq!(bash_pref[0].profile.profile, "windows-bash");
+            assert_eq!(bash_pref[0].profile.shell_family, "posix");
+        } else {
+            assert_eq!(bash_pref[0].profile.profile, "windows-pwsh");
+        }
+
+        set_preferred_shell("auto");
+        let auto = platform_shell_candidates("echo hi");
+        assert_eq!(auto[0].profile.profile, "windows-pwsh");
+        assert!(auto.iter().all(|c| c.profile.profile != "windows-bash"));
     }
 
     #[test]

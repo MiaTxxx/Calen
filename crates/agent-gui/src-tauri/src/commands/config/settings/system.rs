@@ -203,6 +203,22 @@ fn system_value_with_defaults(raw: Option<Value>, default_workdir: &str) -> Valu
         );
     }
 
+    let default_shell = system
+        .get(SYSTEM_DEFAULT_SHELL_KEY)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_string();
+    let normalized_default_shell = match default_shell.as_str() {
+        "bash" | "powershell" | "auto" => default_shell,
+        _ => "auto".to_string(),
+    };
+    system.insert(
+        SYSTEM_DEFAULT_SHELL_KEY.to_string(),
+        Value::String(normalized_default_shell.clone()),
+    );
+    crate::runtime::shell_runner::set_preferred_shell(&normalized_default_shell);
+
     system.insert(
         SYSTEM_WORKSPACE_PROJECTS_KEY.to_string(),
         normalize_workspace_projects_value(
@@ -328,6 +344,7 @@ fn save_system_with_default_workdir(
         SYSTEM_EXECUTION_MODE_KEY,
         SYSTEM_WORKDIR_KEY,
         SYSTEM_SELECTED_TOOLS_KEY,
+        SYSTEM_DEFAULT_SHELL_KEY,
         SYSTEM_WORKSPACE_PROJECTS_KEY,
         SYSTEM_ACTIVE_WORKSPACE_PROJECT_ID_KEY,
         SYSTEM_HIDDEN_WORKSPACE_PROJECT_PATHS_KEY,

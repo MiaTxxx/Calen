@@ -51,7 +51,7 @@ test("Bash tool keeps one Bash entry and uses Windows-native policy for Claude C
 
   assert.match(bundle.tools[0].description, /Windows runs Bash commands/);
   assert.match(bundle.tools[0].description, /pwsh first/);
-  assert.doesNotMatch(bundle.tools[0].description, /Git Bash first/);
+  assert.doesNotMatch(bundle.tools[0].description, /preferring Git Bash/);
 
   const result = await bundle.executeToolCall(createBashCall());
 
@@ -61,6 +61,30 @@ test("Bash tool keeps one Bash entry and uses Windows-native policy for Claude C
   assert.equal(calls[0].args.max_timeout_ms, 600_000);
   assert.match(result.content[0].text, /platform: windows/);
   assert.match(result.content[0].text, /profile: windows-pwsh/);
+});
+
+test("Bash tool description follows defaultShell=bash preference on Windows", async () => {
+  const loader = createTsModuleLoader({
+    mocks: {
+      "@tauri-apps/api/core": {
+        async invoke() {
+          throw new Error("not used");
+        },
+      },
+    },
+  });
+  const { createShellTools } = loader.loadModule("src/lib/tools/shellTools.ts");
+  const bundle = createShellTools({
+    workdir: "/repo",
+    providerId: "claude_code",
+    runtimePlatform: "windows",
+    defaultShell: "bash",
+  });
+  assert.match(bundle.tools[0].description, /preferring Git Bash/);
+  assert.match(
+    bundle.tools[0].description,
+    /falls back to the native PowerShell chain/
+  );
 });
 
 test("Bash tool uses the same Windows-native policy for Codex", async () => {
@@ -100,7 +124,10 @@ test("Bash tool uses the same Windows-native policy for Codex", async () => {
 
   assert.match(bundle.tools[0].description, /Windows runs Bash commands/);
   assert.match(bundle.tools[0].description, /PowerShell syntax/);
-  assert.doesNotMatch(bundle.tools[0].description, /Codex-style auto shell selection/);
+  assert.doesNotMatch(
+    bundle.tools[0].description,
+    /Codex-style auto shell selection/
+  );
 
   const result = await bundle.executeToolCall(createBashCall());
 
@@ -207,15 +234,22 @@ test("Bash tool rejects background commands that keep stdio attached", async () 
   const bundle = createShellTools({
     workdir: "/repo",
     providerId: "claude_code",
+    runtimePlatform: "linux",
   });
 
   const result = await bundle.executeToolCall(
-    createBashCall("deno run --allow-net main.ts &"),
+    createBashCall("deno run --allow-net main.ts &")
   );
 
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /Background Bash commands must detach stdout and stderr/);
-  assert.match(result.content[0].text, /nohup command > \/tmp\/liveagent-task\.log 2>&1/);
+  assert.match(
+    result.content[0].text,
+    /Background Bash commands must detach stdout and stderr/
+  );
+  assert.match(
+    result.content[0].text,
+    /nohup command > \/tmp\/liveagent-task\.log 2>&1/
+  );
   assert.deepEqual(calls, []);
 });
 
@@ -236,14 +270,20 @@ test("Bash tool rejects background commands when redirects belong to another com
   const bundle = createShellTools({
     workdir: "/repo",
     providerId: "claude_code",
+    runtimePlatform: "linux",
   });
 
   const result = await bundle.executeToolCall(
-    createBashCall("echo ok > /tmp/previous.log 2>&1; deno run --allow-net main.ts &"),
+    createBashCall(
+      "echo ok > /tmp/previous.log 2>&1; deno run --allow-net main.ts &"
+    )
   );
 
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /Background Bash commands must detach stdout and stderr/);
+  assert.match(
+    result.content[0].text,
+    /Background Bash commands must detach stdout and stderr/
+  );
   assert.deepEqual(calls, []);
 });
 
@@ -264,14 +304,18 @@ test("Bash tool rejects background commands with only stderr append redirected",
   const bundle = createShellTools({
     workdir: "/repo",
     providerId: "claude_code",
+    runtimePlatform: "linux",
   });
 
   const result = await bundle.executeToolCall(
-    createBashCall("deno run --allow-net main.ts 2>> /tmp/server.err &"),
+    createBashCall("deno run --allow-net main.ts 2>> /tmp/server.err &")
   );
 
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /Background Bash commands must detach stdout and stderr/);
+  assert.match(
+    result.content[0].text,
+    /Background Bash commands must detach stdout and stderr/
+  );
   assert.deepEqual(calls, []);
 });
 
@@ -310,7 +354,9 @@ test("Bash tool does not apply POSIX ampersand background validation on Windows"
     runtimePlatform: "windows",
   });
 
-  const result = await bundle.executeToolCall(createBashCall('& "C:/Program Files/App/app.exe"'));
+  const result = await bundle.executeToolCall(
+    createBashCall('& "C:/Program Files/App/app.exe"')
+  );
 
   assert.equal(result.isError, false);
   assert.equal(calls.length, 1);
@@ -348,7 +394,9 @@ test("Bash tool allows background commands with detached stdio", async () => {
   });
 
   const result = await bundle.executeToolCall(
-    createBashCall("nohup deno run main.ts > /tmp/liveagent-test.log 2>&1 < /dev/null &"),
+    createBashCall(
+      "nohup deno run main.ts > /tmp/liveagent-test.log 2>&1 < /dev/null &"
+    )
   );
 
   assert.equal(result.isError, false);
@@ -364,7 +412,10 @@ test("ManagedProcess can be omitted from shell tools for non-chat runtimes", asy
     managedProcessEnabled: false,
   });
 
-  assert.equal(bundle.tools.some((tool) => tool.name === "ManagedProcess"), false);
+  assert.equal(
+    bundle.tools.some((tool) => tool.name === "ManagedProcess"),
+    false
+  );
   assert.equal(bundle.metadataByName.has("ManagedProcess"), false);
 
   const result = await bundle.executeToolCall({
@@ -454,6 +505,7 @@ test("ManagedProcess rejects nested shell background operators", async () => {
   const bundle = createShellTools({
     workdir: "/repo",
     providerId: "claude_code",
+    runtimePlatform: "linux",
   });
 
   const result = await bundle.executeToolCall({
@@ -530,7 +582,8 @@ test("Bash tool marks stdio-open shell responses as errors", async () => {
             exit_code: 0,
             shell: "zsh",
             stdout: "ready\n",
-            stderr: "Calen warning: command exited, but stdout/stderr remained open after exit.",
+            stderr:
+              "Calen warning: command exited, but stdout/stderr remained open after exit.",
             stdout_truncated: false,
             stderr_truncated: true,
             timed_out: false,
@@ -604,9 +657,15 @@ test("Bash tool can execute from the fixed Skills root with relative cwd", async
   });
 
   assert.equal(result.isError, false);
-  assert.match(result.content[0].text, /cwd: skill:\/\/metaphysics-steward\/scripts/);
+  assert.match(
+    result.content[0].text,
+    /cwd: skill:\/\/metaphysics-steward\/scripts/
+  );
   assert.equal(calls[0].args.workdir, "/repo");
-  assert.equal(calls[0].args.cwd, "/Users/me/.liveagent/skills/metaphysics-steward/scripts");
+  assert.equal(
+    calls[0].args.cwd,
+    "/Users/me/.liveagent/skills/metaphysics-steward/scripts"
+  );
 });
 
 test("Bash tool allows enabled Skill scripts by direct absolute path without cd", async () => {
@@ -701,7 +760,10 @@ test("Bash tool enforces enabled Skill allowlist for skill cwd", async () => {
   });
 
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /metaphysics-steward\/scripts.*is not enabled/);
+  assert.match(
+    result.content[0].text,
+    /metaphysics-steward\/scripts.*is not enabled/
+  );
   assert.deepEqual(calls, []);
 });
 
@@ -742,7 +804,10 @@ test("Bash tool blocks absolute Skills root access from workspace commands", asy
   });
 
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /Bash cannot cd into the fixed Skills root/);
+  assert.match(
+    result.content[0].text,
+    /Bash cannot cd into the fixed Skills root/
+  );
   assert.deepEqual(calls, []);
 });
 
@@ -776,7 +841,10 @@ test("Bash tool blocks fixed Skills root access even when Skills are disabled", 
   });
 
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /Bash cannot read or search ~\/\.liveagent\/skills/);
+  assert.match(
+    result.content[0].text,
+    /Bash cannot read or search ~\/\.liveagent\/skills/
+  );
   assert.deepEqual(calls, []);
 });
 
@@ -806,13 +874,17 @@ test("Bash tool blocks workspace skills guesses before shell execution", async (
     id: "call-bad-skill-bash",
     name: "Bash",
     arguments: {
-      command: "cd skills/metaphysics-steward/scripts && python3 steward.py --mode qimen",
+      command:
+        "cd skills/metaphysics-steward/scripts && python3 steward.py --mode qimen",
       timeout_ms: 1000,
     },
   });
 
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /workspace skills\/ guesses/);
-  assert.match(result.content[0].text, /cwd to skill:\/\/<enabled-skill>\/scripts/);
+  assert.match(
+    result.content[0].text,
+    /cwd to skill:\/\/<enabled-skill>\/scripts/
+  );
   assert.deepEqual(calls, []);
 });

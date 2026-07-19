@@ -127,6 +127,8 @@ type BuildBuiltinBaseToolRegistryParams = {
   workdir: string;
   providerId: ProviderId;
   runtimePlatform?: RuntimePlatform;
+  /** Windows shell preference for Bash / ManagedProcess tool descriptions and spawn. */
+  defaultShell?: "auto" | "bash" | "powershell";
   fileState: FileToolState;
   skillsEnabled: boolean;
   skillsRootDir?: string;
@@ -186,6 +188,7 @@ async function buildBaseBuiltinToolBundles(params: BuildBuiltinBaseToolRegistryP
       workdir: params.workdir,
       providerId: params.providerId,
       runtimePlatform: params.runtimePlatform,
+      defaultShell: params.defaultShell,
       skillsRootEnabled: params.skillsEnabled,
       skillsRootDir: params.skillsRootDir,
       skillAccessPolicy: params.skillAccessPolicy,

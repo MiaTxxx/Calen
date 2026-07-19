@@ -5,14 +5,27 @@ import {
   isRetryableAssistantError,
 } from "@earendil-works/pi-ai";
 
-export const DEFAULT_STREAM_RETRY_MAX_ATTEMPTS = 3;
+/** Default attempts for pre-content provider/transport failures (1 initial + retries). */
+export const DEFAULT_STREAM_RETRY_MAX_ATTEMPTS = 5;
 
-const STREAM_RETRY_BASE_DELAY_MS = 500;
-const STREAM_RETRY_MAX_DELAY_MS = 8_000;
+const STREAM_RETRY_BASE_DELAY_MS = 750;
+const STREAM_RETRY_MAX_DELAY_MS = 12_000;
 
 export type StreamRetryConfig = {
   maxAttempts?: number;
   disabled?: boolean;
+  /**
+   * Optional status hook fired before each retry attempt starts sleeping.
+   * Useful for "Reconnecting…" UI without changing the event stream contract.
+   */
+  onRetry?: (info: StreamRetryAttemptInfo) => void;
+};
+
+export type StreamRetryAttemptInfo = {
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  errorMessage?: string;
 };
 
 export type StreamRetryOptions = StreamRetryConfig & {
@@ -27,12 +40,55 @@ const COMMITTING_EVENT_TYPES = new Set<AssistantMessageEvent["type"]>([
   "toolcall_start",
 ]);
 
+/**
+ * Extra transport/network patterns that some gateways surface without matching
+ * pi-ai's built-in classifier verbatim. Keep these conservative — auth / quota
+ * / validation failures must still fail fast.
+ */
+const EXTRA_RETRYABLE_ERROR_PATTERN =
+  /ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|UND_ERR_|ERR_NETWORK|network request failed|failed to fetch|fetch error|temporarily unavailable|bad gateway|gateway timeout|cloudflare|cf-ray|connection reset|broken pipe|tls handshake|ssl handshake|proxy error|upstream request timeout|stream closed|incomplete chunked|unexpected eof|eof while reading|read econnreset|write econnreset|client network socket disconnected|request timed? ?out|aborted due to timeout|response closed|server disconnected/i;
+
 function isTerminalEvent(event: AssistantMessageEvent): event is TerminalEvent {
   return event.type === "done" || event.type === "error";
 }
 
 function terminalMessage(event: TerminalEvent) {
   return event.type === "done" ? event.message : event.error;
+}
+
+function extractErrorMessage(message: unknown): string | undefined {
+  if (!message || typeof message !== "object") return undefined;
+  const record = message as { errorMessage?: unknown; message?: unknown };
+  if (typeof record.errorMessage === "string" && record.errorMessage.trim()) {
+    return record.errorMessage.trim();
+  }
+  if (typeof record.message === "string" && record.message.trim()) {
+    return record.message.trim();
+  }
+  return undefined;
+}
+
+/**
+ * Whether a failed assistant turn looks transient enough to restart before any
+ * content has been committed. Layers pi-ai's classifier with a small local set
+ * of transport phrases that frequently appear from reverse proxies / raw fetch.
+ */
+export function isTransientStreamError(message: unknown): boolean {
+  if (isRetryableAssistantError(message as any)) return true;
+  if (!message || typeof message !== "object") return false;
+  const record = message as { stopReason?: unknown; errorMessage?: unknown };
+  if (record.stopReason !== "error") return false;
+  const errorMessage = typeof record.errorMessage === "string" ? record.errorMessage.trim() : "";
+  if (!errorMessage) return false;
+  // Hard fail-fast for auth / billing — never auto-retry these.
+  if (
+    /insufficient_quota|out of budget|quota exceeded|billing|invalid.?api.?key|unauthorized|authentication|permission.?denied|401|403/i.test(
+      errorMessage,
+    )
+  ) {
+    return false;
+  }
+  return EXTRA_RETRYABLE_ERROR_PATTERN.test(errorMessage);
 }
 
 /** Full-jitter exponential backoff (AWS-style): uniform(0, min(cap, base * 2^(attempt-1))). */
@@ -64,9 +120,9 @@ function sleepWithAbort(ms: number, signal: AbortSignal | undefined): Promise<vo
  * Events are buffered per attempt until the first content-bearing event
  * ("committed": text_delta / thinking_delta / toolcall_start) is observed. An
  * attempt that ends in error before committing, classified retryable by
- * pi-ai's `isRetryableAssistantError`, is discarded wholesale and replaced by
- * a fresh `factory()` call after a full-jitter backoff — the caller never
- * sees the failed attempt's events. Once committed, or once retries are
+ * `isTransientStreamError`, is discarded wholesale and replaced by a fresh
+ * `factory()` call after a full-jitter backoff — the caller never sees the
+ * failed attempt's events. Once committed, or once retries are
  * exhausted/disabled, events pass straight through untouched.
  *
  * The pump below runs eagerly (not gated on the returned stream being
@@ -82,6 +138,7 @@ export function withStreamRetry(
   const maxAttempts = Math.max(1, options?.maxAttempts ?? DEFAULT_STREAM_RETRY_MAX_ATTEMPTS);
   const disabled = options?.disabled ?? false;
   const signal = options?.signal;
+  const onRetry = options?.onRetry;
 
   const output = createAssistantMessageEventStream();
   const firstSource = factory();
@@ -109,10 +166,18 @@ export function withStreamRetry(
       }
 
       if (terminal?.type === "error" && !committed && !disabled && attempt < maxAttempts) {
-        if (isRetryableAssistantError(terminalMessage(terminal))) {
-          attempt += 1;
+        const failed = terminalMessage(terminal);
+        if (isTransientStreamError(failed)) {
+          const delayMs = computeStreamRetryBackoffMs(attempt);
           try {
-            await sleepWithAbort(computeStreamRetryBackoffMs(attempt - 1), signal);
+            onRetry?.({
+              attempt,
+              maxAttempts,
+              delayMs,
+              errorMessage: extractErrorMessage(failed),
+            });
+            await sleepWithAbort(delayMs, signal);
+            attempt += 1;
             source = factory();
             continue;
           } catch {

@@ -17,6 +17,9 @@ export type ProviderId = "codex" | "claude_code" | "gemini";
 
 export type ExecutionMode = "text" | "tools" | "agent-dev";
 
+/** Windows agent shell preference for Bash tool / ManagedProcess spawn chain. */
+export type DefaultShellPreference = "auto" | "bash" | "powershell";
+
 export type CodexRequestFormat = "openai-completions" | "openai-responses";
 
 export type ReasoningLevel = ModelThinkingLevel;
@@ -244,6 +247,13 @@ export type SystemSettings = {
   executionMode: ExecutionMode;
   workdir: string;
   selectedSystemTools: SystemToolId[];
+  /**
+   * Windows agent shell preference for Bash / ManagedProcess.
+   * - auto: platform default (Windows: pwsh → powershell → cmd)
+   * - bash: prefer Git Bash / bash.exe, then fall back to PowerShell chain
+   * - powershell: prefer PowerShell chain only
+   */
+  defaultShell: DefaultShellPreference;
   workspaceProjects: WorkspaceProject[];
   activeWorkspaceProjectId?: string;
   hiddenWorkspaceProjectPaths: string[];
@@ -505,6 +515,17 @@ function normalizeExecutionMode(input: unknown): ExecutionMode {
       return input;
     default:
       return "tools";
+  }
+}
+
+function normalizeDefaultShellPreference(input: unknown): DefaultShellPreference {
+  switch (input) {
+    case "auto":
+    case "bash":
+    case "powershell":
+      return input;
+    default:
+      return "auto";
   }
 }
 
@@ -1358,6 +1379,7 @@ export function normalizeSystemSettings(input: unknown): SystemSettings {
     executionMode: normalizeExecutionMode(obj.executionMode),
     workdir: normalizeWorkdir(obj.workdir),
     selectedSystemTools: normalizeSystemToolSelection(obj.selectedSystemTools),
+    defaultShell: normalizeDefaultShellPreference(obj.defaultShell),
     workspaceProjects: normalizeWorkspaceProjects(obj.workspaceProjects),
     activeWorkspaceProjectId:
       typeof obj.activeWorkspaceProjectId === "string" && obj.activeWorkspaceProjectId.trim()
@@ -2057,6 +2079,7 @@ export function getDefaultSettings(): AppSettings {
       executionMode: "tools",
       workdir: "",
       selectedSystemTools: [],
+      defaultShell: "auto",
       workspaceProjects: [],
       activeWorkspaceProjectId: undefined,
       hiddenWorkspaceProjectPaths: [],

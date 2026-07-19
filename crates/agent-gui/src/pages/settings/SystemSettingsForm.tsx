@@ -21,6 +21,7 @@ import {
   DEFAULT_APPEARANCE_SETTINGS,
   DEFAULT_BACKGROUND_SETTINGS,
   DEFAULT_WORKSPACE_PROJECT_ID,
+  type DefaultShellPreference,
   type ExecutionMode,
   type FontScaleSettings,
   parseAppearanceSettingsJson,
@@ -40,6 +41,7 @@ export function SystemSettingsForm(props: SettingsSectionProps) {
   const executionMode = settings.system.executionMode;
   const isClassicAgentMode = executionMode === "tools";
   const isAgentDevMode = executionMode === "agent-dev";
+  const defaultShell = settings.system.defaultShell ?? "auto";
   const canHideDefaultWorkspaceProject = settings.system.workspaceProjects.some(
     (project) => project.id !== DEFAULT_WORKSPACE_PROJECT_ID,
   );
@@ -246,6 +248,65 @@ export function SystemSettingsForm(props: SettingsSectionProps) {
               </div>
             ) : null}
           </button>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <Terminal className="h-4 w-4 text-muted-foreground" />
+          {t("settings.defaultShell")}
+        </div>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {t("settings.defaultShellDesc")}
+        </p>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {(
+            [
+              {
+                id: "auto" as DefaultShellPreference,
+                title: t("settings.defaultShellAuto"),
+                desc: t("settings.defaultShellAutoDesc"),
+              },
+              {
+                id: "bash" as DefaultShellPreference,
+                title: t("settings.defaultShellBash"),
+                desc: t("settings.defaultShellBashDesc"),
+              },
+              {
+                id: "powershell" as DefaultShellPreference,
+                title: t("settings.defaultShellPowerShell"),
+                desc: t("settings.defaultShellPowerShellDesc"),
+              },
+            ] as const
+          ).map((option) => {
+            const selected = defaultShell === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() =>
+                  setSettings((prev) => updateSystem(prev, { defaultShell: option.id }))
+                }
+                className={`group relative flex flex-col items-start gap-3 rounded-xl border-2 p-4 text-left transition-all ${
+                  selected
+                    ? "border-primary bg-primary/5 shadow-sm shadow-primary/10"
+                    : "border-transparent bg-muted/40 hover:border-border hover:bg-muted/60"
+                }`}
+              >
+                <div className="min-w-0 pr-6">
+                  <div className="text-sm font-semibold">{option.title}</div>
+                  <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                    {option.desc}
+                  </div>
+                </div>
+                {selected ? (
+                  <div className="absolute right-3 top-3">
+                    <CheckCircle2 className="h-4.5 w-4.5 text-primary" />
+                  </div>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
       </div>
 

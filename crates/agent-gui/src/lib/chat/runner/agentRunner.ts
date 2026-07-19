@@ -130,6 +130,7 @@ export function buildToolsSuffix(
   workdir: string,
   availableToolNames?: readonly string[],
   runtimePlatformInput?: RuntimePlatform,
+  defaultShell: "auto" | "bash" | "powershell" = "auto",
 ) {
   const runtimePlatform = normalizeRuntimePlatform(runtimePlatformInput) ?? inferRuntimePlatform();
   const platformLabel = runtimePlatformLabel(runtimePlatform);
@@ -291,12 +292,25 @@ export function buildToolsSuffix(
   if (has("Bash")) {
     const bashPlatformLines =
       runtimePlatform === "windows"
-        ? [
-            `- Current platform: ${platformLabel}. Bash runs through Windows-native shells: pwsh, then Windows PowerShell, then cmd.`,
-            '- Use PowerShell syntax by default: `Write-Output`, `$env:NAME = "value"`, semicolon separators, and PowerShell quoting.',
-            "- Do not assume Git Bash or POSIX syntax on Windows: avoid `export`, `nohup`, `/dev/null`, and POSIX background detachment.",
-            "- For long-running Windows commands, dev servers, watchers, or detached processes, use ManagedProcess instead of background shell syntax.",
-          ]
+        ? defaultShell === "bash"
+          ? [
+              `- Current platform: ${platformLabel}. Bash prefers Git Bash / bash.exe first, then falls back to pwsh → Windows PowerShell → cmd.`,
+              "- Prefer POSIX/bash syntax when bash is available (`export`, `/dev/null`, `nohup`). If the active shell is PowerShell, switch to PowerShell syntax.",
+              "- For long-running Windows commands, dev servers, watchers, or detached processes, use ManagedProcess instead of background shell syntax.",
+            ]
+          : defaultShell === "powershell"
+            ? [
+                `- Current platform: ${platformLabel}. Bash runs through the PowerShell chain only: pwsh, then Windows PowerShell, then cmd.`,
+                '- Use PowerShell syntax by default: `Write-Output`, `$env:NAME = "value"`, semicolon separators, and PowerShell quoting.',
+                "- Do not assume Git Bash or POSIX syntax on Windows: avoid `export`, `nohup`, `/dev/null`, and POSIX background detachment.",
+                "- For long-running Windows commands, dev servers, watchers, or detached processes, use ManagedProcess instead of background shell syntax.",
+              ]
+            : [
+                `- Current platform: ${platformLabel}. Bash runs through Windows-native shells: pwsh, then Windows PowerShell, then cmd.`,
+                '- Use PowerShell syntax by default: `Write-Output`, `$env:NAME = "value"`, semicolon separators, and PowerShell quoting.',
+                "- Do not assume Git Bash or POSIX syntax on Windows: avoid `export`, `nohup`, `/dev/null`, and POSIX background detachment.",
+                "- For long-running Windows commands, dev servers, watchers, or detached processes, use ManagedProcess instead of background shell syntax.",
+              ]
         : [
             `- Current platform: ${platformLabel}. Bash runs through POSIX shells.`,
             runtimePlatform === "macos"
@@ -652,6 +666,8 @@ export async function runAssistantWithTools(params: {
     modelConfig?: ProviderModelConfig;
   };
   runtimePlatform?: RuntimePlatform;
+  /** Windows agent shell preference used in Bash tool guidance. */
+  defaultShell?: "auto" | "bash" | "powershell";
   context: Context;
   workdir: string;
   sessionId?: string;
@@ -882,6 +898,7 @@ export async function runAssistantWithTools(params: {
       params.workdir,
       llmTools.map((tool) => tool.name),
       params.runtimePlatform,
+      params.defaultShell ?? "auto",
     );
     let currentSystemPrompt = params.context.systemPrompt;
     let pendingTurnOverridePromise: Promise<TurnContextOverride> | null = null;
@@ -1196,6 +1213,16 @@ export async function runAssistantWithTools(params: {
         metadata: buildProviderRequestMetadata(params.providerId, params.sessionId),
         toolChoice: options?.toolChoice ?? (effectiveContext.tools?.length ? "auto" : undefined),
         reasoning: normalizeStreamReasoning(options?.reasoning) ?? fallbackReasoning,
+        streamRetry: {
+          ...(options?.streamRetry ?? {}),
+          onRetry: (info) => {
+            options?.streamRetry?.onRetry?.(info);
+            const detail = info.errorMessage ? `：${info.errorMessage}` : "";
+            params.onToolStatus?.(
+              `API 异常，正在自动重连（${info.attempt + 1}/${info.maxAttempts}）…${detail}`,
+            );
+          },
+        },
       };
 
       streamOptions = finalizeProviderStreamOptions({

@@ -224,6 +224,8 @@ export type RunAgentConversationTurnParams = {
   }) => void | Promise<void>;
   agentTemplates: AppSettings["agents"];
   selectedSystemToolIds: SystemToolId[];
+  /** Windows agent shell preference from system settings. */
+  defaultShell?: "auto" | "bash" | "powershell";
   getMcpSettings: () => AppSettings["mcp"];
   applyMcpOps?: (ops: McpSettingsOp[]) => void;
   remoteWebTunnelsEnabled?: boolean;
@@ -293,6 +295,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     onManagedSkillsChanged,
     agentTemplates,
     selectedSystemToolIds,
+    defaultShell,
     getMcpSettings,
     applyMcpOps,
     remoteWebTunnelsEnabled,
@@ -424,6 +427,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     workdir: effectiveWorkdir,
     providerId,
     runtimePlatform,
+    defaultShell,
     fileState,
     todoState,
     skillsEnabled: effectiveSkillsEnabled,
@@ -651,6 +655,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
         model,
         runtime,
         runtimePlatform,
+        defaultShell,
         context: agentContext,
         workdir: effectiveWorkdir,
         sessionId,

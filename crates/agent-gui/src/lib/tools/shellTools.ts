@@ -370,6 +370,8 @@ export function createShellTools(params: {
   workdir: string;
   providerId: ProviderId;
   runtimePlatform?: RuntimePlatform;
+  /** Windows shell preference from system settings; ignored on non-Windows. */
+  defaultShell?: "auto" | "bash" | "powershell";
   skillsRootEnabled?: boolean;
   skillsRootDir?: string;
   skillAccessPolicy?: SkillAccessPolicy;
@@ -382,7 +384,11 @@ export function createShellTools(params: {
   const platformLabel = runtimePlatformLabel(runtimePlatform);
   const shellPolicy =
     runtimePlatform === "windows"
-      ? 'Windows runs Bash commands with the native Windows shell chain: pwsh first, then Windows PowerShell, then cmd. Use PowerShell syntax by default: `Write-Output`, `$env:NAME = "value"`, semicolon separators, and `Start-Process` when a process must be detached. Do not assume Git Bash, `export`, `nohup`, `/dev/null`, or POSIX background syntax.'
+      ? params.defaultShell === "bash"
+        ? "Windows runs Bash commands preferring Git Bash / bash.exe first, then falls back to the native PowerShell chain (pwsh → Windows PowerShell → cmd). Prefer POSIX syntax when bash is available: `export`, `/dev/null`, and `nohup` may work under Git Bash. If the active shell is PowerShell, use PowerShell syntax instead."
+        : params.defaultShell === "powershell"
+          ? 'Windows runs Bash commands with the PowerShell chain only: pwsh first, then Windows PowerShell, then cmd. Use PowerShell syntax by default: `Write-Output`, `$env:NAME = "value"`, semicolon separators, and `Start-Process` when a process must be detached. Do not assume Git Bash, `export`, `nohup`, `/dev/null`, or POSIX background syntax.'
+          : 'Windows runs Bash commands with the native Windows shell chain: pwsh first, then Windows PowerShell, then cmd. Use PowerShell syntax by default: `Write-Output`, `$env:NAME = "value"`, semicolon separators, and `Start-Process` when a process must be detached. Do not assume Git Bash, `export`, `nohup`, `/dev/null`, or POSIX background syntax.'
       : runtimePlatform === "macos"
         ? "macOS runs Bash commands with POSIX shell syntax: zsh first, then Bash, then sh."
         : "Linux runs Bash commands with POSIX shell syntax: Bash first, then zsh, then sh.";

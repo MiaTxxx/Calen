@@ -24,7 +24,14 @@ import {
 } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { useLocale } from "../../i18n";
-import { type CronTask, type CronTaskType, validateCronExpression } from "../../lib/automation";
+import {
+  type CronIntervalUnit,
+  type CronTask,
+  type CronTaskType,
+  intervalToCronExpression,
+  parseIntervalFromCronExpression,
+  validateCronExpression,
+} from "../../lib/automation";
 import { parseModelValue, toModelValue } from "../../lib/providers/llm";
 import { type ExecutionMode, isAgentExecutionMode } from "../../lib/settings";
 import { useModalMotion } from "../../lib/shared/modalMotion";
@@ -58,6 +65,39 @@ type CronTaskModalProps = {
   onClose: () => void;
 };
 
+type ScheduleMode = "interval" | "cron";
+
+function resolveInitialSchedule(initialData?: CronTask): {
+  scheduleMode: ScheduleMode;
+  cron: string;
+  intervalValue: string;
+  intervalUnit: CronIntervalUnit;
+} {
+  if (!initialData?.cron?.trim()) {
+    return {
+      scheduleMode: "interval",
+      cron: "",
+      intervalValue: "15",
+      intervalUnit: "minutes",
+    };
+  }
+  const parsed = parseIntervalFromCronExpression(initialData.cron);
+  if (parsed) {
+    return {
+      scheduleMode: "interval",
+      cron: initialData.cron,
+      intervalValue: String(parsed.value),
+      intervalUnit: parsed.unit,
+    };
+  }
+  return {
+    scheduleMode: "cron",
+    cron: initialData.cron,
+    intervalValue: "15",
+    intervalUnit: "minutes",
+  };
+}
+
 export function CronTaskModal({
   mode,
   initialData,
@@ -68,10 +108,14 @@ export function CronTaskModal({
 }: CronTaskModalProps) {
   const { t } = useLocale();
   const autoPromptSupported = isAgentExecutionMode(executionMode);
+  const initialSchedule = resolveInitialSchedule(initialData);
 
   const [name, setName] = useState(initialData?.name ?? "");
   const [description, setDescription] = useState(initialData?.description ?? "");
-  const [cron, setCron] = useState(initialData?.cron ?? "");
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initialSchedule.scheduleMode);
+  const [cron, setCron] = useState(initialSchedule.cron);
+  const [intervalValue, setIntervalValue] = useState(initialSchedule.intervalValue);
+  const [intervalUnit, setIntervalUnit] = useState<CronIntervalUnit>(initialSchedule.intervalUnit);
   const [remainingExecutions, setRemainingExecutions] = useState(
     initialData?.remainingExecutions == null ? "" : String(initialData.remainingExecutions),
   );
@@ -111,18 +155,38 @@ export function CronTaskModal({
   const selectedPromptModel =
     promptModelOptions.find((option) => option.value === selectedModelValue) ?? null;
 
+  const intervalReady =
+    scheduleMode !== "interval" ||
+    (Boolean(intervalValue.trim()) &&
+      Number.isSafeInteger(Number(intervalValue)) &&
+      Number(intervalValue) >= 1);
+
   const formReady =
     Boolean(name.trim()) &&
-    Boolean(cron.trim()) &&
+    intervalReady &&
+    (scheduleMode !== "cron" || Boolean(cron.trim())) &&
     (type !== "bash" || Boolean(scriptText.trim())) &&
     (type !== "prompt" || Boolean(prompt.trim() && parseModelValue(selectedModelValue)));
+
+  function resolveCronExpression(): string {
+    if (scheduleMode === "interval") {
+      const value = Number(intervalValue.trim());
+      if (!Number.isSafeInteger(value) || value < 1) {
+        throw new Error(t("settings.cronIntervalInvalid"));
+      }
+      return intervalToCronExpression({ value, unit: intervalUnit });
+    }
+    const trimmed = cron.trim();
+    if (!trimmed) throw new Error(`${t("settings.cronExpression")} is required`);
+    return trimmed;
+  }
 
   async function handleSave() {
     try {
       setIsSaving(true);
       const trimmedName = name.trim();
       if (!trimmedName) throw new Error(`${t("settings.cronTaskName")} is required`);
-      if (!cron.trim()) throw new Error(`${t("settings.cronExpression")} is required`);
+      const resolvedCron = resolveCronExpression();
       const trimmedRemainingExecutions = remainingExecutions.trim();
       const parsedRemainingExecutions = trimmedRemainingExecutions
         ? Number(trimmedRemainingExecutions)
@@ -134,7 +198,7 @@ export function CronTaskModal({
         throw new Error(t("settings.cronRemainingExecutionsInvalid"));
       }
 
-      await validateCronExpression(cron.trim());
+      await validateCronExpression(resolvedCron);
 
       const trimmedPrompt = prompt.trim();
       const trimmedScript = scriptText.trim();
@@ -161,7 +225,7 @@ export function CronTaskModal({
       const data: CronTaskFormData = {
         name: trimmedName,
         description: description.trim(),
-        cron: cron.trim(),
+        cron: resolvedCron,
         remainingExecutions: parsedRemainingExecutions,
         type,
         script: type === "bash" ? trimmedScript : undefined,
@@ -198,9 +262,7 @@ export function CronTaskModal({
           </div>
           <div className="min-w-0 flex-1">
             <h2 className="text-base font-semibold">{modalTitle}</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {t("settings.cronExpressionHint")}
-            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t("settings.cronScheduleHint")}</p>
           </div>
           <button
             type="button"
@@ -225,7 +287,7 @@ export function CronTaskModal({
             </div>
 
             <div className="space-y-4">
-              <div className="settings-form-grid grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_9rem]">
+              <div className="settings-form-grid grid gap-4 sm:grid-cols-[minmax(0,1fr)_9rem]">
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium text-muted-foreground">
                     {t("settings.cronTaskName")}
@@ -236,20 +298,6 @@ export function CronTaskModal({
                     onChange={(e) => {
                       setFormError(null);
                       setName(e.currentTarget.value);
-                    }}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-muted-foreground">
-                    {t("settings.cronExpression")}
-                  </Label>
-                  <Input
-                    value={cron}
-                    placeholder={t("settings.cronExpressionPlaceholder")}
-                    className="font-mono"
-                    onChange={(e) => {
-                      setFormError(null);
-                      setCron(e.currentTarget.value);
                     }}
                   />
                 </div>
@@ -269,6 +317,118 @@ export function CronTaskModal({
                     }}
                   />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">
+                  {t("settings.cronSchedule")}
+                </Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormError(null);
+                      setScheduleMode("interval");
+                    }}
+                    className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                      scheduleMode === "interval"
+                        ? "border-primary bg-primary/5 text-foreground"
+                        : "border-border/60 bg-background text-muted-foreground hover:bg-muted/30"
+                    }`}
+                  >
+                    <div className="font-medium">{t("settings.cronScheduleInterval")}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {t("settings.cronScheduleIntervalHint")}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormError(null);
+                      setScheduleMode("cron");
+                    }}
+                    className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                      scheduleMode === "cron"
+                        ? "border-primary bg-primary/5 text-foreground"
+                        : "border-border/60 bg-background text-muted-foreground hover:bg-muted/30"
+                    }`}
+                  >
+                    <div className="font-medium">{t("settings.cronScheduleAdvanced")}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {t("settings.cronExpressionHint")}
+                    </div>
+                  </button>
+                </div>
+
+                {scheduleMode === "interval" ? (
+                  <div className="space-y-2 rounded-xl border border-border/50 bg-muted/20 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm text-muted-foreground">
+                        {t("settings.cronIntervalEvery")}
+                      </span>
+                      <Input
+                        value={intervalValue}
+                        inputMode="numeric"
+                        className="w-24 font-mono"
+                        onChange={(e) => {
+                          const next = e.currentTarget.value.trim();
+                          if (next && !/^\d+$/.test(next)) return;
+                          setFormError(null);
+                          setIntervalValue(next);
+                        }}
+                      />
+                      <Select
+                        value={intervalUnit}
+                        onValueChange={(value) => {
+                          setFormError(null);
+                          setIntervalUnit(value as CronIntervalUnit);
+                        }}
+                      >
+                        <SelectTrigger className="w-32">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="minutes">
+                            {t("settings.cronIntervalUnitMinutes")}
+                          </SelectItem>
+                          <SelectItem value="hours">
+                            {t("settings.cronIntervalUnitHours")}
+                          </SelectItem>
+                          <SelectItem value="days">{t("settings.cronIntervalUnitDays")}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {(() => {
+                      try {
+                        const value = Number(intervalValue.trim());
+                        if (!Number.isSafeInteger(value) || value < 1) return null;
+                        const preview = intervalToCronExpression({ value, unit: intervalUnit });
+                        return (
+                          <p className="font-mono text-xs text-muted-foreground">
+                            {t("settings.cronIntervalPreview")}: {preview}
+                          </p>
+                        );
+                      } catch {
+                        return null;
+                      }
+                    })()}
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Input
+                      value={cron}
+                      placeholder={t("settings.cronExpressionPlaceholder")}
+                      className="font-mono"
+                      onChange={(e) => {
+                        setFormError(null);
+                        setCron(e.currentTarget.value);
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t("settings.cronExpressionHint")}
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium text-muted-foreground">
