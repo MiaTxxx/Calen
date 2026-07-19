@@ -4,17 +4,142 @@ import { createTsModuleLoader } from "../helpers/load-ts-module.mjs";
 
 const loader = createTsModuleLoader();
 const settings = loader.loadModule("src/lib/settings/index.ts");
+
+test("draft persistence defaults on and preserves an explicit opt-out", () => {
+  assert.equal(
+    settings.normalizeSettings({}).customSettings.draftPersistence.enabled,
+    true
+  );
+  assert.equal(
+    settings.normalizeSettings({
+      customSettings: { draftPersistence: { enabled: false } },
+    }).customSettings.draftPersistence.enabled,
+    false
+  );
+});
+
+test("chat layout clamps dimensions and appearance import rejects unsafe values", () => {
+  assert.deepEqual(
+    settings.normalizeChatLayoutSettings({
+      contentWidth: 9999,
+      composerHeight: 20,
+    }),
+    {
+      contentWidth: 1400,
+      composerHeight: 70,
+      fullWidth: false,
+    }
+  );
+  assert.deepEqual(
+    settings.normalizeChatLayoutSettings({
+      contentWidth: 900,
+      composerHeight: 320,
+      fullWidth: true,
+    }),
+    {
+      contentWidth: 900,
+      composerHeight: 320,
+      fullWidth: true,
+    }
+  );
+
+  const valid = JSON.stringify({
+    ...settings.DEFAULT_APPEARANCE_SETTINGS,
+    light: {
+      ...settings.DEFAULT_APPEARANCE_SETTINGS.light,
+      titleBar: "#123456",
+    },
+  });
+  assert.equal(
+    settings.parseAppearanceSettingsJson(valid).light.titleBar,
+    "#123456"
+  );
+  assert.throws(
+    () =>
+      settings.parseAppearanceSettingsJson(
+        valid.replace("#123456", "red;display:none")
+      ),
+    /Invalid light\.titleBar color/
+  );
+  assert.throws(
+    () =>
+      settings.parseAppearanceSettingsJson(
+        valid.replace('"version":1', '"version":2')
+      ),
+    /Unsupported appearance settings version/
+  );
+});
+
+test("provider history keeps twenty recent entries per type and never stores api keys", () => {
+  let history = settings.normalizeProviderHistorySettings({});
+  for (let index = 0; index < 25; index += 1) {
+    history = settings.recordProviderHistory(
+      history,
+      {
+        type: "codex",
+        name: `Provider ${index}`,
+        baseUrl: `https://example.com/${index}`,
+        apiKey: `secret-${index}`,
+      },
+      index + 1
+    );
+  }
+  assert.equal(history.items.length, 20);
+  assert.equal(history.items[0].name, "Provider 24");
+  assert.equal("apiKey" in history.items[0], false);
+});
+
+test("provider history supports hiding, restoring, and clearing one provider type", () => {
+  let history = settings.normalizeProviderHistorySettings({});
+  history = settings.recordProviderHistory(
+    history,
+    {
+      type: "codex",
+      name: "OpenAI A",
+      baseUrl: "https://api.example.com/v1",
+    },
+    2
+  );
+  history = settings.recordProviderHistory(
+    history,
+    {
+      type: "gemini",
+      name: "Gemini A",
+      baseUrl: "https://gemini.example.com/v1",
+    },
+    1
+  );
+
+  const codexId = history.items.find((item) => item.type === "codex").id;
+  history = settings.setProviderHistoryItemHidden(history, codexId, true);
+  assert.equal(history.items.find((item) => item.id === codexId).hidden, true);
+
+  history = settings.restoreHiddenProviderHistory(history, "codex");
+  assert.equal(history.items.find((item) => item.id === codexId).hidden, false);
+
+  history = settings.clearProviderHistory(history, "codex");
+  assert.deepEqual(
+    history.items.map((item) => item.type),
+    ["gemini"]
+  );
+});
 const normalize = loader.loadModule("src/lib/settings/normalize.ts");
 const sync = loader.loadModule("src/lib/settings/sync.ts");
 const RIGHT_DOCK_TAB_IDS = settings.RIGHT_DOCK_SINGLETON_TAB_IDS;
 
 test("basic provider field normalizers trim values and remove duplicate models", () => {
-  assert.equal(normalize.normalizeBaseUrl(" https://api.example.com/v1/// "), "https://api.example.com/v1//");
-  assert.equal(normalize.normalizeBaseUrl(" https:/api.example.com/v1/ "), "https://api.example.com/v1");
+  assert.equal(
+    normalize.normalizeBaseUrl(" https://api.example.com/v1/// "),
+    "https://api.example.com/v1//"
+  );
+  assert.equal(
+    normalize.normalizeBaseUrl(" https:/api.example.com/v1/ "),
+    "https://api.example.com/v1"
+  );
   assert.equal(normalize.normalizeApiKey("  token  "), "token");
   assert.deepEqual(
     normalize.normalizeModels([" gpt-5 ", "", "gpt-5", "claude-sonnet"]),
-    ["gpt-5", "claude-sonnet"],
+    ["gpt-5", "claude-sonnet"]
   );
 });
 
@@ -25,7 +150,11 @@ test("codex provider normalization strips route suffixes and keeps only configur
     type: "codex",
     baseUrl: " https://api.openai.com/v1/responses/ ",
     apiKey: " key ",
-    models: [" gpt-5 ", "gpt-5", { id: "gpt-5-mini", contextWindow: "64000", maxTokens: "4096" }],
+    models: [
+      " gpt-5 ",
+      "gpt-5",
+      { id: "gpt-5-mini", contextWindow: "64000", maxTokens: "4096" },
+    ],
     activeModels: ["missing", "gpt-5", "gpt-5"],
     requestFormat: "not-valid",
     reasoning: "xhigh",
@@ -42,7 +171,7 @@ test("codex provider normalization strips route suffixes and keeps only configur
   assert.deepEqual(provider.activeModels, ["gpt-5"]);
   assert.deepEqual(
     provider.models.map((model) => model.id),
-    ["gpt-5", "gpt-5-mini"],
+    ["gpt-5", "gpt-5-mini"]
   );
   assert.equal(provider.models[0].contextWindow, 400_000);
   assert.equal(provider.models[0].maxOutputToken, 128_000);
@@ -84,7 +213,10 @@ test("gemini provider normalization keeps native routing and model limits", () =
 
   assert.equal(provider.name, "Gemini");
   assert.equal(provider.type, "gemini");
-  assert.equal(provider.baseUrl, "https://generativelanguage.googleapis.com/v1beta");
+  assert.equal(
+    provider.baseUrl,
+    "https://generativelanguage.googleapis.com/v1beta"
+  );
   assert.equal(provider.apiKey, "key");
   assert.equal(provider.requestFormat, undefined);
   assert.equal(provider.promptCachingEnabled, false);
@@ -117,7 +249,10 @@ test("settings normalization drops stale selected models and preserves valid sel
     customProviders,
     selectedModel: { customProviderId: "provider-1", model: "gpt-5" },
   });
-  assert.deepEqual(valid.selectedModel, { customProviderId: "provider-1", model: "gpt-5" });
+  assert.deepEqual(valid.selectedModel, {
+    customProviderId: "provider-1",
+    model: "gpt-5",
+  });
 });
 
 test("settings normalization canonicalizes project keyed maps with Windows path compatibility", () => {
@@ -179,7 +314,9 @@ test("settings normalization canonicalizes project keyed maps with Windows path 
   assert.deepEqual(normalized.ssh.projectHostAssociations, {
     "c:/repo": ["host-b"],
   });
-  assert.deepEqual(Object.keys(normalized.customSettings.rightDock.projects), ["c:/repo"]);
+  assert.deepEqual(Object.keys(normalized.customSettings.rightDock.projects), [
+    "c:/repo",
+  ]);
   assert.deepEqual(normalized.customSettings.rightDock.projects["c:/repo"], {
     activeTabId: RIGHT_DOCK_TAB_IDS.fileTree,
     tabOrder: [RIGHT_DOCK_TAB_IDS.gitReview, RIGHT_DOCK_TAB_IDS.fileTree],
@@ -220,7 +357,10 @@ test("custom settings conversation title model only keeps enabled provider model
   const normalized = settings.normalizeSettings({
     customProviders,
     customSettings: {
-      conversationTitleModel: { customProviderId: "provider-1", model: "gpt-5-mini" },
+      conversationTitleModel: {
+        customProviderId: "provider-1",
+        model: "gpt-5-mini",
+      },
     },
   });
   assert.deepEqual(normalized.customSettings.conversationTitleModel, {
@@ -231,7 +371,10 @@ test("custom settings conversation title model only keeps enabled provider model
   const stale = settings.normalizeSettings({
     customProviders,
     customSettings: {
-      conversationTitleModel: { customProviderId: "provider-1", model: "gpt-5" },
+      conversationTitleModel: {
+        customProviderId: "provider-1",
+        model: "gpt-5",
+      },
     },
   });
   assert.equal(stale.customSettings.conversationTitleModel, undefined);
@@ -266,7 +409,7 @@ test("chat runtime controls default and follow provider model reasoning support"
       modelId: "claude-opus-4-5",
       baseUrl: "https://api.anthropic.com",
     }),
-    ["minimal", "low", "medium", "high"],
+    ["minimal", "low", "medium", "high"]
   );
   // claude-sonnet-5：目录显式声明 xhigh/max。
   assert.deepEqual(
@@ -275,7 +418,7 @@ test("chat runtime controls default and follow provider model reasoning support"
       modelId: "claude-sonnet-5",
       baseUrl: "https://api.anthropic.com",
     }),
-    ["minimal", "low", "medium", "high", "xhigh", "max"],
+    ["minimal", "low", "medium", "high", "xhigh", "max"]
   );
   // gpt-5.1（openai-responses）：目录只覆盖 off，标准四档。
   assert.deepEqual(
@@ -285,7 +428,7 @@ test("chat runtime controls default and follow provider model reasoning support"
       modelId: "gpt-5.1",
       baseUrl: "https://api.openai.com/v1",
     }),
-    ["minimal", "low", "medium", "high"],
+    ["minimal", "low", "medium", "high"]
   );
   // gpt-5.2：目录额外声明 xhigh，仍无 max。
   assert.deepEqual(
@@ -295,7 +438,7 @@ test("chat runtime controls default and follow provider model reasoning support"
       modelId: "gpt-5.2",
       baseUrl: "https://api.openai.com/v1",
     }),
-    ["minimal", "low", "medium", "high", "xhigh"],
+    ["minimal", "low", "medium", "high", "xhigh"]
   );
   // Groq qwen/qwen3-32b（openai-completions 兼容端点）：目录覆盖到 xhigh，仍无 max。
   assert.deepEqual(
@@ -305,7 +448,7 @@ test("chat runtime controls default and follow provider model reasoning support"
       modelId: "qwen/qwen3-32b",
       baseUrl: "https://api.groq.com/openai/v1",
     }),
-    ["minimal", "low", "medium", "high", "xhigh"],
+    ["minimal", "low", "medium", "high", "xhigh"]
   );
   // gemini-2.5-flash：预算档字段驱动，标准四档，无 xhigh/max。
   assert.deepEqual(
@@ -314,7 +457,7 @@ test("chat runtime controls default and follow provider model reasoning support"
       modelId: "gemini-2.5-flash",
       baseUrl: "https://generativelanguage.googleapis.com/v1beta",
     }),
-    ["minimal", "low", "medium", "high"],
+    ["minimal", "low", "medium", "high"]
   );
   // gemini-3-pro-preview：目录把 minimal/medium 显式置空，只剩两档（3.0/3.1 同档）。
   assert.deepEqual(
@@ -323,7 +466,7 @@ test("chat runtime controls default and follow provider model reasoning support"
       modelId: "gemini-3-pro-preview",
       baseUrl: "https://generativelanguage.googleapis.com/v1beta",
     }),
-    ["low", "high"],
+    ["low", "high"]
   );
   // 目录之外的自定义模型（glm/kimi 等三方聚合）按可推理处理：标准四档，
   // 不因 id 猜不中而禁用思考。
@@ -334,7 +477,7 @@ test("chat runtime controls default and follow provider model reasoning support"
       modelId: "glm-4.7",
       baseUrl: "https://api.z.ai/api/coding/paas/v4",
     }),
-    ["minimal", "low", "medium", "high"],
+    ["minimal", "low", "medium", "high"]
   );
   assert.deepEqual(
     settings.getChatRuntimeReasoningLevelsForProvider({
@@ -342,7 +485,7 @@ test("chat runtime controls default and follow provider model reasoning support"
       modelId: "glm-4.7",
       baseUrl: "https://api.z.ai/api/anthropic",
     }),
-    ["minimal", "low", "medium", "high"],
+    ["minimal", "low", "medium", "high"]
   );
   // DeepSeek 走 codex：适配层 thinkingLevelMap 额外开出 xhigh。
   assert.deepEqual(
@@ -351,7 +494,7 @@ test("chat runtime controls default and follow provider model reasoning support"
       modelId: "deepseek-chat",
       baseUrl: "https://api.deepseek.com",
     }),
-    ["minimal", "low", "medium", "high", "xhigh"],
+    ["minimal", "low", "medium", "high", "xhigh"]
   );
 
   assert.deepEqual(
@@ -368,7 +511,7 @@ test("chat runtime controls default and follow provider model reasoning support"
         providerId: "gemini",
         modelId: "gemini-2.5-flash",
         baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-      },
+      }
     ),
     {
       thinkingEnabled: false,
@@ -380,7 +523,7 @@ test("chat runtime controls default and follow provider model reasoning support"
         codex_openai_completions: "xhigh",
         gemini: "high",
       },
-    },
+    }
   );
   assert.deepEqual(
     settings.normalizeChatRuntimeControlsForProvider(
@@ -397,7 +540,7 @@ test("chat runtime controls default and follow provider model reasoning support"
         requestFormat: "openai-completions",
         modelId: "qwen/qwen3-32b",
         baseUrl: "https://api.groq.com/openai/v1",
-      },
+      }
     ),
     {
       thinkingEnabled: true,
@@ -411,7 +554,7 @@ test("chat runtime controls default and follow provider model reasoning support"
         // 的当前 provider key，因此只继承顶层 reasoning 原值，不做钳制。
         gemini: "xhigh",
       },
-    },
+    }
   );
 
   assert.deepEqual(
@@ -423,7 +566,7 @@ test("chat runtime controls default and follow provider model reasoning support"
         requestFormat: "openai-responses",
         modelId: "gpt-5.2",
         baseUrl: "https://api.openai.com/v1",
-      },
+      }
     ),
     {
       thinkingEnabled: true,
@@ -435,7 +578,7 @@ test("chat runtime controls default and follow provider model reasoning support"
         codex_openai_completions: "high",
         gemini: "high",
       },
-    },
+    }
   );
   assert.equal(
     settings.normalizeChatRuntimeControlsForProvider(
@@ -451,9 +594,9 @@ test("chat runtime controls default and follow provider model reasoning support"
         providerId: "claude_code",
         modelId: "claude-sonnet-5",
         baseUrl: "https://api.anthropic.com",
-      },
+      }
     ).reasoning,
-    "xhigh",
+    "xhigh"
   );
   assert.equal(
     settings.normalizeChatRuntimeControlsForProvider(
@@ -469,9 +612,9 @@ test("chat runtime controls default and follow provider model reasoning support"
         providerId: "gemini",
         modelId: "gemini-2.5-flash",
         baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-      },
+      }
     ).reasoning,
-    "low",
+    "low"
   );
 
   const normalized = settings.normalizeSettings({
@@ -538,7 +681,7 @@ test("memory organizer settings normalize schedule and disable stale enabled sta
   assert.equal(defaults.memory.organizerEnabled, false);
   assert.equal(
     settings.computeNextMemoryOrganizerRunAt(defaults.memory.organizerSchedule),
-    undefined,
+    undefined
   );
 
   const customProviders = [
@@ -633,7 +776,10 @@ test("gateway settings sync payload redacts provider api keys", () => {
       },
     },
     customSettings: {
-      conversationTitleModel: { customProviderId: "provider-1", model: "gpt-5" },
+      conversationTitleModel: {
+        customProviderId: "provider-1",
+        model: "gpt-5",
+      },
       rightDock: {
         width: 612,
         projects: {
@@ -734,7 +880,10 @@ test("gateway settings sync payload redacts provider api keys", () => {
       },
     },
   });
-  assert.deepEqual(payload.chatRuntimeControls, appSettings.chatRuntimeControls);
+  assert.deepEqual(
+    payload.chatRuntimeControls,
+    appSettings.chatRuntimeControls
+  );
   assert.equal(payload.providerApiKeyUpdates, undefined);
 
   const updatePayload = sync.buildGatewaySettingsSyncPayload(appSettings, {
@@ -758,7 +907,8 @@ test("gateway settings sync redacts ssh secrets and preserves configured state",
           username: "deploy",
           authType: "privateKey",
           password: "ssh-password",
-          privateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----",
+          privateKey:
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----",
           privateKeyPath: "~/.ssh/id_ed25519",
           privateKeyPassphrase: "key-passphrase",
           proxy: {
@@ -806,7 +956,8 @@ test("gateway settings sync redacts ssh secrets and preserves configured state",
   assert.deepEqual(updatePayload.sshSecretUpdates, {
     prod: {
       password: "ssh-password",
-      privateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----",
+      privateKey:
+        "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----",
       privateKeyPassphrase: "key-passphrase",
       proxyPassword: "proxy-password",
     },
@@ -904,7 +1055,7 @@ test("workspace project selection does not rewrite global system workdir or sync
       ],
       activeWorkspaceProjectId: "project-a",
     },
-    "/default-workdir",
+    "/default-workdir"
   );
 
   assert.equal(resolvedSystem.workdir, "/default-workdir");
@@ -913,16 +1064,19 @@ test("workspace project selection does not rewrite global system workdir or sync
   const payload = sync.buildGatewaySettingsSyncPayload(
     settings.normalizeSettings({
       system: resolvedSystem,
-    }),
+    })
   );
-  assert.equal(Object.hasOwn(payload.system, "activeWorkspaceProjectId"), false);
+  assert.equal(
+    Object.hasOwn(payload.system, "activeWorkspaceProjectId"),
+    false
+  );
   assert.equal(payload.system.workdir, "/default-workdir");
 
   const synced = sync.applyGatewaySettingsSyncPayload(
     settings.normalizeSettings({
       system: resolvedSystem,
     }),
-    payload,
+    payload
   );
   assert.equal(synced.system.activeWorkspaceProjectId, "project-a");
 });
@@ -946,7 +1100,7 @@ test("gateway settings sync preserves active workspace project by path when ids 
         ],
         activeWorkspaceProjectId: "web-project-a",
       },
-      "/default-workdir",
+      "/default-workdir"
     ),
   });
   const incoming = sync.buildGatewaySettingsSyncPayload(
@@ -967,9 +1121,9 @@ test("gateway settings sync preserves active workspace project by path when ids 
             },
           ],
         },
-        "/default-workdir",
+        "/default-workdir"
       ),
-    }),
+    })
   );
 
   const synced = sync.applyGatewaySettingsSyncPayload(current, incoming);
@@ -1043,40 +1197,48 @@ test("normalizes right dock from current settings", () => {
   });
 
   assert.equal(currentShape.customSettings.rightDock.width, 544);
-  assert.deepEqual(Object.keys(currentShape.customSettings.rightDock.projects), [
-    "/workspace/app",
-  ]);
-  assert.deepEqual(currentShape.customSettings.rightDock.projects["/workspace/app"], {
-    // Unknown active ids are user intent (e.g. a session not loaded yet) and
-    // must never be reset by normalization.
-    activeTabId: "missing",
-    // Terminal session ids stay in tabOrder even though terminal tabs are now
-    // derived from live sessions instead of persisted entries.
-    tabOrder: ["terminal-2", "terminal-1", RIGHT_DOCK_TAB_IDS.fileTree],
-    tools: {
-      fileTree: {
-        openedAt: 3,
-        uiState: {
-          query: "src",
-          selectedPath: "src/main.ts",
-          expandedPaths: ["", "src", "src/components"],
-          revision: 4,
+  assert.deepEqual(
+    Object.keys(currentShape.customSettings.rightDock.projects),
+    ["/workspace/app"]
+  );
+  assert.deepEqual(
+    currentShape.customSettings.rightDock.projects["/workspace/app"],
+    {
+      // Unknown active ids are user intent (e.g. a session not loaded yet) and
+      // must never be reset by normalization.
+      activeTabId: "missing",
+      // Terminal session ids stay in tabOrder even though terminal tabs are now
+      // derived from live sessions instead of persisted entries.
+      tabOrder: ["terminal-2", "terminal-1", RIGHT_DOCK_TAB_IDS.fileTree],
+      tools: {
+        fileTree: {
+          openedAt: 3,
+          uiState: {
+            query: "src",
+            selectedPath: "src/main.ts",
+            expandedPaths: ["", "src", "src/components"],
+            revision: 4,
+          },
         },
       },
-    },
-    openVersion: 6,
-    stateVersion: 7,
-    writerId: "",
-    lastUsedAt: 0,
-  });
+      openVersion: 6,
+      stateVersion: 7,
+      writerId: "",
+      lastUsedAt: 0,
+    }
+  );
 });
 
 test("opens right dock singleton tabs and updates file tree state per project", () => {
   const base = settings.normalizeSettings({});
-  const opened = settings.openRightDockSingletonTab(base, "/workspace/app", "gitReview");
+  const opened = settings.openRightDockSingletonTab(
+    base,
+    "/workspace/app",
+    "gitReview"
+  );
   const openedState = settings.getRightDockProjectState(
     opened.customSettings,
-    "/workspace/app",
+    "/workspace/app"
   );
 
   assert.equal(openedState.activeTabId, RIGHT_DOCK_TAB_IDS.gitReview);
@@ -1089,15 +1251,19 @@ test("opens right dock singleton tabs and updates file tree state per project", 
   assert.equal(openedState.writerId, settings.getRightDockWriterId());
   assert.ok(openedState.lastUsedAt > 0);
 
-  const updated = settings.updateRightDockFileTreeState(opened, "/workspace/app", {
-    query: "x".repeat(250),
-    selectedPath: "src/../main.ts",
-    expandedPaths: ["", "src", "src/../bad", "src\\components", "src"],
-    bumpRevision: true,
-  });
+  const updated = settings.updateRightDockFileTreeState(
+    opened,
+    "/workspace/app",
+    {
+      query: "x".repeat(250),
+      selectedPath: "src/../main.ts",
+      expandedPaths: ["", "src", "src/../bad", "src\\components", "src"],
+      bumpRevision: true,
+    }
+  );
   const updatedState = settings.getRightDockProjectState(
     updated.customSettings,
-    "/workspace/app",
+    "/workspace/app"
   );
 
   assert.equal(updatedState.activeTabId, RIGHT_DOCK_TAB_IDS.gitReview);
@@ -1105,26 +1271,40 @@ test("opens right dock singleton tabs and updates file tree state per project", 
     RIGHT_DOCK_TAB_IDS.gitReview,
     RIGHT_DOCK_TAB_IDS.fileTree,
   ]);
-  assert.deepEqual(settings.getRightDockFileTreeState(updated.customSettings, "/workspace/app"), {
-    query: "x".repeat(200),
-    selectedPath: "src/main.ts",
-    expandedPaths: ["", "src", "src/bad", "src/components"],
-    revision: 1,
-  });
+  assert.deepEqual(
+    settings.getRightDockFileTreeState(
+      updated.customSettings,
+      "/workspace/app"
+    ),
+    {
+      query: "x".repeat(200),
+      selectedPath: "src/main.ts",
+      expandedPaths: ["", "src", "src/bad", "src/components"],
+      revision: 1,
+    }
+  );
   assert.equal(updatedState.openVersion, 1);
   assert.equal(updatedState.stateVersion, 2);
 
-  const activated = settings.openRightDockSingletonTab(updated, "/workspace/app", "fileTree");
+  const activated = settings.openRightDockSingletonTab(
+    updated,
+    "/workspace/app",
+    "fileTree"
+  );
   const activatedState = settings.getRightDockProjectState(
     activated.customSettings,
-    "/workspace/app",
+    "/workspace/app"
   );
   assert.equal(activatedState.activeTabId, RIGHT_DOCK_TAB_IDS.fileTree);
   assert.equal(activatedState.openVersion, 1);
   assert.equal(activatedState.stateVersion, 3);
   assert.equal(
-    settings.isRightDockSingletonTabOpen(activated.customSettings, "/workspace/app", "fileTree"),
-    true,
+    settings.isRightDockSingletonTabOpen(
+      activated.customSettings,
+      "/workspace/app",
+      "fileTree"
+    ),
+    true
   );
 });
 
@@ -1196,10 +1376,14 @@ test("removes right dock state when a workspace project is deleted", () => {
   assert.equal(tombstone.writerId, settings.getRightDockWriterId());
   assert.equal(typeof tombstone.lastUsedAt, "number");
   assert.ok(tombstone.lastUsedAt > 0);
-  assert.deepEqual(cleaned.customSettings.rightDock.projects["/workspace/other"].tabOrder, [
-    RIGHT_DOCK_TAB_IDS.gitReview,
-  ]);
-  assert.equal(settings.removeRightDockProjectState(cleaned, "/workspace/app"), cleaned);
+  assert.deepEqual(
+    cleaned.customSettings.rightDock.projects["/workspace/other"].tabOrder,
+    [RIGHT_DOCK_TAB_IDS.gitReview]
+  );
+  assert.equal(
+    settings.removeRightDockProjectState(cleaned, "/workspace/app"),
+    cleaned
+  );
 });
 
 test("settings reload uses persisted right dock state only", () => {
@@ -1330,22 +1514,30 @@ test("gateway settings sync keeps right dock width local and syncs project state
   const synced = sync.applyGatewaySettingsSyncPayload(current, payload);
 
   assert.equal(synced.customSettings.rightDock.width, 612);
-  assert.deepEqual(Object.keys(synced.customSettings.rightDock.projects).sort(), [
-    "/desktop/project",
-    "/shared/project",
-    "/web/project",
-  ]);
   assert.deepEqual(
-    settings.getRightDockFileTreeState(synced.customSettings, "/shared/project"),
+    Object.keys(synced.customSettings.rightDock.projects).sort(),
+    ["/desktop/project", "/shared/project", "/web/project"]
+  );
+  assert.deepEqual(
+    settings.getRightDockFileTreeState(
+      synced.customSettings,
+      "/shared/project"
+    ),
     {
       query: "desktop",
       selectedPath: "desktop.ts",
       expandedPaths: ["", "src"],
       revision: 1,
-    },
+    }
   );
-  assert.equal(synced.customSettings.rightDock.projects["/shared/project"].openVersion, 5);
-  assert.equal(synced.customSettings.rightDock.projects["/shared/project"].stateVersion, 3);
+  assert.equal(
+    synced.customSettings.rightDock.projects["/shared/project"].openVersion,
+    5
+  );
+  assert.equal(
+    synced.customSettings.rightDock.projects["/shared/project"].stateVersion,
+    3
+  );
 });
 
 test("gateway settings sync uses right dock tombstones for deleted projects", () => {
@@ -1372,33 +1564,37 @@ test("gateway settings sync uses right dock tombstones for deleted projects", ()
         },
       },
     }),
-    "/workspace/deleted",
+    "/workspace/deleted"
   );
 
-  const staleSynced = sync.applyGatewaySettingsSyncPayload(deletedProjectLocal, {
-    customSettings: {
-      rightDock: {
-        projects: {
-          "/workspace/deleted": {
-            activeTabId: RIGHT_DOCK_TAB_IDS.tunnel,
-            tabOrder: [RIGHT_DOCK_TAB_IDS.tunnel],
-            tabs: {
-              [RIGHT_DOCK_TAB_IDS.tunnel]: {
-                id: RIGHT_DOCK_TAB_IDS.tunnel,
-                kind: "tunnel",
-                projectPathKey: "/workspace/deleted",
-                createdAt: 1,
+  const staleSynced = sync.applyGatewaySettingsSyncPayload(
+    deletedProjectLocal,
+    {
+      customSettings: {
+        rightDock: {
+          projects: {
+            "/workspace/deleted": {
+              activeTabId: RIGHT_DOCK_TAB_IDS.tunnel,
+              tabOrder: [RIGHT_DOCK_TAB_IDS.tunnel],
+              tabs: {
+                [RIGHT_DOCK_TAB_IDS.tunnel]: {
+                  id: RIGHT_DOCK_TAB_IDS.tunnel,
+                  kind: "tunnel",
+                  projectPathKey: "/workspace/deleted",
+                  createdAt: 1,
+                },
               },
+              openVersion: 4,
+              stateVersion: 4,
             },
-            openVersion: 4,
-            stateVersion: 4,
           },
         },
       },
-    },
-  });
+    }
+  );
 
-  const tombstone = staleSynced.customSettings.rightDock.projects["/workspace/deleted"];
+  const tombstone =
+    staleSynced.customSettings.rightDock.projects["/workspace/deleted"];
   assert.deepEqual(tombstone.tabOrder, []);
   assert.deepEqual(tombstone.tools, {});
   assert.equal(tombstone.activeTabId, undefined);
@@ -1431,8 +1627,9 @@ test("gateway settings sync uses right dock tombstones for deleted projects", ()
   });
 
   assert.equal(
-    newerSynced.customSettings.rightDock.projects["/workspace/deleted"].activeTabId,
-    RIGHT_DOCK_TAB_IDS.tunnel,
+    newerSynced.customSettings.rightDock.projects["/workspace/deleted"]
+      .activeTabId,
+    RIGHT_DOCK_TAB_IDS.tunnel
   );
 });
 
@@ -1471,14 +1668,15 @@ test("gateway settings sync keeps newer project conversation activity", () => {
           },
         ],
       },
-    }),
+    })
   );
 
   const synced = sync.applyGatewaySettingsSyncPayload(current, incoming);
 
   assert.equal(
-    synced.system.workspaceProjects.find((item) => item.id === "project-a")?.lastConversationAt,
-    1_700_000_000_900,
+    synced.system.workspaceProjects.find((item) => item.id === "project-a")
+      ?.lastConversationAt,
+    1_700_000_000_900
   );
 });
 
@@ -1522,7 +1720,10 @@ test("gateway settings sync applies redacted providers without clearing local ap
       },
     },
     customSettings: {
-      conversationTitleModel: { customProviderId: "provider-1", model: "gpt-5.4" },
+      conversationTitleModel: {
+        customProviderId: "provider-1",
+        model: "gpt-5.4",
+      },
     },
   });
   assert.equal(redacted.customProviders[0].name, "Renamed");
@@ -1531,10 +1732,19 @@ test("gateway settings sync applies redacted providers without clearing local ap
   assert.equal(redacted.chatRuntimeControls.thinkingEnabled, false);
   assert.equal(redacted.chatRuntimeControls.nativeWebSearchEnabled, false);
   assert.equal(redacted.chatRuntimeControls.reasoning, "xhigh");
-  assert.equal(redacted.chatRuntimeControls.reasoningByProvider.claude_code, "xhigh");
-  assert.equal(redacted.chatRuntimeControls.reasoningByProvider.codex_openai_responses, "minimal");
+  assert.equal(
+    redacted.chatRuntimeControls.reasoningByProvider.claude_code,
+    "xhigh"
+  );
+  assert.equal(
+    redacted.chatRuntimeControls.reasoningByProvider.codex_openai_responses,
+    "minimal"
+  );
   // gateway sync 没有 model 上下文，无法按 provider 钳制，保留传入的原始合法档位。
-  assert.equal(redacted.chatRuntimeControls.reasoningByProvider.gemini, "xhigh");
+  assert.equal(
+    redacted.chatRuntimeControls.reasoningByProvider.gemini,
+    "xhigh"
+  );
   assert.deepEqual(redacted.customSettings.conversationTitleModel, {
     customProviderId: "provider-1",
     model: "gpt-5.4",
@@ -1674,7 +1884,7 @@ test("gateway settings update payload omits unchanged empty ssh hosts for non-ss
   const nextWeb = settings.openRightDockSingletonTab(
     staleWeb,
     "/workspace/project",
-    "sshTunnel",
+    "sshTunnel"
   );
 
   const update = sync.buildGatewaySettingsSyncUpdatePayload(staleWeb, nextWeb, {
@@ -1687,7 +1897,7 @@ test("gateway settings update payload omits unchanged empty ssh hosts for non-ss
   const merged = sync.applyGatewaySettingsSyncPayload(desktop, update);
   assert.deepEqual(
     merged.ssh.hosts.map((host) => host.id),
-    ["prod"],
+    ["prod"]
   );
   assert.deepEqual(merged.ssh.projectHostAssociations, {
     "/workspace/project": ["prod"],
@@ -1696,9 +1906,9 @@ test("gateway settings update payload omits unchanged empty ssh hosts for non-ss
     settings.isRightDockSingletonTabOpen(
       merged.customSettings,
       "/workspace/project",
-      "sshTunnel",
+      "sshTunnel"
     ),
-    true,
+    true
   );
 });
 
@@ -2002,15 +2212,27 @@ test("only one agent prompt template remains enabled after normalization", () =>
       ["a", true],
       ["b", false],
       ["c", false],
-    ],
+    ]
   );
 });
 
 test("mcp and remote settings normalize transport, selection, ports, and tokens", () => {
   const mcp = settings.normalizeMcpSettings({
     servers: [
-      { id: "server-a", enabled: true, transport: "http", url: " https://mcp.example.com ", timeoutMs: "-1" },
-      { id: "server-b", enabled: false, transport: "bad", command: " node ", args: [" server.js ", ""] },
+      {
+        id: "server-a",
+        enabled: true,
+        transport: "http",
+        url: " https://mcp.example.com ",
+        timeoutMs: "-1",
+      },
+      {
+        id: "server-b",
+        enabled: false,
+        transport: "bad",
+        command: " node ",
+        args: [" server.js ", ""],
+      },
     ],
     selected: ["server-b", "missing", "server-b", "server-a"],
   });
@@ -2057,9 +2279,16 @@ test("font scale settings normalize invalid values to 1 and clamp out-of-range v
   });
   assert.deepEqual(normalized, { sidebar: 1, chat: 1.4, rightDock: 0.8 });
 
-  const kept = settings.normalizeFontScaleSettings({ sidebar: 0.9, chat: 1.1, rightDock: 1.2 });
+  const kept = settings.normalizeFontScaleSettings({
+    sidebar: 0.9,
+    chat: 1.1,
+    rightDock: 1.2,
+  });
   assert.deepEqual(kept, { sidebar: 0.9, chat: 1.1, rightDock: 1.2 });
 
-  const custom = settings.normalizeCustomSettings({ fontScale: { chat: 1.2 } }, []);
+  const custom = settings.normalizeCustomSettings(
+    { fontScale: { chat: 1.2 } },
+    []
+  );
   assert.deepEqual(custom.fontScale, { sidebar: 1, chat: 1.2, rightDock: 1 });
 });

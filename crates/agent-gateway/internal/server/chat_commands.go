@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/MiaTxxx/Calen/crates/agent-gateway/internal/config"
 	"github.com/MiaTxxx/Calen/crates/agent-gateway/internal/handler"
 	gatewayv1 "github.com/MiaTxxx/Calen/crates/agent-gateway/internal/proto/v1"
 	"github.com/MiaTxxx/Calen/crates/agent-gateway/internal/session"
+	"github.com/google/uuid"
 )
 
 type chatCommandMessageRef struct {
@@ -297,6 +297,21 @@ func buildChatCancelCommandPayload(conversationID string) *gatewayv1.GatewayEnve
 			Type: "chat.cancel",
 			Cancel: &gatewayv1.CancelChatRequest{
 				ConversationId: strings.TrimSpace(conversationID),
+			},
+		},
+	}
+}
+
+func buildChatContextResetEnvelope(requestID string, conversationID string) *gatewayv1.GatewayEnvelope {
+	return &gatewayv1.GatewayEnvelope{
+		RequestId: strings.TrimSpace(requestID),
+		Timestamp: time.Now().Unix(),
+		Payload: &gatewayv1.GatewayEnvelope_ChatCommand{
+			ChatCommand: &gatewayv1.ChatCommandRequest{
+				Type: "chat.context_reset",
+				Request: &gatewayv1.ChatRequest{
+					ConversationId: strings.TrimSpace(conversationID),
+				},
 			},
 		},
 	}

@@ -980,7 +980,7 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
     onOpenMcpHub,
     onOpenStockHub,
   } = props;
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
 
   const handleSelectSearchResult = useCallback(
     (id: string) => {
@@ -1859,6 +1859,34 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
                       {virtualHistoryRows.map((virtualRow) => {
                         const item = items[virtualRow.index];
                         if (!item) return null;
+                        const previous = items[virtualRow.index - 1];
+                        const groupKey = item.isPinned
+                          ? "pinned"
+                          : new Date(item.updatedAt).toLocaleDateString("en-CA");
+                        const previousGroupKey = previous?.isPinned
+                          ? "pinned"
+                          : previous
+                            ? new Date(previous.updatedAt).toLocaleDateString("en-CA")
+                            : "";
+                        const today = new Date();
+                        const yesterday = new Date(today);
+                        yesterday.setDate(today.getDate() - 1);
+                        const groupLabel =
+                          groupKey === previousGroupKey
+                            ? ""
+                            : groupKey === "pinned"
+                              ? locale === "zh-CN"
+                                ? "置顶"
+                                : "Pinned"
+                              : groupKey === today.toLocaleDateString("en-CA")
+                                ? locale === "zh-CN"
+                                  ? "今天"
+                                  : "Today"
+                                : groupKey === yesterday.toLocaleDateString("en-CA")
+                                  ? locale === "zh-CN"
+                                    ? "昨天"
+                                    : "Yesterday"
+                                  : new Date(item.updatedAt).toLocaleDateString(locale);
 
                         return (
                           <div
@@ -1870,6 +1898,11 @@ export const ChatHistorySidebar = memo(function ChatHistorySidebar(props: ChatHi
                               transform: `translateY(${virtualRow.start}px)`,
                             }}
                           >
+                            {groupLabel ? (
+                              <div className="px-2 pb-1 pt-1 text-[10px] font-semibold text-muted-foreground/70">
+                                {groupLabel}
+                              </div>
+                            ) : null}
                             {renderHistoryRow(item)}
                           </div>
                         );

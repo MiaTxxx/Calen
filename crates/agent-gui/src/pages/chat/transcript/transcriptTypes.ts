@@ -27,6 +27,8 @@ export type ChatTranscriptProps = {
   liveTranscriptStore: LiveTranscriptStore;
   isCompactionRunning: boolean;
   bottomReservePx?: number;
+  contentWidth?: number;
+  fullWidth?: boolean;
   onResendFromEdit: (
     messageRef: HistoryMessageRef,
     text: string,

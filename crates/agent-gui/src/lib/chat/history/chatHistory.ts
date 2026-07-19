@@ -57,6 +57,7 @@ export type ChatHistoryWorkdirsResponse = {
 type ChatHistorySegmentWireRecord = {
   segmentIndex: number;
   segmentId: string;
+  boundaryKind?: "manual-reset" | null;
   summaryJson?: string | null;
   messagesJson: string;
   messageCount: number;
@@ -166,6 +167,7 @@ function parseStoredSegment(record: ChatHistorySegmentWireRecord): StoredContext
   return {
     segmentIndex: record.segmentIndex,
     segmentId: record.segmentId,
+    boundaryKind: record.boundaryKind === "manual-reset" ? "manual-reset" : undefined,
     summary: record.summaryJson ? parseStoredSummaryMessage(record.summaryJson) : undefined,
     messages: parsedMessages,
     messageCount: record.messageCount,
@@ -309,6 +311,7 @@ function buildChatHistorySegmentInput(segment: StoredContextSegment): ChatHistor
   return {
     segmentIndex: segment.segmentIndex,
     segmentId: segment.segmentId,
+    boundaryKind: segment.boundaryKind,
     summaryJson: segment.summary ? JSON.stringify(segment.summary) : undefined,
     messagesJson: JSON.stringify(segment.messages),
     messageCount: segment.messageCount,

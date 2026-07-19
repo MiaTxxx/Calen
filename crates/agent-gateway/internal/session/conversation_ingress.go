@@ -153,6 +153,13 @@ func (m *Manager) ingestChatControl(requestID string, control *gatewayv1.ChatCon
 	s.noteAgentEpochLocked(stream, epoch)
 
 	switch controlType {
+	case "conversation.context_reset":
+		if strings.TrimSpace(control.GetState()) != "completed" {
+			return
+		}
+		s.appendEventLocked(stream, runID, controlType, map[string]any{
+			"boundary_kind": "manual-reset",
+		}, now)
 	case "started":
 		s.runStartedLocked(stream, runID, "", now)
 	case "completed", "failed", "cancelled":

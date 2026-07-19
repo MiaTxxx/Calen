@@ -30,6 +30,36 @@
 }
 
 @layer base {
+  .calen-themed {
+    background: var(--calen-app);
+    color: var(--calen-primary-text);
+    font-family: var(--calen-font-family);
+  }
+  .calen-themed .gateway-chat-frame {
+    background: var(--calen-chat-canvas) !important;
+  }
+  .calen-themed .gateway-sidebar {
+    background: var(--calen-sidebar) !important;
+    border-color: var(--calen-border) !important;
+  }
+  .calen-themed .composer-glass-card {
+    background: color-mix(in srgb, var(--calen-composer) 88%, transparent) !important;
+  }
+  .calen-themed .project-tools-panel {
+    background: var(--calen-right-dock) !important;
+  }
+  .chat-layout-resize-handle::after {
+    content: "";
+    position: absolute;
+    inset: 2px;
+    border-radius: 999px;
+    background: hsl(var(--muted-foreground) / 0.28);
+  }
+  @media (max-width: 720px), (pointer: coarse) {
+    .chat-layout-resize-handle {
+      display: none;
+    }
+  }
   :root {
     color-scheme: light;
 

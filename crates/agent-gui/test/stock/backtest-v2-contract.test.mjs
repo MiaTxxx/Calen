@@ -7,6 +7,7 @@ import {
   toSidecarBacktestRequest,
 } from "../../src/lib/stock-research/contracts.ts";
 import { toStockSidecarToolPayload } from "../../src/lib/tools/stockToolContracts.ts";
+import { readStockHubSource } from "../helpers/stock-hub-source.mjs";
 
 const instrument = {
   id: "CN:600519",
@@ -125,10 +126,7 @@ test("GUI and AI requests forward the evaluation ratio and use the fixed buy-and
 });
 
 test("Lab renders split windows, execution fees and a dated equity series", async () => {
-  const hub = await readFile(
-    new URL("../../src/pages/stock-hub/StockHubPage.tsx", import.meta.url),
-    "utf8"
-  );
+  const hub = await readStockHubSource();
   const chart = await readFile(
     new URL("../../src/pages/stock-hub/StockChart.tsx", import.meta.url),
     "utf8"

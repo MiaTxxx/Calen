@@ -11,7 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { CheckCircle2, ChevronDown } from "../../../components/icons";
+import { BrushCleaning, CheckCircle2, ChevronDown } from "../../../components/icons";
 import { Markdown } from "../../../components/Markdown";
 import { useLocale } from "../../../i18n";
 import type {
@@ -112,6 +112,20 @@ const SummaryCard = memo(function SummaryCard(props: { item: RenderSummaryCard }
           </div>
         ) : null}
       </div>
+    </div>
+  );
+});
+
+const ContextResetCard = memo(function ContextResetCard() {
+  const { locale } = useLocale();
+  return (
+    <div className="flex items-center gap-3 py-1 text-muted-foreground/75" role="separator">
+      <div className="h-px flex-1 bg-border/70" />
+      <div className="inline-flex items-center gap-1.5 text-[calc(11px*var(--zone-font-scale,1))]">
+        <BrushCleaning className="h-3.5 w-3.5" />
+        <span>{locale === "en-US" ? "Previous context cleared" : "此前上下文已清除"}</span>
+      </div>
+      <div className="h-px flex-1 bg-border/70" />
     </div>
   );
 });
@@ -284,6 +298,7 @@ export const TranscriptList = memo(function TranscriptList(props: TranscriptList
         });
         return;
       }
+      if (row.kind === "context-reset") return;
       const rounds = row.rounds.filter(roundHasNavContent);
       rounds.forEach((round, ordinal) => {
         out.push({
@@ -355,6 +370,8 @@ export const TranscriptList = memo(function TranscriptList(props: TranscriptList
         let body: ReactNode;
         if (row.kind === "summary") {
           body = <SummaryCard item={row.item} />;
+        } else if (row.kind === "context-reset") {
+          body = <ContextResetCard />;
         } else if (row.kind === "user") {
           body = (
             <div className="flex justify-end">

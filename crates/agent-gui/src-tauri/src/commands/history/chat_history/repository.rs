@@ -41,6 +41,7 @@ fn row_to_segment(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChatHistorySegmen
     Ok(ChatHistorySegmentRecord {
         segment_index: row.get("segment_index")?,
         segment_id: row.get("segment_id")?,
+        boundary_kind: row.get("boundary_kind")?,
         summary_json: row.get("summary_json")?,
         messages_json: row.get("messages_json")?,
         message_count: row.get("message_count")?,

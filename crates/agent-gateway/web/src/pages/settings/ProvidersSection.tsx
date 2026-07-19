@@ -12,6 +12,7 @@ import {
   Settings,
   Settings2,
   Trash2,
+  Undo2,
   X,
 } from "../../components/icons";
 
@@ -32,8 +33,13 @@ import {
   CODEX_REQUEST_FORMAT_LABELS,
   type CodexRequestFormat,
   type CustomProvider,
+  clearProviderHistory,
+  type ProviderHistorySettings,
   type ProviderId,
   type ProviderModelConfig,
+  recordProviderHistory,
+  restoreHiddenProviderHistory,
+  setProviderHistoryItemHidden,
   updateCustomProviders,
   updateCustomSettings,
 } from "../../lib/settings";
@@ -46,7 +52,7 @@ import {
   normalizeFetchedModels,
   sortModelsBySelection,
 } from "./providerUtils";
-import { ConfirmDeletePopover } from "./shared";
+import { AgentActivationSwitch, ConfirmDeletePopover } from "./shared";
 import type { SettingsSectionProps } from "./types";
 
 type ModalProps = {
@@ -54,6 +60,8 @@ type ModalProps = {
   initialData?: CustomProvider;
   onSave: (data: Omit<CustomProvider, "id">) => void;
   onClose: () => void;
+  providerHistory: ProviderHistorySettings;
+  onProviderHistoryChange: (settings: ProviderHistorySettings) => void;
 };
 
 type ModelSettingsModalProps = {
@@ -93,7 +101,7 @@ function parsePositiveInteger(input: string): number | null {
   return normalized > 0 ? normalized : null;
 }
 
-function ModelSettingsModal({ model, onClose, onSave }: ModelSettingsModalProps) {
+export function ModelSettingsModal({ model, onClose, onSave }: ModelSettingsModalProps) {
   const { t } = useLocale();
   const [contextWindow, setContextWindow] = useState(String(model.contextWindow));
   const [maxOutputToken, setMaxOutputToken] = useState(String(model.maxOutputToken));
@@ -178,7 +186,14 @@ function ModelSettingsModal({ model, onClose, onSave }: ModelSettingsModalProps)
   );
 }
 
-function ProviderModal({ providerType, initialData, onSave, onClose }: ModalProps) {
+function ProviderModal({
+  providerType,
+  initialData,
+  onSave,
+  onClose,
+  providerHistory,
+  onProviderHistoryChange,
+}: ModalProps) {
   const { t } = useLocale();
   const isGatewayWebui = isGatewayWebuiRuntime();
   const initialApiKey = initialData?.apiKey ?? "";
@@ -204,6 +219,16 @@ function ProviderModal({ providerType, initialData, onSave, onClose }: ModalProp
   const [newModelName, setNewModelName] = useState("");
   const [editingModel, setEditingModel] = useState<ProviderModelConfig | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [historySuggestionsEnabled, setHistorySuggestionsEnabled] = useState(true);
+  const [historyManagerOpen, setHistoryManagerOpen] = useState(false);
+  const providerHistoryItems = providerHistory.items.filter((item) => item.type === providerType);
+  const providerSuggestions =
+    providerHistory.enabled && historySuggestionsEnabled
+      ? providerHistoryItems.filter((item) => !item.hidden)
+      : [];
+  const [modelQuery, setModelQuery] = useState("");
+  const [modelFilter, setModelFilter] = useState<"all" | "added" | "available">("all");
+  const [newlyAddedModels, setNewlyAddedModels] = useState<Set<string>>(new Set());
   const { isClosing, modalState, requestClose } = useModalMotion(onClose);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -281,6 +306,7 @@ function ProviderModal({ providerType, initialData, onSave, onClose }: ModalProp
       setModels((prev) => [...prev, createDraftModelConfig(providerType, model)]);
     }
     setActiveModels((prev) => new Set([...prev, model]));
+    setNewlyAddedModels((prev) => new Set([...prev, model]));
     setNewModelName("");
     setAddingModel(false);
   }
@@ -338,6 +364,15 @@ function ProviderModal({ providerType, initialData, onSave, onClose }: ModalProp
     () => sortModelsBySelection(models, activeModels),
     [models, activeModels],
   );
+  const visibleModels = useMemo(() => {
+    const query = modelQuery.trim().toLowerCase();
+    return orderedModels.filter((model) => {
+      if (query && !model.id.toLowerCase().includes(query)) return false;
+      if (modelFilter === "added") return activeModels.has(model.id);
+      if (modelFilter === "available") return !activeModels.has(model.id);
+      return true;
+    });
+  }, [activeModels, modelFilter, modelQuery, orderedModels]);
 
   return createPortal(
     <div
@@ -346,7 +381,7 @@ function ProviderModal({ providerType, initialData, onSave, onClose }: ModalProp
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={requestClose} />
 
-      <div className="settings-modal-panel relative z-10 flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl">
+      <div className="settings-modal-panel relative z-10 flex h-[min(88vh,820px)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl">
         <div className="settings-modal-header flex items-center gap-3 border-b px-6 py-4">
           <div className="flex h-9 w-9 items-center justify-center text-xl text-foreground">
             <ProviderBrandIcon type={providerType} />
@@ -361,190 +396,387 @@ function ProviderModal({ providerType, initialData, onSave, onClose }: ModalProp
           </div>
         </div>
 
-        <div className="settings-modal-body flex-1 space-y-4 overflow-y-auto px-6 py-5">
-          <div className="space-y-1.5">
-            <Label htmlFor="modal-name">{t("settings.providerName")}</Label>
-            <Input id="modal-name" value={name} onChange={(e) => setName(e.currentTarget.value)} />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="modal-baseurl">Base URL</Label>
-            <Input
-              id="modal-baseurl"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.currentTarget.value)}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="modal-apikey">API Key</Label>
-            <div className="relative">
-              <Input
-                id="modal-apikey"
-                type={showApiKey ? "text" : "password"}
-                value={apiKey}
-                className="pr-10"
-                onChange={(e) => setApiKey(e.currentTarget.value)}
-                onFocus={(e) => {
-                  if (apiKeyIsRedactedDisplay) e.currentTarget.select();
-                }}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => setShowApiKey((prev) => !prev)}
-                title={showApiKey ? t("settings.hideApiKey") : t("settings.showApiKey")}
-                aria-label={showApiKey ? t("settings.hideApiKey") : t("settings.showApiKey")}
-              >
-                {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </Button>
-            </div>
-          </div>
-
-          {providerType === "codex" ? (
+        <div className="settings-modal-body grid min-h-0 flex-1 gap-5 overflow-hidden px-6 py-5 md:grid-cols-[minmax(260px,0.8fr)_minmax(360px,1.3fr)]">
+          <div className="space-y-4 overflow-y-auto pr-1">
             <div className="space-y-1.5">
-              <Label>{t("settings.requestFormat")}</Label>
-              <Select
-                value={requestFormat}
-                onValueChange={(value) => setRequestFormat(value as CodexRequestFormat)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>{CODEX_REQUEST_FORMAT_LABELS[requestFormat]}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(CODEX_REQUEST_FORMAT_LABELS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="modal-name">{t("settings.providerName")}</Label>
+              <Input
+                id="modal-name"
+                value={name}
+                list={`provider-name-history-${providerType}`}
+                autoComplete="off"
+                onChange={(e) => setName(e.currentTarget.value)}
+              />
+              <datalist id={`provider-name-history-${providerType}`}>
+                {providerSuggestions.map((item) => (
+                  <option key={item.id} value={item.name} />
+                ))}
+              </datalist>
             </div>
-          ) : null}
 
-          <div className="space-y-2">
-            <div className="settings-model-toolbar flex items-center justify-between">
-              <Label>{t("settings.models")}</Label>
-              <div className="flex items-center gap-1">
-                {fetchingModels ? (
-                  <span className="mr-1 text-xs text-muted-foreground">
-                    {t("settings.fetching")}
-                  </span>
+            <div className="space-y-1.5">
+              <Label htmlFor="modal-baseurl">Base URL</Label>
+              <Input
+                id="modal-baseurl"
+                value={baseUrl}
+                list={`provider-url-history-${providerType}`}
+                autoComplete="off"
+                onChange={(e) => setBaseUrl(e.currentTarget.value)}
+              />
+              <datalist id={`provider-url-history-${providerType}`}>
+                {providerSuggestions.map((item) => (
+                  <option key={item.id} value={item.baseUrl} />
+                ))}
+              </datalist>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                {providerSuggestions.length > 0 ? (
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => setHistorySuggestionsEnabled(false)}
+                  >
+                    {t("settings.hideSuggestions")}
+                  </button>
                 ) : null}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => setVisibleModelsSelected(!allVisibleModelsSelected)}
-                  disabled={models.length === 0}
-                >
-                  {allVisibleModelsSelected ? t("settings.deselectAll") : t("settings.selectAll")}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={handleRefresh}
-                  disabled={fetchingModels || (isGatewayWebui && !canFetchModels)}
-                  title={t("settings.refreshModels")}
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${fetchingModels ? "animate-spin" : ""}`} />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => setAddingModel(true)}
-                  title={t("settings.addModel")}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </Button>
+                {providerHistoryItems.length > 0 ? (
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => setHistoryManagerOpen((open) => !open)}
+                  >
+                    {t("settings.manageProviderHistory")}
+                  </button>
+                ) : null}
               </div>
-            </div>
-
-            {fetchError ? (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                {fetchError}
-              </div>
-            ) : null}
-
-            {addingModel ? (
-              <div className="settings-inline-form flex gap-2">
-                <Input
-                  autoFocus
-                  value={newModelName}
-                  className="h-8 text-xs"
-                  onChange={(e) => setNewModelName(e.currentTarget.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleAddModel();
-                    if (e.key === "Escape") setAddingModel(false);
-                  }}
-                />
-                <Button size="sm" className="h-8" onClick={handleAddModel}>
-                  {t("settings.add")}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8"
-                  onClick={() => setAddingModel(false)}
-                >
-                  {t("settings.cancel")}
-                </Button>
-              </div>
-            ) : null}
-
-            <div className="max-h-[220px] divide-y overflow-y-auto rounded-lg border">
-              {orderedModels.length === 0 ? (
-                <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                  {baseUrl.trim() && apiKeyForRequest
-                    ? t("settings.fetchFailed")
-                    : t("settings.fetchHint")}
-                </div>
-              ) : (
-                orderedModels.map((model) => {
-                  const checkboxId = `model-${providerType}-${normalizeModelDomId(model.id)}`;
-                  return (
-                    <div
-                      key={model.id}
-                      className="settings-model-row group flex items-center gap-2 px-3 py-2 hover:bg-accent/30"
-                    >
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 shrink-0 cursor-pointer accent-primary"
-                        checked={activeModels.has(model.id)}
-                        onChange={() => toggleModel(model.id)}
-                        id={checkboxId}
-                      />
-                      <label
-                        htmlFor={checkboxId}
-                        className="flex-1 cursor-pointer truncate text-sm"
-                      >
-                        {model.id}
-                      </label>
+              {historyManagerOpen && providerHistoryItems.length > 0 ? (
+                <div className="space-y-2 rounded-md border bg-muted/20 p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-medium text-foreground">
+                      {t("settings.providerHistoryCount").replace(
+                        "{count}",
+                        String(providerHistoryItems.length),
+                      )}
+                    </span>
+                    <div className="flex items-center gap-1">
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-                        onClick={() => openModelSettings(model.id)}
-                        title={t("settings.modelSettings")}
+                        className="h-7 w-7"
+                        onClick={() =>
+                          onProviderHistoryChange(
+                            restoreHiddenProviderHistory(providerHistory, providerType),
+                          )
+                        }
+                        title={t("settings.restoreHiddenProviderHistory")}
                       >
-                        <Settings2 className="h-3.5 w-3.5" />
+                        <Undo2 className="h-3.5 w-3.5" />
                       </Button>
-                      <button
+                      <Button
                         type="button"
-                        className="settings-hover-action hidden h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive group-hover:flex"
-                        onClick={() => removeModel(model.id)}
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        onClick={() =>
+                          onProviderHistoryChange(
+                            clearProviderHistory(providerHistory, providerType),
+                          )
+                        }
+                        title={t("settings.clearProviderHistory")}
                       >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
-                  );
-                })
-              )}
+                  </div>
+                  <div className="max-h-36 space-y-1 overflow-y-auto">
+                    {providerHistoryItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center gap-2 rounded px-1.5 py-1 hover:bg-muted/60"
+                      >
+                        <button
+                          type="button"
+                          className={`min-w-0 flex-1 text-left ${item.hidden ? "opacity-50" : ""}`}
+                          onClick={() => {
+                            setName(item.name);
+                            setBaseUrl(item.baseUrl);
+                          }}
+                        >
+                          <div className="truncate text-[11px] font-medium">
+                            {item.name || item.baseUrl}
+                          </div>
+                          {item.name && item.baseUrl ? (
+                            <div className="truncate text-[10px] text-muted-foreground">
+                              {item.baseUrl}
+                            </div>
+                          ) : null}
+                        </button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0"
+                          onClick={() =>
+                            onProviderHistoryChange(
+                              setProviderHistoryItemHidden(providerHistory, item.id, !item.hidden),
+                            )
+                          }
+                          title={
+                            item.hidden
+                              ? t("settings.restoreProviderHistoryItem")
+                              : t("settings.hideProviderHistoryItem")
+                          }
+                        >
+                          {item.hidden ? (
+                            <Undo2 className="h-3.5 w-3.5" />
+                          ) : (
+                            <EyeOff className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="modal-apikey">API Key</Label>
+              <div className="relative">
+                <Input
+                  id="modal-apikey"
+                  type={showApiKey ? "text" : "password"}
+                  autoComplete="new-password"
+                  value={apiKey}
+                  className="pr-10"
+                  onChange={(e) => setApiKey(e.currentTarget.value)}
+                  onFocus={(e) => {
+                    if (apiKeyIsRedactedDisplay) e.currentTarget.select();
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowApiKey((prev) => !prev)}
+                  title={showApiKey ? t("settings.hideApiKey") : t("settings.showApiKey")}
+                  aria-label={showApiKey ? t("settings.hideApiKey") : t("settings.showApiKey")}
+                >
+                  {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+
+            {providerType === "codex" ? (
+              <div className="space-y-1.5">
+                <Label>{t("settings.requestFormat")}</Label>
+                <Select
+                  value={requestFormat}
+                  onValueChange={(value) => setRequestFormat(value as CodexRequestFormat)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue>{CODEX_REQUEST_FORMAT_LABELS[requestFormat]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(CODEX_REQUEST_FORMAT_LABELS).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+          </div>
+          <div className="flex min-h-0 flex-col gap-2 overflow-hidden">
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={modelQuery}
+                onChange={(event) => setModelQuery(event.currentTarget.value)}
+                placeholder={t("settings.searchModels")}
+                className="h-8 min-w-[160px] flex-1"
+              />
+              <Select
+                value={modelFilter}
+                onValueChange={(value) => setModelFilter(value as typeof modelFilter)}
+              >
+                <SelectTrigger className="h-8 w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t("settings.all")}</SelectItem>
+                  <SelectItem value="added">{t("settings.added")}</SelectItem>
+                  <SelectItem value="available">{t("settings.notAdded")}</SelectItem>
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground">
+                {activeModels.size}/{models.length}
+              </span>
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col gap-2">
+              <div className="settings-model-toolbar flex items-center justify-between">
+                <Label>{t("settings.models")}</Label>
+                <div className="flex items-center gap-1">
+                  {fetchingModels ? (
+                    <span className="mr-1 text-xs text-muted-foreground">
+                      {t("settings.fetching")}
+                    </span>
+                  ) : null}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setVisibleModelsSelected(!allVisibleModelsSelected)}
+                    disabled={models.length === 0}
+                  >
+                    {allVisibleModelsSelected ? t("settings.deselectAll") : t("settings.selectAll")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={handleRefresh}
+                    disabled={fetchingModels || (isGatewayWebui && !canFetchModels)}
+                    title={t("settings.refreshModels")}
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${fetchingModels ? "animate-spin" : ""}`} />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => setAddingModel(true)}
+                    title={t("settings.addModel")}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+
+              {fetchError ? (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {fetchError}
+                </div>
+              ) : null}
+
+              {addingModel ? (
+                <div className="settings-inline-form flex gap-2">
+                  <Input
+                    autoFocus
+                    value={newModelName}
+                    className="h-8 text-xs"
+                    onChange={(e) => setNewModelName(e.currentTarget.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleAddModel();
+                      if (e.key === "Escape") setAddingModel(false);
+                    }}
+                  />
+                  <Button size="sm" className="h-8" onClick={handleAddModel}>
+                    {t("settings.add")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => setAddingModel(false)}
+                  >
+                    {t("settings.cancel")}
+                  </Button>
+                </div>
+              ) : null}
+
+              <div className="min-h-[220px] flex-1 divide-y overflow-y-auto rounded-lg border">
+                {visibleModels.length === 0 ? (
+                  <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                    {baseUrl.trim() && apiKeyForRequest
+                      ? t("settings.fetchFailed")
+                      : t("settings.fetchHint")}
+                  </div>
+                ) : (
+                  visibleModels.map((model) => {
+                    const checkboxId = `model-${providerType}-${normalizeModelDomId(model.id)}`;
+                    return (
+                      <div
+                        key={model.id}
+                        className={`settings-model-row group flex items-center gap-2 px-3 py-2 hover:bg-accent/30 ${activeModels.has(model.id) ? "bg-primary/[0.06]" : ""}`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 shrink-0 cursor-pointer accent-primary"
+                          checked={activeModels.has(model.id)}
+                          onChange={() => toggleModel(model.id)}
+                          id={checkboxId}
+                        />
+                        <label
+                          htmlFor={checkboxId}
+                          className="flex-1 cursor-pointer truncate text-sm"
+                        >
+                          {model.id}
+                        </label>
+                        {newlyAddedModels.has(model.id) ? (
+                          <span className="rounded bg-emerald-500/12 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-300">
+                            {t("settings.newlyAdded")}
+                          </span>
+                        ) : activeModels.has(model.id) ? (
+                          <span className="text-[10px] text-primary">{t("settings.added")}</span>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                          onClick={() => openModelSettings(model.id)}
+                          title={t("settings.modelSettings")}
+                        >
+                          <Settings2 className="h-3.5 w-3.5" />
+                        </Button>
+                        <button
+                          type="button"
+                          className="settings-hover-action hidden h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive group-hover:flex"
+                          onClick={() => removeModel(model.id)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              {editingModel ? (
+                <div className="grid gap-2 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2">
+                  <label className="text-xs">
+                    {t("settings.contextWindow")}
+                    <Input
+                      type="number"
+                      value={editingModel.contextWindow}
+                      onChange={(event) => {
+                        const next = {
+                          ...editingModel,
+                          contextWindow: Number(event.currentTarget.value),
+                        };
+                        setEditingModel(next);
+                        saveModelSettings(next);
+                      }}
+                    />
+                  </label>
+                  <label className="text-xs">
+                    {t("settings.maxOutputTokens")}
+                    <Input
+                      type="number"
+                      value={editingModel.maxOutputToken}
+                      onChange={(event) => {
+                        const next = {
+                          ...editingModel,
+                          maxOutputToken: Number(event.currentTarget.value),
+                        };
+                        setEditingModel(next);
+                        saveModelSettings(next);
+                      }}
+                    />
+                  </label>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -557,14 +789,6 @@ function ProviderModal({ providerType, initialData, onSave, onClose }: ModalProp
             {t("settings.save")}
           </Button>
         </div>
-
-        {editingModel ? (
-          <ModelSettingsModal
-            model={editingModel}
-            onClose={() => setEditingModel(null)}
-            onSave={saveModelSettings}
-          />
-        ) : null}
       </div>
     </div>,
     document.body,
@@ -674,6 +898,20 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
           <section className="space-y-3">
             <div className="rounded-2xl border border-foreground/[0.06] bg-white/60 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-xl dark:border-foreground/[0.08] dark:bg-foreground/[0.03] dark:shadow-none">
               <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <Label>{t("settings.conversationTitleEnabled")}</Label>
+                  <AgentActivationSwitch
+                    checked={settings.customSettings.conversationTitleEnabled}
+                    title={t("settings.conversationTitleEnabled")}
+                    onToggle={() =>
+                      setSettings((prev) =>
+                        updateCustomSettings(prev, {
+                          conversationTitleEnabled: !prev.customSettings.conversationTitleEnabled,
+                        }),
+                      )
+                    }
+                  />
+                </div>
                 <Label className="text-[12.5px] font-medium text-foreground/85">
                   {t("settings.conversationTitleModel")}
                 </Label>
@@ -825,18 +1063,21 @@ export function ProvidersSection(props: SettingsSectionProps) {
 
   function handleSave(data: Omit<CustomProvider, "id">) {
     setSettings((prev) => {
+      const withHistory = updateCustomSettings(prev, {
+        providerHistory: recordProviderHistory(prev.customSettings.providerHistory, data),
+      });
       if (editingProvider) {
-        const updated = prev.customProviders.map((provider) =>
+        const updated = withHistory.customProviders.map((provider) =>
           provider.id === editingProvider.id ? { ...provider, ...data } : provider,
         );
-        return updateCustomProviders(prev, updated);
+        return updateCustomProviders(withHistory, updated);
       }
 
       const newProvider: CustomProvider = {
         id: crypto.randomUUID(),
         ...data,
       };
-      return updateCustomProviders(prev, [...prev.customProviders, newProvider]);
+      return updateCustomProviders(withHistory, [...withHistory.customProviders, newProvider]);
     });
   }
 
@@ -912,6 +1153,10 @@ export function ProvidersSection(props: SettingsSectionProps) {
         <ProviderModal
           providerType={activeTab}
           initialData={editingProvider ?? undefined}
+          providerHistory={settings.customSettings.providerHistory}
+          onProviderHistoryChange={(providerHistory) =>
+            setSettings((prev) => updateCustomSettings(prev, { providerHistory }))
+          }
           onSave={handleSave}
           onClose={closeModal}
         />

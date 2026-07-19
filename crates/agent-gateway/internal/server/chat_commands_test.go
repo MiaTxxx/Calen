@@ -10,6 +10,22 @@ import (
 	"github.com/MiaTxxx/Calen/crates/agent-gateway/internal/session"
 )
 
+func TestBuildChatContextResetEnvelope(t *testing.T) {
+	t.Parallel()
+
+	envelope := buildChatContextResetEnvelope(" request-1 ", " conversation-1 ")
+	if envelope.GetRequestId() != "request-1" {
+		t.Fatalf("request id = %q, want request-1", envelope.GetRequestId())
+	}
+	command := envelope.GetChatCommand()
+	if command == nil || command.GetType() != "chat.context_reset" {
+		t.Fatalf("chat command = %#v", command)
+	}
+	if command.GetRequest().GetConversationId() != "conversation-1" {
+		t.Fatalf("conversation id = %q, want conversation-1", command.GetRequest().GetConversationId())
+	}
+}
+
 func newChatCommandTestManager(t *testing.T) (*session.Manager, *session.AgentSession) {
 	t.Helper()
 	sm := session.NewManager()

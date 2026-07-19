@@ -155,6 +155,7 @@ export interface MentionComposerProps {
   onSend: () => void;
   /** Called only when empty/non-empty state flips. */
   onEmptyChange?: (isEmpty: boolean) => void;
+  onDraftChange?: (draft: MentionComposerDraft) => void;
   onBusyChange?: (isBusy: boolean) => void;
   onPasteFiles?: (files: File[]) => void;
   disabled?: boolean;
@@ -162,6 +163,7 @@ export interface MentionComposerProps {
   workdir: string;
   enabledSkills?: MentionComposerSkill[];
   className?: string;
+  editorHeight?: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1465,6 +1467,7 @@ export const MentionComposer = memo(
     {
       onSend,
       onEmptyChange,
+      onDraftChange,
       onBusyChange,
       onPasteFiles,
       disabled = false,
@@ -1472,6 +1475,7 @@ export const MentionComposer = memo(
       workdir,
       enabledSkills = [],
       className,
+      editorHeight,
     }: MentionComposerProps,
     ref,
   ) {
@@ -2127,10 +2131,11 @@ export const MentionComposer = memo(
       }
       pruneDetachedLargePastes();
       refreshEmptyState();
+      onDraftChange?.(buildDraft());
       if (!isComposingRef.current) {
         refreshMention();
       }
-    }, [pruneDetachedLargePastes, refreshEmptyState, refreshMention]);
+    }, [buildDraft, onDraftChange, pruneDetachedLargePastes, refreshEmptyState, refreshMention]);
 
     const handleKeyUp = useCallback(
       (e: KeyboardEvent<HTMLDivElement>) => {
@@ -2468,12 +2473,13 @@ export const MentionComposer = memo(
           onCompositionEnd={handleCompositionEnd}
           onBlur={handleBlur}
           className={cn(
-            "mention-composer min-h-[70px] max-h-[160px] w-full min-w-0 max-w-full overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] outline-hidden",
+            "mention-composer min-h-[70px] w-full min-w-0 max-w-full overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] outline-hidden",
             "text-sm",
             isDomEmpty && "is-empty",
             disabled && "cursor-not-allowed opacity-60",
             className,
           )}
+          style={editorHeight ? { height: `${editorHeight}px`, maxHeight: "55vh" } : undefined}
           data-placeholder={placeholder}
         />
       </div>

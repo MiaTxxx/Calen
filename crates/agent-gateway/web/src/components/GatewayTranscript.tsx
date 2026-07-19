@@ -1069,6 +1069,8 @@ function estimateRowHeight(row: TranscriptRow): number {
     estimate = estimateAssistantRowHeight({ textChars, toolCount, thinkingCount });
   } else if (row.kind === "checkpoint") {
     estimate = CHECKPOINT_ROW_ESTIMATE_PX;
+  } else if (row.kind === "context-reset") {
+    estimate = 36;
   } else {
     estimate = 120;
   }
@@ -1428,6 +1430,24 @@ const GatewayTranscriptListRegion = memo(function GatewayTranscriptListRegion(pr
               style={{ transform: `translateY(${virtualRow.start}px)` }}
             >
               <CheckpointCard item={row} readOnly={readOnly} />
+            </article>
+          );
+        }
+
+        if (row.kind === "context-reset") {
+          return (
+            <article
+              key={virtualRow.key}
+              data-index={virtualRow.index}
+              ref={transcriptVirtualizer.measureElement}
+              className="gateway-transcript-row absolute left-0 right-0 top-0"
+              style={{ transform: `translateY(${virtualRow.start}px)` }}
+            >
+              <div className="flex items-center gap-3 py-3 text-xs text-muted-foreground">
+                <span className="h-px flex-1 bg-border" />
+                <span>此前上下文已清除</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
             </article>
           );
         }

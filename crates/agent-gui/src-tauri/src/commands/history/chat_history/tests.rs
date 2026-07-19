@@ -114,6 +114,36 @@ mod tests {
     }
 
     #[test]
+    fn composer_draft_round_trips_without_a_history_row() {
+        let conn = open_test_db().expect("open test db");
+        let input = ChatComposerDraftInput {
+            conversation_id: "draft-only".to_string(),
+            workdir: "C:/workspace".to_string(),
+            draft_json: r#"{"text":"保留我"}"#.to_string(),
+            uploaded_files_json: r#"[{"relativePath":"notes.txt"}]"#.to_string(),
+            preview: "保留我".to_string(),
+            updated_at: 1_700_000_000_200,
+        };
+
+        upsert_chat_composer_draft_sync(&conn, &input).expect("save draft");
+        let stored = get_chat_composer_draft_sync(&conn, "draft-only")
+            .expect("load draft")
+            .expect("draft exists");
+        assert_eq!(stored.preview, "保留我");
+        assert_eq!(stored.workdir, "C:/workspace");
+        assert_eq!(list_chat_composer_drafts_sync(&conn).expect("list drafts").len(), 1);
+        let history_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM chatHistory", [], |row| row.get(0))
+            .expect("count history rows");
+        assert_eq!(history_count, 0);
+
+        delete_chat_composer_draft_sync(&conn, "draft-only").expect("delete draft");
+        assert!(get_chat_composer_draft_sync(&conn, "draft-only")
+            .expect("load deleted draft")
+            .is_none());
+    }
+
+    #[test]
     fn initialize_db_migrates_legacy_pin_columns() {
         let conn =
             Connection::open_in_memory().expect("open legacy in-memory chat history database");
@@ -656,6 +686,7 @@ mod tests {
             &ChatHistorySegmentInput {
                 segment_index: 0,
                 segment_id: "segment-0".to_string(),
+                boundary_kind: None,
                 summary_json: None,
                 messages_json: r#"[
                   {"id":"m-user","role":"user","content":"start","timestamp":1700000000001},
@@ -805,6 +836,7 @@ mod tests {
             &ChatHistorySegmentInput {
                 segment_index: 0,
                 segment_id: "segment-0".to_string(),
+                boundary_kind: None,
                 summary_json: None,
                 messages_json:
                     r#"[{"role":"user","content":"hello"},{"role":"assistant","content":"world"}]"#
@@ -840,6 +872,7 @@ mod tests {
             &ChatHistorySegmentInput {
                 segment_index: 0,
                 segment_id: "segment-0".to_string(),
+                boundary_kind: None,
                 summary_json: None,
                 messages_json: r#"[
                   {"id":"m-user","role":"user","content":"以后请用陕西腔跟我说话。","timestamp":1700000000001},
@@ -893,6 +926,7 @@ mod tests {
             &ChatHistorySegmentInput {
                 segment_index: 0,
                 segment_id: "segment-0".to_string(),
+                boundary_kind: None,
                 summary_json: None,
                 messages_json: r#"[{"id":"m-early","role":"user","content":"rangemarker early","timestamp":1700000000001}]"#
                     .to_string(),
@@ -910,6 +944,7 @@ mod tests {
             &ChatHistorySegmentInput {
                 segment_index: 1,
                 segment_id: "segment-1".to_string(),
+                boundary_kind: None,
                 summary_json: None,
                 messages_json: r#"[{"id":"m-late","role":"user","content":"rangemarker late","timestamp":1700000100001}]"#
                     .to_string(),
@@ -956,6 +991,7 @@ mod tests {
             &ChatHistorySegmentInput {
                 segment_index: 0,
                 segment_id: "segment-0".to_string(),
+                boundary_kind: None,
                 summary_json: None,
                 messages_json: r#"[{"id":"m-early","role":"user","content":"early travel planning marker","timestamp":1700000000001}]"#
                     .to_string(),
@@ -973,6 +1009,7 @@ mod tests {
             &ChatHistorySegmentInput {
                 segment_index: 1,
                 segment_id: "segment-1".to_string(),
+                boundary_kind: None,
                 summary_json: None,
                 messages_json: r#"[{"id":"m-late","role":"user","content":"late travel planning marker","timestamp":1700000100001}]"#
                     .to_string(),
@@ -1240,6 +1277,7 @@ mod tests {
             &ChatHistorySegmentInput {
                 segment_index: 0,
                 segment_id: "segment-0".to_string(),
+                boundary_kind: None,
                 summary_json: None,
                 messages_json: r#"[{"id":"m-user","role":"user","content":"重复索引自愈测试","timestamp":1700000000001}]"#
                     .to_string(),

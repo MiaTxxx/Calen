@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { createTsModuleLoader } from "../helpers/load-ts-module.mjs";
+import { readStockHubSource } from "../helpers/stock-hub-source.mjs";
 
 const loader = createTsModuleLoader();
 const { mapStockResearchResult } = loader.loadModule(
@@ -85,10 +86,7 @@ test("research evidence keeps per-source freshness and reports the oldest eviden
 });
 
 test("Hub and chat result cards render source-level freshness and split factual evidence from experiments", async () => {
-  const hubSource = await readFile(
-    new URL("../../src/pages/stock-hub/StockHubPage.tsx", import.meta.url),
-    "utf8"
-  );
+  const hubSource = await readStockHubSource();
   const chatSource = await readFile(
     new URL(
       "../../src/pages/chat/components/assistant-bubble/ToolResultDisplay.tsx",
@@ -120,10 +118,7 @@ test("Hub and chat result cards render source-level freshness and split factual 
 });
 
 test("research view ignores stale search, snapshot, evidence, and AI responses", async () => {
-  const hubSource = await readFile(
-    new URL("../../src/pages/stock-hub/StockHubPage.tsx", import.meta.url),
-    "utf8"
-  );
+  const hubSource = await readStockHubSource();
 
   assert.match(hubSource, /const searchSequence = useRef\(0\)/);
   assert.match(hubSource, /const inspectSequence = useRef\(0\)/);
@@ -131,5 +126,7 @@ test("research view ignores stale search, snapshot, evidence, and AI responses",
   assert.match(hubSource, /sequence !== searchSequence\.current/);
   assert.match(hubSource, /sequence !== inspectSequence\.current/);
   assert.match(hubSource, /sequence !== researchSequence\.current/);
-  assert.match(hubSource, /researchSequence\.current \+= 1/);
+  // 子页签按 `${instrumentId}|${tab}` 缓存，令牌保证只有最新请求能写入该键。
+  assert.match(hubSource, /const tabSequence = useRef\(0\)/);
+  assert.match(hubSource, /tabTokens\.current\.get\(key\) !== token/);
 });

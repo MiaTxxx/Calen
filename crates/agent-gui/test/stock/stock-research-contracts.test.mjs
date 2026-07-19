@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { createTsModuleLoader } from "../helpers/load-ts-module.mjs";
+import { readStockHubSource } from "../helpers/stock-hub-source.mjs";
 
 import {
   buildSparklinePath,
@@ -118,7 +119,10 @@ test("local portfolio turns activate Gateway privacy before persistence", async 
   assert.ok(privacyActivation >= 0);
   assert.ok(titleJob > privacyActivation);
   assert.ok(initialPersist > privacyActivation);
-  assert.match(source, /if \(isFirstTurn && !privateStockPortfolioRequest\)/);
+  assert.match(
+    source,
+    /if \(\s*isFirstTurn\s*&&\s*!privateStockPortfolioRequest\s*&&\s*settings\.customSettings\.conversationTitleEnabled\s*\)/
+  );
   assert.match(
     source,
     /privateStockPortfolioRequest && isFirstTurn[\s\S]*?STOCK_PORTFOLIO_PRIVATE_TITLE/
@@ -865,10 +869,7 @@ test("Tauri adapter preserves a live degraded status after restart", () => {
 });
 
 test("stock hub keeps the five product views", async () => {
-  const source = await readFile(
-    new URL("../../src/pages/stock-hub/StockHubPage.tsx", import.meta.url),
-    "utf8"
-  );
+  const source = await readStockHubSource();
   const chartSource = await readFile(
     new URL("../../src/pages/stock-hub/StockChart.tsx", import.meta.url),
     "utf8"
@@ -925,9 +926,11 @@ test("stock hub keeps the five product views", async () => {
     /capabilities: \["history", "technical", "score", "strategy", "evaluator"\]/
   );
   assert.match(source, /原始实验数据/);
-  assert.match(source, /evidenceItems\(root\.periods\)\.slice\(0, 4\)/);
+  // 财务页签：有界报告期（最多 4 期）+ 覆盖说明 + 专属科目渲染。
+  assert.match(source, /asItems\(root\.periods\)\n?\s*\.slice\(0, 4\)/);
   assert.match(source, /报告期覆盖/);
-  assert.match(source, /financialPeriodDetail\(period\)/);
+  assert.match(source, /三表关键科目/);
+  assert.match(source, /归母净利润/);
   assert.match(source, /算法与版本/);
   assert.match(source, /样本覆盖率/);
   assert.match(source, /样本外评估比例/);

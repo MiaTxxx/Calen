@@ -44,7 +44,26 @@ export function buildConversationTitlePrompt(content: string) {
   return `Based on the following content, generate a title within 10 words for this conversation and output it directly without any other content:${content}`;
 }
 
-export function normalizeConversationTitle(raw: string) {
+export function truncateConversationTitle(raw: string, locale = "en-US") {
+  const value = raw
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!value) return "";
+  if (locale.toLowerCase().startsWith("zh")) {
+    try {
+      return Array.from(new Intl.Segmenter(locale, { granularity: "grapheme" }).segment(value))
+        .slice(0, 10)
+        .map((item) => item.segment)
+        .join("");
+    } catch {
+      return Array.from(value).slice(0, 10).join("");
+    }
+  }
+  return value.split(/\s+/).slice(0, 10).join(" ");
+}
+
+export function normalizeConversationTitle(raw: string, locale = "en-US") {
   const singleLine = raw
     .replace(/[\r\n]+/g, " ")
     .replace(/\s+/g, " ")
@@ -53,14 +72,13 @@ export function normalizeConversationTitle(raw: string) {
 
   if (!singleLine) return "";
 
-  const words = singleLine.split(" ").filter(Boolean);
-  const limitedWords = words.length > 10 ? words.slice(0, 10).join(" ") : singleLine;
-  return limitedWords.slice(0, 80).trim();
+  return truncateConversationTitle(singleLine, locale).slice(0, 80).trim();
 }
 
-export function buildFallbackConversationTitle(content: string) {
+export function buildFallbackConversationTitle(content: string, locale?: string) {
   const singleLine = content.replace(/\s+/g, " ").trim();
   if (!singleLine) return "新对话";
+  if (locale) return truncateConversationTitle(singleLine, locale);
   if (singleLine.length <= FALLBACK_TITLE_MAX_CHARS) return singleLine;
   return `${singleLine.slice(0, FALLBACK_TITLE_MAX_CHARS).trimEnd()}...`;
 }

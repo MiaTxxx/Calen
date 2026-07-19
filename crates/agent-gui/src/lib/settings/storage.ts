@@ -5,9 +5,13 @@ import {
   type AppSettings,
   type ChatRuntimeControls,
   getDefaultSettings,
+  normalizeAppearanceSettings,
   normalizeBackgroundSettings,
+  normalizeChatLayoutSettings,
   normalizeChatRuntimeControls,
+  normalizeDraftPersistenceSettings,
   normalizeFontScaleSettings,
+  normalizeProviderHistorySettings,
   normalizeRightDockSettings,
   normalizeSelectedModel,
   normalizeSettings,
@@ -77,6 +81,7 @@ function readLocalUiSettings(): {
       obj.chatSidebar && typeof obj.chatSidebar === "object" ? obj.chatSidebar : {}
     ) as Record<string, unknown>;
     return {
+      conversationTitleEnabled: obj.conversationTitleEnabled !== false,
       conversationTitleModel: normalizeSelectedModel(obj.conversationTitleModel),
       translationModel: normalizeSelectedModel(obj.translationModel),
       translation: normalizeTranslationPreferences(obj.translation),
@@ -87,6 +92,10 @@ function readLocalUiSettings(): {
       rightDock: normalizeRightDockSettings(obj.rightDock),
       fontScale: normalizeFontScaleSettings(obj.fontScale),
       background: normalizeBackgroundSettings(obj.background),
+      draftPersistence: normalizeDraftPersistenceSettings(obj.draftPersistence),
+      chatLayout: normalizeChatLayoutSettings(obj.chatLayout),
+      appearance: normalizeAppearanceSettings(obj.appearance),
+      providerHistory: normalizeProviderHistorySettings(obj.providerHistory),
     };
   }
 

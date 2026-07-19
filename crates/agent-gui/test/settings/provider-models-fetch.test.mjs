@@ -7,7 +7,10 @@ const loader = createTsModuleLoader({
     "@tauri-apps/api/core": {
       invoke(command) {
         if (command === "proxy_get_server_info") {
-          return Promise.resolve({ baseUrl: "http://proxy.local:9999", token: "proxy-token" });
+          return Promise.resolve({
+            baseUrl: "http://proxy.local:9999",
+            token: "proxy-token",
+          });
         }
         throw new Error(`unexpected invoke(${command})`);
       },
@@ -15,6 +18,20 @@ const loader = createTsModuleLoader({
   },
 });
 const providerUtils = loader.loadModule("src/pages/settings/providerUtils.ts");
+
+test("model selection preserves provider and manual insertion order", () => {
+  const models = [
+    { id: "z", contextWindow: 1, maxOutputToken: 1 },
+    { id: "a", contextWindow: 1, maxOutputToken: 1 },
+    { id: "m", contextWindow: 1, maxOutputToken: 1 },
+  ];
+  assert.deepEqual(
+    providerUtils
+      .sortModelsBySelection(models, new Set(["a"]))
+      .map((model) => model.id),
+    ["z", "a", "m"]
+  );
+});
 
 function jsonResponse(status, payload) {
   return {
@@ -43,32 +60,52 @@ function withFetchStub(responder, run) {
 
 test("buildProviderModelsUrl defaults to /v1/models and falls back to official endpoints", () => {
   assert.equal(
-    providerUtils.buildProviderModelsUrl("gemini", "https://relay.example.com", "default"),
-    "https://relay.example.com/v1/models",
+    providerUtils.buildProviderModelsUrl(
+      "gemini",
+      "https://relay.example.com",
+      "default"
+    ),
+    "https://relay.example.com/v1/models"
   );
   assert.equal(
-    providerUtils.buildProviderModelsUrl("gemini", "https://relay.example.com", "official"),
-    "https://relay.example.com/v1beta/models",
+    providerUtils.buildProviderModelsUrl(
+      "gemini",
+      "https://relay.example.com",
+      "official"
+    ),
+    "https://relay.example.com/v1beta/models"
   );
   assert.equal(
     providerUtils.buildProviderModelsUrl(
       "gemini",
       "https://generativelanguage.googleapis.com/v1beta",
-      "default",
+      "default"
     ),
-    "https://generativelanguage.googleapis.com/v1beta/models",
+    "https://generativelanguage.googleapis.com/v1beta/models"
   );
   assert.equal(
-    providerUtils.buildProviderModelsUrl("claude_code", "https://relay.example.com", "default"),
-    "https://relay.example.com/v1/models",
+    providerUtils.buildProviderModelsUrl(
+      "claude_code",
+      "https://relay.example.com",
+      "default"
+    ),
+    "https://relay.example.com/v1/models"
   );
   assert.equal(
-    providerUtils.buildProviderModelsUrl("claude_code", "https://relay.example.com", "official"),
-    "https://relay.example.com/v1/models",
+    providerUtils.buildProviderModelsUrl(
+      "claude_code",
+      "https://relay.example.com",
+      "official"
+    ),
+    "https://relay.example.com/v1/models"
   );
   assert.equal(
-    providerUtils.buildProviderModelsUrl("codex", "https://relay.example.com/v1", "default"),
-    "https://relay.example.com/v1/models",
+    providerUtils.buildProviderModelsUrl(
+      "codex",
+      "https://relay.example.com/v1",
+      "default"
+    ),
+    "https://relay.example.com/v1/models"
   );
 });
 
@@ -76,12 +113,12 @@ test("buildProviderModelsAttempts orders default before official with provider h
   const gemini = providerUtils.buildProviderModelsAttempts(
     "gemini",
     "https://relay.example.com",
-    "test-key",
+    "test-key"
   );
   assert.equal(gemini.length, 2);
   assert.deepEqual(
     gemini.map((attempt) => attempt.kind),
-    ["default", "official"],
+    ["default", "official"]
   );
   assert.equal(gemini[0].headers.Authorization, "Bearer test-key");
   assert.equal(gemini[0].headers["x-goog-api-key"], "test-key");
@@ -91,7 +128,7 @@ test("buildProviderModelsAttempts orders default before official with provider h
   const claude = providerUtils.buildProviderModelsAttempts(
     "claude_code",
     "https://relay.example.com",
-    "test-key",
+    "test-key"
   );
   assert.equal(claude.length, 2);
   assert.equal(claude[0].headers.Authorization, "Bearer test-key");
@@ -103,7 +140,7 @@ test("buildProviderModelsAttempts orders default before official with provider h
   const codex = providerUtils.buildProviderModelsAttempts(
     "codex",
     "https://relay.example.com",
-    "test-key",
+    "test-key"
   );
   assert.equal(codex.length, 2);
   assert.equal(codex[0].headers["x-api-key"], "test-key");
@@ -117,21 +154,21 @@ test("pickProviderModelsFailure prefers informative errors over missing-endpoint
       { status: 401, message: "invalid api key" },
       { status: 404, message: "not found" },
     ]),
-    { status: 401, message: "invalid api key" },
+    { status: 401, message: "invalid api key" }
   );
   assert.deepEqual(
     providerUtils.pickProviderModelsFailure([
       { status: 404, message: "not found" },
       { status: 400, message: "api key invalid" },
     ]),
-    { status: 400, message: "api key invalid" },
+    { status: 400, message: "api key invalid" }
   );
   assert.deepEqual(
     providerUtils.pickProviderModelsFailure([
       { status: 404, message: "first" },
       { status: 404, message: "second" },
     ]),
-    { status: 404, message: "second" },
+    { status: 404, message: "second" }
   );
   assert.equal(providerUtils.pickProviderModelsFailure([]), null);
 });
@@ -146,16 +183,16 @@ test("fetchModelsFromApi falls back to the official gemini endpoint on 404", asy
       const models = await providerUtils.fetchModelsFromApi(
         "gemini",
         "https://relay.example.com",
-        "test-key",
+        "test-key"
       );
       assert.equal(calls.length, 2);
       assert.ok(calls[0].url.endsWith("/proxy/gemini/v1/models"));
       assert.ok(calls[1].url.endsWith("/proxy/gemini/v1beta/models"));
       assert.deepEqual(
         models.map((model) => model.id),
-        ["gemini-2.5-pro"],
+        ["gemini-2.5-pro"]
       );
-    },
+    }
   );
 });
 
@@ -166,15 +203,15 @@ test("fetchModelsFromApi returns the default /v1/models result without falling b
       const models = await providerUtils.fetchModelsFromApi(
         "codex",
         "https://relay.example.com",
-        "test-key",
+        "test-key"
       );
       assert.equal(calls.length, 1);
       assert.ok(calls[0].url.endsWith("/proxy/codex/v1/models"));
       assert.deepEqual(
         models.map((model) => model.id),
-        ["gpt-5"],
+        ["gpt-5"]
       );
-    },
+    }
   );
 });
 
@@ -188,14 +225,14 @@ test("fetchModelsFromApi falls back to official when the default list is empty",
       const models = await providerUtils.fetchModelsFromApi(
         "gemini",
         "https://relay.example.com",
-        "test-key",
+        "test-key"
       );
       assert.equal(calls.length, 2);
       assert.deepEqual(
         models.map((model) => model.id),
-        ["gemini-2.5-flash"],
+        ["gemini-2.5-flash"]
       );
-    },
+    }
   );
 });
 
@@ -207,11 +244,15 @@ test("fetchModelsFromApi surfaces the informative failure when every attempt fai
         : jsonResponse(404, { error: "not found" }),
     async (calls) => {
       await assert.rejects(
-        providerUtils.fetchModelsFromApi("gemini", "https://relay.example.com", "test-key"),
-        /invalid api key/,
+        providerUtils.fetchModelsFromApi(
+          "gemini",
+          "https://relay.example.com",
+          "test-key"
+        ),
+        /invalid api key/
       );
       assert.equal(calls.length, 2);
-    },
+    }
   );
 });
 
@@ -225,7 +266,7 @@ test("fetchModelsFromApi retries claude_code with official anthropic headers", a
       const models = await providerUtils.fetchModelsFromApi(
         "claude_code",
         "https://relay.example.com",
-        "test-key",
+        "test-key"
       );
       assert.equal(calls.length, 2);
       assert.equal(calls[0].options.headers.Authorization, "Bearer test-key");
@@ -233,8 +274,8 @@ test("fetchModelsFromApi retries claude_code with official anthropic headers", a
       assert.equal(calls[1].options.headers["x-api-key"], "test-key");
       assert.deepEqual(
         models.map((model) => model.id),
-        ["claude-opus-4-8"],
+        ["claude-opus-4-8"]
       );
-    },
+    }
   );
 });

@@ -75,6 +75,7 @@ export type TranscriptRow =
       };
       timestamp?: number;
     }
+  | { key: string; origin: TranscriptRowOrigin; kind: "context-reset" }
   | { key: string; origin: TranscriptRowOrigin; kind: "error"; text: string };
 
 export type HistoryApplyMode = "replace" | "enrich";

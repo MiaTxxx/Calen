@@ -56,10 +56,13 @@ function isCommonSkillMentionEnvVar(name: string) {
   );
 }
 
+// `/` 为当前技能引用约定;`$` 为旧约定,历史消息仍需渲染成技能标签。
 export function isSkillMentionToken(token: string) {
-  if (!token.startsWith("$")) return false;
+  const trigger = token[0];
+  if (trigger !== "/" && trigger !== "$") return false;
   const name = token.slice(1);
-  return Boolean(name) && isSkillMentionName(name) && !isCommonSkillMentionEnvVar(name);
+  if (!name || !isSkillMentionName(name)) return false;
+  return trigger === "/" || !isCommonSkillMentionEnvVar(name);
 }
 
 export type UserMessageSegment =
@@ -351,7 +354,7 @@ function tokenizeInlineMentions(text: string): UserMessageSegment[] {
       continue;
     }
 
-    if (text[index] !== "$" || !isTokenBoundary(text, index)) {
+    if ((text[index] !== "/" && text[index] !== "$") || !isTokenBoundary(text, index)) {
       continue;
     }
 
@@ -359,6 +362,8 @@ function tokenizeInlineMentions(text: string): UserMessageSegment[] {
     while (nameEnd < text.length && /[A-Za-z0-9_:-]/.test(text[nameEnd])) {
       nameEnd += 1;
     }
+    // `/foo/bar` 是路径而非技能引用。
+    if (text[index] === "/" && text[nameEnd] === "/") continue;
     const token = text.slice(index, nameEnd);
     if (!isSkillMentionToken(token)) continue;
     if (index > cursor) {

@@ -2,6 +2,7 @@ fn record_to_segment_input(record: &ChatHistorySegmentRecord) -> ChatHistorySegm
     ChatHistorySegmentInput {
         segment_index: record.segment_index,
         segment_id: record.segment_id.clone(),
+        boundary_kind: record.boundary_kind.clone(),
         summary_json: record.summary_json.clone(),
         messages_json: record.messages_json.clone(),
         message_count: record.message_count,
@@ -18,6 +19,13 @@ fn validate_segment_input(segment: &ChatHistorySegmentInput) -> Result<(), Strin
     }
     if segment.segment_id.trim().is_empty() {
         return Err("segmentId 不能为空".to_string());
+    }
+    if segment
+        .boundary_kind
+        .as_deref()
+        .is_some_and(|kind| kind.trim() != "manual-reset")
+    {
+        return Err("boundaryKind 仅支持 manual-reset".to_string());
     }
     if segment.messages_json.trim().is_empty() {
         return Err("messagesJson 不能为空".to_string());
@@ -189,6 +197,7 @@ fn load_segments(
             SELECT
                 segment_index,
                 segment_id,
+                boundary_kind,
                 summary_json,
                 messages_json,
                 message_count,
@@ -228,6 +237,7 @@ fn load_tail_segments(
             SELECT
                 segment_index,
                 segment_id,
+                boundary_kind,
                 summary_json,
                 messages_json,
                 message_count,
@@ -269,6 +279,7 @@ fn load_segment_by_index(
         SELECT
             segment_index,
             segment_id,
+            boundary_kind,
             summary_json,
             messages_json,
             message_count,
@@ -436,6 +447,7 @@ fn upsert_single_segment(
             conversation_id,
             segment_index,
             segment_id,
+            boundary_kind,
             summary_json,
             messages_json,
             message_count,
@@ -443,9 +455,10 @@ fn upsert_single_segment(
             end_message_id,
             created_at,
             updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
         ON CONFLICT(conversation_id, segment_index) DO UPDATE SET
             segment_id = excluded.segment_id,
+            boundary_kind = excluded.boundary_kind,
             summary_json = excluded.summary_json,
             messages_json = excluded.messages_json,
             message_count = excluded.message_count,
@@ -458,6 +471,7 @@ fn upsert_single_segment(
             conversation_id,
             segment.segment_index,
             segment.segment_id.trim(),
+            segment.boundary_kind.as_deref().map(str::trim),
             segment.summary_json.as_deref().map(str::trim),
             segment.messages_json.trim(),
             segment.message_count,
@@ -485,6 +499,7 @@ fn insert_single_segment(
             conversation_id,
             segment_index,
             segment_id,
+            boundary_kind,
             summary_json,
             messages_json,
             message_count,
@@ -492,12 +507,13 @@ fn insert_single_segment(
             end_message_id,
             created_at,
             updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
         ",
         params![
             conversation_id,
             segment.segment_index,
             segment.segment_id.trim(),
+            segment.boundary_kind.as_deref().map(str::trim),
             segment.summary_json.as_deref().map(str::trim),
             segment.messages_json.trim(),
             segment.message_count,
@@ -543,6 +559,7 @@ fn sync_segments(
                     conversation_id,
                     segment_index,
                     segment_id,
+                    boundary_kind,
                     summary_json,
                     messages_json,
                     message_count,
@@ -550,9 +567,10 @@ fn sync_segments(
                     end_message_id,
                     created_at,
                     updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
                 ON CONFLICT(conversation_id, segment_index) DO UPDATE SET
                     segment_id = excluded.segment_id,
+                    boundary_kind = excluded.boundary_kind,
                     summary_json = excluded.summary_json,
                     messages_json = excluded.messages_json,
                     message_count = excluded.message_count,
@@ -565,6 +583,7 @@ fn sync_segments(
                     conversation_id,
                     segment.segment_index,
                     segment.segment_id.trim(),
+                    segment.boundary_kind.as_deref().map(str::trim),
                     segment.summary_json.as_deref().map(str::trim),
                     segment.messages_json.trim(),
                     segment.message_count,
@@ -598,6 +617,8 @@ fn segment_record_matches_input(
     input: &ChatHistorySegmentInput,
 ) -> bool {
     record.segment_id == input.segment_id.trim()
+        && record.boundary_kind.as_deref().map(str::trim)
+            == input.boundary_kind.as_deref().map(str::trim)
         && record.summary_json.as_deref().map(str::trim)
             == input.summary_json.as_deref().map(str::trim)
         && record.messages_json == input.messages_json.trim()

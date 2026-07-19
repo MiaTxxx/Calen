@@ -111,6 +111,31 @@ impl GatewayController {
                     )
                     .map_err(|e| format!("emit gateway chat cancel failed: {e}"))
             }
+            "chat.context_reset" => {
+                let conversation_id = command
+                    .request
+                    .map(|request| request.conversation_id.trim().to_string())
+                    .unwrap_or_default();
+                if conversation_id.is_empty() {
+                    return self
+                        .send_gateway_chat_context_reset_response(
+                            request_id,
+                            conversation_id,
+                            false,
+                            "conversation_id is required".to_string(),
+                        )
+                        .await;
+                }
+                self.app_handle
+                    .emit(
+                        "gateway:chat-context-reset",
+                        GatewayChatContextResetEvent {
+                            request_id,
+                            conversation_id,
+                        },
+                    )
+                    .map_err(|e| format!("emit gateway chat context reset failed: {e}"))
+            }
             other => {
                 self.send_gateway_chat_control_event_with_details(
                     request_id,
@@ -125,6 +150,27 @@ impl GatewayController {
                 .await
             }
         }
+    }
+
+    pub(crate) async fn send_gateway_chat_context_reset_response(
+        &self,
+        request_id: String,
+        conversation_id: String,
+        succeeded: bool,
+        message: String,
+    ) -> Result<(), String> {
+        let mut envelope = build_gateway_chat_control_event_envelope(
+            request_id,
+            conversation_id,
+            "conversation.context_reset",
+            if succeeded { String::new() } else { "context_reset_failed".to_string() },
+            message,
+        );
+        if let Some(proto::agent_envelope::Payload::ChatControl(control)) = envelope.payload.as_mut()
+        {
+            control.state = if succeeded { "completed" } else { "failed" }.to_string();
+        }
+        self.send_agent_envelope(envelope).await
     }
 
     pub(crate) async fn enqueue_gateway_chat_request(

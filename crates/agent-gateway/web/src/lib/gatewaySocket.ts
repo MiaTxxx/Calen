@@ -119,6 +119,11 @@ export type GatewayChatCommandInput = {
   queuePolicy?: "auto" | "append" | "interrupt";
 };
 
+export type GatewayContextResetResult = {
+  conversationId: string;
+  reset: boolean;
+};
+
 type SkillListResponse = {
   rootDir: string;
   paths: string[];
@@ -1648,6 +1653,22 @@ export class GatewayWebSocketClient {
         typeof response.accepted_seq === "number" && Number.isFinite(response.accepted_seq)
           ? response.accepted_seq
           : 0,
+    };
+  }
+
+  async resetChatContext(conversationId: string): Promise<GatewayContextResetResult> {
+    const key = conversationId.trim();
+    if (!key) throw new Error("conversationId is required");
+    const response = await this.requestWithRecovery<{
+      conversation_id?: string;
+      reset?: boolean;
+    }>("chat.command", {
+      type: "chat.context_reset",
+      payload: { conversation_id: key },
+    });
+    return {
+      conversationId: String(response.conversation_id ?? "").trim() || key,
+      reset: response.reset === true,
     };
   }
 

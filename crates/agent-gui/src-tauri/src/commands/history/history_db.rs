@@ -2,7 +2,7 @@ use rusqlite::{Connection, OptionalExtension};
 use std::{collections::HashSet, fs, path::PathBuf, sync::Mutex, time::Duration};
 
 const DB_FILENAME: &str = "chat-history.sqlite3";
-const HISTORY_DB_SCHEMA_VERSION: i64 = 1;
+const HISTORY_DB_SCHEMA_VERSION: i64 = 2;
 
 static HISTORY_DB_MIGRATION_LOCK: Mutex<()> = Mutex::new(());
 
@@ -83,6 +83,11 @@ fn migrate_history_db_inner(conn: &Connection) -> Result<(), String> {
         set_user_version(conn, 1)?;
     }
 
+    if current_version < 2 {
+        migrate_to_v2(conn)?;
+        set_user_version(conn, 2)?;
+    }
+
     // The subagent schema is versioned independently via subagentMeta and is
     // safe to (re)ensure on every startup.
     ensure_subagent_schema(conn)?;
@@ -91,6 +96,11 @@ fn migrate_history_db_inner(conn: &Connection) -> Result<(), String> {
 }
 
 fn migrate_to_v1(conn: &Connection) -> Result<(), String> {
+    ensure_chat_history_schema(conn)?;
+    Ok(())
+}
+
+fn migrate_to_v2(conn: &Connection) -> Result<(), String> {
     ensure_chat_history_schema(conn)?;
     Ok(())
 }
@@ -170,6 +180,7 @@ fn ensure_chat_history_schema(conn: &Connection) -> Result<(), String> {
             conversation_id TEXT NOT NULL,
             segment_index INTEGER NOT NULL,
             segment_id TEXT NOT NULL,
+            boundary_kind TEXT,
             summary_json TEXT,
             messages_json TEXT NOT NULL,
             message_count INTEGER NOT NULL,
@@ -191,6 +202,16 @@ fn ensure_chat_history_schema(conn: &Connection) -> Result<(), String> {
             updated_at INTEGER NOT NULL,
             FOREIGN KEY (conversation_id) REFERENCES chatHistory(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS chatComposerDraft (
+            conversation_id TEXT PRIMARY KEY,
+            workdir TEXT NOT NULL DEFAULT '',
+            draft_json TEXT NOT NULL,
+            uploaded_files_json TEXT NOT NULL DEFAULT '[]',
+            preview TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
         ",
     )
     .map_err(|e| format!("初始化聊天历史表失败：{e}"))?;
@@ -208,6 +229,8 @@ fn ensure_chat_history_schema(conn: &Connection) -> Result<(), String> {
             ON chatHistory(is_pinned DESC, pinned_at DESC, updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_chatHistoryShare_token
             ON chatHistoryShare(token);
+        CREATE INDEX IF NOT EXISTS idx_chatComposerDraft_updated_at
+            ON chatComposerDraft(updated_at DESC);
         ",
     )
     .map_err(|e| format!("初始化聊天历史索引失败：{e}"))?;
@@ -335,6 +358,10 @@ fn ensure_chat_history_segment_columns(conn: &Connection) -> Result<(), String> 
             (
                 "summary_json",
                 "ALTER TABLE chatHistorySegment ADD COLUMN summary_json TEXT;",
+            ),
+            (
+                "boundary_kind",
+                "ALTER TABLE chatHistorySegment ADD COLUMN boundary_kind TEXT;",
             ),
             (
                 "messages_json",
@@ -715,7 +742,7 @@ mod tests {
     #[test]
     fn initialize_connection_sets_schema_version() {
         let conn = open_test_db();
-        assert_eq!(read_user_version(&conn).expect("read version"), 1);
+        assert_eq!(read_user_version(&conn).expect("read version"), 2);
     }
 
     #[test]
@@ -782,7 +809,7 @@ mod tests {
 
         initialize_connection(&conn).expect("migrate legacy history schema");
 
-        assert_eq!(read_user_version(&conn).expect("read version"), 1);
+        assert_eq!(read_user_version(&conn).expect("read version"), 2);
         for (table_name, column_name) in [
             ("chatHistory", "context_meta_json"),
             ("chatHistory", "is_pinned"),

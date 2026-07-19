@@ -1,4 +1,5 @@
 import type {
+  RenderContextReset,
   RenderSummaryCard,
   RenderTimelineItem,
   RenderUserMessage,
@@ -31,6 +32,13 @@ export type UserRow = {
   item: RenderUserMessage;
 };
 
+export type ContextResetRow = {
+  kind: "context-reset";
+  key: string;
+  estimate: number;
+  item: RenderContextReset;
+};
+
 export type AssistantRow = {
   kind: "assistant";
   key: string;
@@ -50,7 +58,7 @@ export type AssistantRow = {
   retryTarget: RenderUserMessage | null;
 };
 
-export type TranscriptRow = SummaryRow | UserRow | AssistantRow;
+export type TranscriptRow = SummaryRow | ContextResetRow | UserRow | AssistantRow;
 
 export type TranscriptRowsSnapshot = {
   rows: TranscriptRow[];
@@ -160,6 +168,8 @@ export function createTranscriptRowModel(): TranscriptRowModel {
     let row: TranscriptRow;
     if (item.kind === "summary") {
       row = { kind: "summary", key: item.key, estimate: CHECKPOINT_ROW_ESTIMATE_PX, item };
+    } else if (item.kind === "context-reset") {
+      row = { kind: "context-reset", key: item.key, estimate: 44, item };
     } else if (item.kind === "user") {
       row = {
         kind: "user",

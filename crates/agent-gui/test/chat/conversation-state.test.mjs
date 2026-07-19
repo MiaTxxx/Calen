@@ -3,7 +3,9 @@ import test from "node:test";
 import { createTsModuleLoader } from "../helpers/load-ts-module.mjs";
 
 const loader = createTsModuleLoader();
-const conversationState = loader.loadModule("src/lib/chat/conversation/conversationState.ts");
+const conversationState = loader.loadModule(
+  "src/lib/chat/conversation/conversationState.ts"
+);
 
 function user(content, timestamp) {
   return { role: "user", content, timestamp };
@@ -23,10 +25,7 @@ test("conversation state builds request context from the active segment", () => 
   const state = conversationState.createConversationStateFromContext({
     systemPrompt: "Base prompt",
     tools: [{ name: "Read" }],
-    messages: [
-      user("hello", 1),
-      assistant("world", 2),
-    ],
+    messages: [user("hello", 1), assistant("world", 2)],
   });
 
   assert.equal(state.meta.schemaVersion, 3);
@@ -38,7 +37,7 @@ test("conversation state builds request context from the active segment", () => 
   assert.deepEqual(requestContext.tools, [{ name: "Read" }]);
   assert.deepEqual(
     requestContext.messages.map((message) => message.role),
-    ["user", "assistant"],
+    ["user", "assistant"]
   );
 });
 
@@ -83,10 +82,13 @@ test("request context omits legacy silent memory extraction artifacts but keeps 
   const requestContext = conversationState.buildRequestContext(state);
   assert.deepEqual(
     requestContext.messages.map((message) => message.role),
-    ["user", "assistant"],
+    ["user", "assistant"]
   );
   assert.doesNotMatch(JSON.stringify(requestContext.messages), /MemoryManager/);
-  assert.doesNotMatch(JSON.stringify(requestContext.messages), /记忆整理完成。/);
+  assert.doesNotMatch(
+    JSON.stringify(requestContext.messages),
+    /记忆整理完成。/
+  );
 });
 
 test("request context keeps direct MemoryManager conversations without a prior visible answer", () => {
@@ -131,10 +133,7 @@ test("request context keeps direct MemoryManager conversations without a prior v
 test("compaction checkpoint creates a summarized segment and carries summary into future requests", () => {
   const base = conversationState.createConversationStateFromContext({
     systemPrompt: "Base prompt",
-    messages: [
-      user("first question", 1),
-      assistant("first answer", 2),
-    ],
+    messages: [user("first question", 1), assistant("first answer", 2)],
   });
 
   const checkpoint = assistant("Compressed facts", 3, {
@@ -145,19 +144,26 @@ test("compaction checkpoint creates a summarized segment and carries summary int
     promptVersion: "summary-v2",
   });
 
-  const compacted = conversationState.applyCompactionCheckpoint(base, checkpoint);
+  const compacted = conversationState.applyCompactionCheckpoint(
+    base,
+    checkpoint
+  );
   assert.equal(compacted.activeSegmentIndex, 1);
   assert.equal(compacted.segments.length, 2);
   assert.equal(compacted.segments[1].summary.id, "summary-1");
   assert.equal(compacted.segments[1].summary.content, "Compressed facts");
-  assert.equal(compacted.segments[1].summary.summaryMeta.coveredMessageCount, 2);
+  assert.equal(
+    compacted.segments[1].summary.summaryMeta.coveredMessageCount,
+    2
+  );
   assert.equal(compacted.historyRenderItems[0].kind, "user");
   assert.equal(compacted.historyRenderItems[0].isFromCompactedSegment, true);
   assert.equal(compacted.historyRenderItems[2].kind, "summary");
 
-  const withNextTurn = conversationState.appendMessagesToConversation(compacted, [
-    user("next question", 4),
-  ]);
+  const withNextTurn = conversationState.appendMessagesToConversation(
+    compacted,
+    [user("next question", 4)]
+  );
   assert.equal(withNextTurn.activeSegmentIndex, 1);
   assert.equal(withNextTurn.segments[1].messages.length, 1);
 
@@ -166,8 +172,46 @@ test("compaction checkpoint creates a summarized segment and carries summary int
   assert.match(requestContext.systemPrompt, /Compressed facts/);
   assert.deepEqual(
     requestContext.messages.map((message) => [message.role, message.content]),
-    [["user", "next question"]],
+    [["user", "next question"]]
   );
+});
+
+test("manual context reset keeps visible history but excludes it from future requests", () => {
+  const base = conversationState.createConversationStateFromContext({
+    systemPrompt: "Base prompt",
+    tools: [{ name: "Read" }],
+    messages: [user("old question", 1), assistant("old answer", 2)],
+  });
+
+  const reset = conversationState.appendManualContextReset(base, 3);
+  assert.equal(reset.activeSegmentIndex, 1);
+  assert.equal(reset.segments[1].boundaryKind, "manual-reset");
+  assert.deepEqual(
+    reset.historyRenderItems.map((item) => item.kind),
+    ["user", "assistant", "context-reset"]
+  );
+
+  const continued = conversationState.appendMessagesToConversation(reset, [
+    user("new question", 4),
+  ]);
+  const requestContext = conversationState.buildRequestContext(continued);
+  assert.equal(requestContext.systemPrompt, "Base prompt");
+  assert.deepEqual(requestContext.tools, [{ name: "Read" }]);
+  assert.deepEqual(
+    requestContext.messages.map((message) => [message.role, message.content]),
+    [["user", "new question"]]
+  );
+  assert.doesNotMatch(
+    requestContext.systemPrompt,
+    /Previous Conversation Summary/
+  );
+
+  const reloaded = conversationState.normalizeConversationState({
+    meta: continued.meta,
+    segments: continued.segments,
+  });
+  assert.equal(reloaded.segments[1].boundaryKind, "manual-reset");
+  assert.equal(reloaded.historyRenderItems[2].kind, "context-reset");
 });
 
 test("truncateConversationFromMessage removes later segments and rebuilds render timeline", () => {
@@ -181,15 +225,20 @@ test("truncateConversationFromMessage removes later segments and rebuilds render
   });
 
   const target = state.historyRenderItems.find(
-    (item) => item.kind === "user" && item.text === "three",
+    (item) => item.kind === "user" && item.text === "three"
   );
   assert.ok(target?.messageRef);
-  const truncated = conversationState.truncateConversationFromMessage(state, target.messageRef);
+  const truncated = conversationState.truncateConversationFromMessage(
+    state,
+    target.messageRef
+  );
 
   assert.equal(truncated.activeSegmentIndex, 0);
   assert.deepEqual(
-    truncated.segments[0].messages.map((message) => message.content?.[0]?.text ?? message.content),
-    ["one", [{ type: "text", text: "two" }][0].text],
+    truncated.segments[0].messages.map(
+      (message) => message.content?.[0]?.text ?? message.content
+    ),
+    ["one", [{ type: "text", text: "two" }][0].text]
   );
   assert.equal(truncated.meta.totalMessageCount, 2);
   assert.equal(truncated.historyRenderItems.length, 2);
@@ -215,7 +264,10 @@ test("uploaded file metadata is stripped from request context but preserved for 
   });
 
   assert.equal(state.historyRenderItems[0].text, "Please inspect file.txt");
-  assert.equal(state.historyRenderItems[0].attachments[0].relativePath, "file.txt");
+  assert.equal(
+    state.historyRenderItems[0].attachments[0].relativePath,
+    "file.txt"
+  );
 
   const requestContext = conversationState.buildRequestContext(state);
   assert.equal(requestContext.messages[0].liveAgentDisplayContent, undefined);
@@ -265,21 +317,32 @@ test("display-only Image tool results keep UI images but omit inline image bytes
   });
 
   assert.equal(
-    state.segments[0].messages[0].content.filter((block) => block.type === "image").length,
-    2,
+    state.segments[0].messages[0].content.filter(
+      (block) => block.type === "image"
+    ).length,
+    2
   );
 
   const requestContext = conversationState.buildRequestContext(state);
   assert.equal(requestContext.messages.length, 1);
   assert.deepEqual(
     requestContext.messages[0].content.map((block) => block.type),
-    ["text"],
+    ["text"]
   );
-  assert.match(requestContext.messages[0].content[0].text, /Displayed 2 images/);
+  assert.match(
+    requestContext.messages[0].content[0].text,
+    /Displayed 2 images/
+  );
   assert.match(requestContext.messages[0].content[0].text, /uploads\/001\.png/);
-  assert.match(requestContext.messages[0].content[0].text, /skill:\/\/demo\/assets\/logo\.jpg/);
+  assert.match(
+    requestContext.messages[0].content[0].text,
+    /skill:\/\/demo\/assets\/logo\.jpg/
+  );
   assert.match(requestContext.messages[0].content[0].text, /mime=image\/png/);
-  assert.match(requestContext.messages[0].content[0].text, /display-only UI tool/);
+  assert.match(
+    requestContext.messages[0].content[0].text,
+    /display-only UI tool/
+  );
 });
 
 test("model context sanitizer preserves user image content", () => {
@@ -296,5 +359,8 @@ test("model context sanitizer preserves user image content", () => {
   });
 
   const requestContext = conversationState.buildRequestContext(state);
-  assert.deepEqual(requestContext.messages[0].content, userImageMessage.content);
+  assert.deepEqual(
+    requestContext.messages[0].content,
+    userImageMessage.content
+  );
 });

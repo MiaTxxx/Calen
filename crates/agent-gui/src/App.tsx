@@ -1,7 +1,15 @@
 import type { Context } from "@earendil-works/pi-ai";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { CronPromptRunner } from "./components/cron/CronPromptRunner";
 import { MemoryOrganizerHost } from "./components/memory/useMemoryOrganizer";
@@ -10,6 +18,7 @@ import { LocaleContext, t as translate } from "./i18n";
 import { type AppUpdateController, useAppUpdateController } from "./lib/appUpdates";
 import { initAutomation } from "./lib/automation";
 import {
+  type AppearanceSettings,
   type AppSettings,
   type BackgroundSettings,
   getDefaultSettings,
@@ -52,13 +61,45 @@ function AppChrome(props: {
   children: ReactNode;
   appUpdate?: AppUpdateController;
   background?: BackgroundSettings;
+  appearance: AppearanceSettings;
+  effectiveTheme: "light" | "dark";
 }) {
   const background = props.background;
   const backgroundActive = Boolean(background?.enabled && background.imagePath);
+  const palette = props.appearance[props.effectiveTheme];
+  const fontStack =
+    props.appearance.fontFamily === "local" && props.appearance.localFontName
+      ? `"${props.appearance.localFontName}", sans-serif`
+      : props.appearance.fontFamily === "serif"
+        ? "Georgia, 'Noto Serif CJK SC', serif"
+        : props.appearance.fontFamily === "monospace"
+          ? "Cascadia Code, Consolas, monospace"
+          : props.appearance.fontFamily === "cjk"
+            ? "PingFang SC, Microsoft YaHei, sans-serif"
+            : props.appearance.fontFamily === "system"
+              ? "system-ui, sans-serif"
+              : "OpenAI Sans, PingFang SC, Microsoft YaHei, sans-serif";
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: the application shell suppresses the native context menu globally.
     <div
-      className="app-chrome-surface relative flex h-full w-full flex-col overflow-hidden bg-background"
+      className="app-chrome-surface calen-themed relative flex h-full w-full flex-col overflow-hidden bg-background"
+      style={
+        {
+          "--calen-app": palette.app,
+          "--calen-titlebar": palette.titleBar,
+          "--calen-sidebar": palette.sidebar,
+          "--calen-chat-canvas": palette.chatCanvas,
+          "--calen-composer": palette.composer,
+          "--calen-right-dock": palette.rightDock,
+          "--calen-card": palette.card,
+          "--calen-user-bubble": palette.userBubble,
+          "--calen-primary-text": palette.primaryText,
+          "--calen-secondary-text": palette.secondaryText,
+          "--calen-border": palette.border,
+          "--calen-accent": palette.accent,
+          "--calen-font-family": fontStack,
+        } as CSSProperties
+      }
       onContextMenu={(event) => {
         event.preventDefault();
       }}
@@ -421,7 +462,12 @@ export default function App() {
   if (!settingsReady) {
     return (
       <LocaleContext.Provider value={localeContextValue}>
-        <AppChrome appUpdate={appUpdate} background={backgroundSettings}>
+        <AppChrome
+          appUpdate={appUpdate}
+          background={backgroundSettings}
+          appearance={settings.customSettings.appearance}
+          effectiveTheme={effectiveTheme}
+        >
           <div className="flex h-full w-full items-center justify-center bg-background text-sm text-muted-foreground">
             {translate("chat.loading", settings.locale)}
           </div>
@@ -435,7 +481,12 @@ export default function App() {
 
   return (
     <LocaleContext.Provider value={localeContextValue}>
-      <AppChrome appUpdate={appUpdate} background={backgroundSettings}>
+      <AppChrome
+        appUpdate={appUpdate}
+        background={backgroundSettings}
+        appearance={settings.customSettings.appearance}
+        effectiveTheme={effectiveTheme}
+      >
         <CronPromptRunner settings={settings} />
         <MemoryOrganizerHost settings={settings} setSettings={setSettings} />
         <AppErrorBoundary>

@@ -120,11 +120,97 @@ export type FontScaleSettings = {
   rightDock: number;
 };
 
+export type DraftPersistenceSettings = {
+  enabled: boolean;
+};
+export type ProviderHistoryItem = {
+  id: string;
+  type: ProviderId;
+  name: string;
+  baseUrl: string;
+  updatedAt: number;
+  hidden: boolean;
+};
+export type ProviderHistorySettings = { enabled: boolean; items: ProviderHistoryItem[] };
+
+export type ChatLayoutSettings = {
+  contentWidth: number;
+  composerHeight: number;
+  fullWidth: boolean;
+};
+export const APPEARANCE_SURFACES = [
+  "app",
+  "titleBar",
+  "sidebar",
+  "chatCanvas",
+  "composer",
+  "rightDock",
+  "card",
+  "userBubble",
+  "primaryText",
+  "secondaryText",
+  "border",
+  "accent",
+] as const;
+export type AppearanceSurface = (typeof APPEARANCE_SURFACES)[number];
+export type AppearancePalette = Record<AppearanceSurface, string>;
+export type AppearanceFontFamily = "system" | "openai" | "cjk" | "serif" | "monospace" | "local";
+export type AppearanceSettings = {
+  version: 1;
+  light: AppearancePalette;
+  dark: AppearancePalette;
+  fontFamily: AppearanceFontFamily;
+  localFontName: string;
+};
+export const DEFAULT_CHAT_LAYOUT: ChatLayoutSettings = {
+  contentWidth: 768,
+  composerHeight: 70,
+  fullWidth: false,
+};
+export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
+  version: 1,
+  light: {
+    app: "#ffffff",
+    titleBar: "#e4e7eb",
+    sidebar: "#f5f6f8",
+    chatCanvas: "#ffffff",
+    composer: "#ffffff",
+    rightDock: "#f7f8fa",
+    card: "#ffffff",
+    userBubble: "#edf1f5",
+    primaryText: "#111827",
+    secondaryText: "#667085",
+    border: "#cfd5dd",
+    accent: "#2563eb",
+  },
+  dark: {
+    app: "#15171c",
+    titleBar: "#20242b",
+    sidebar: "#191c22",
+    chatCanvas: "#15171c",
+    composer: "#22262d",
+    rightDock: "#191c22",
+    card: "#20242b",
+    userBubble: "#2b313a",
+    primaryText: "#f4f6f8",
+    secondaryText: "#aeb6c2",
+    border: "#3a414c",
+    accent: "#60a5fa",
+  },
+  fontFamily: "openai",
+  localFontName: "",
+};
+
 export type CustomSettings = {
   conversationTitleModel?: SelectedModel;
+  conversationTitleEnabled: boolean;
   chatSidebar: ChatSidebarSettings;
   rightDock: RightDockSettings;
   fontScale: FontScaleSettings;
+  draftPersistence: DraftPersistenceSettings;
+  chatLayout: ChatLayoutSettings;
+  appearance: AppearanceSettings;
+  providerHistory: ProviderHistorySettings;
 };
 
 export type SystemSettings = {
@@ -1737,6 +1823,147 @@ export function normalizeFontScaleSettings(input: unknown): FontScaleSettings {
   };
 }
 
+export function normalizeDraftPersistenceSettings(input: unknown): DraftPersistenceSettings {
+  const obj = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  return { enabled: obj.enabled !== false };
+}
+export function normalizeProviderHistorySettings(input: unknown): ProviderHistorySettings {
+  const obj = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const normalized: ProviderHistoryItem[] = [];
+  const seen = new Set<string>();
+  for (const value of Array.isArray(obj.items) ? obj.items : []) {
+    const item = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+    const type = item.type === "claude_code" || item.type === "gemini" ? item.type : "codex";
+    const name = typeof item.name === "string" ? item.name.trim().slice(0, 120) : "";
+    const baseUrl = typeof item.baseUrl === "string" ? normalizeBaseUrl(item.baseUrl) : "";
+    if (!name && !baseUrl) continue;
+    const id = `${type}:${name.toLowerCase()}:${baseUrl.toLowerCase()}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    normalized.push({
+      id,
+      type,
+      name,
+      baseUrl,
+      updatedAt: normalizeIntegerInRange(item.updatedAt, 0, Number.MAX_SAFE_INTEGER, 0),
+      hidden: item.hidden === true,
+    });
+  }
+  return {
+    enabled: obj.enabled !== false,
+    items: normalized.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 60),
+  };
+}
+export function recordProviderHistory(
+  settings: ProviderHistorySettings,
+  provider: Pick<CustomProvider, "type" | "name" | "baseUrl">,
+  updatedAt = Date.now(),
+): ProviderHistorySettings {
+  const next = normalizeProviderHistorySettings({
+    ...settings,
+    items: [{ ...provider, updatedAt, hidden: false }, ...settings.items],
+  });
+  const kept: ProviderHistoryItem[] = [];
+  const counts = new Map<ProviderId, number>();
+  for (const item of next.items) {
+    const count = counts.get(item.type) ?? 0;
+    if (count >= 20) continue;
+    counts.set(item.type, count + 1);
+    kept.push(item);
+  }
+  return { ...next, items: kept };
+}
+
+export function setProviderHistoryItemHidden(
+  settings: ProviderHistorySettings,
+  id: string,
+  hidden: boolean,
+): ProviderHistorySettings {
+  const targetId = id.trim();
+  if (!targetId) return settings;
+  return normalizeProviderHistorySettings({
+    ...settings,
+    items: settings.items.map((item) => (item.id === targetId ? { ...item, hidden } : item)),
+  });
+}
+
+export function restoreHiddenProviderHistory(
+  settings: ProviderHistorySettings,
+  type?: ProviderId,
+): ProviderHistorySettings {
+  return normalizeProviderHistorySettings({
+    ...settings,
+    items: settings.items.map((item) =>
+      !type || item.type === type ? { ...item, hidden: false } : item,
+    ),
+  });
+}
+
+export function clearProviderHistory(
+  settings: ProviderHistorySettings,
+  type?: ProviderId,
+): ProviderHistorySettings {
+  return normalizeProviderHistorySettings({
+    ...settings,
+    items: type ? settings.items.filter((item) => item.type !== type) : [],
+  });
+}
+
+function normalizeHexColor(value: unknown, fallback: string): string {
+  return typeof value === "string" && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(value.trim())
+    ? value.trim().toLowerCase()
+    : fallback;
+}
+export function normalizeChatLayoutSettings(input: unknown): ChatLayoutSettings {
+  const obj = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  return {
+    contentWidth: normalizeIntegerInRange(obj.contentWidth, 560, 1400, 768),
+    composerHeight: normalizeIntegerInRange(obj.composerHeight, 70, 480, 70),
+    fullWidth: obj.fullWidth === true,
+  };
+}
+function normalizeAppearancePalette(
+  input: unknown,
+  fallback: AppearancePalette,
+): AppearancePalette {
+  const obj = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  return Object.fromEntries(
+    APPEARANCE_SURFACES.map((key) => [key, normalizeHexColor(obj[key], fallback[key])]),
+  ) as AppearancePalette;
+}
+export function normalizeAppearanceSettings(input: unknown): AppearanceSettings {
+  const obj = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const fontFamily = ["system", "openai", "cjk", "serif", "monospace", "local"].includes(
+    String(obj.fontFamily),
+  )
+    ? (obj.fontFamily as AppearanceFontFamily)
+    : DEFAULT_APPEARANCE_SETTINGS.fontFamily;
+  const localFontName =
+    typeof obj.localFontName === "string" && /^[\w -]{0,64}$/.test(obj.localFontName.trim())
+      ? obj.localFontName.trim()
+      : "";
+  return {
+    version: 1,
+    light: normalizeAppearancePalette(obj.light, DEFAULT_APPEARANCE_SETTINGS.light),
+    dark: normalizeAppearancePalette(obj.dark, DEFAULT_APPEARANCE_SETTINGS.dark),
+    fontFamily,
+    localFontName,
+  };
+}
+export function parseAppearanceSettingsJson(json: string): AppearanceSettings {
+  const value = JSON.parse(json) as Record<string, unknown>;
+  if (!value || typeof value !== "object" || value.version !== 1)
+    throw new Error("Unsupported appearance settings version");
+  for (const mode of ["light", "dark"] as const) {
+    const palette = value[mode] as Record<string, unknown> | undefined;
+    if (!palette || typeof palette !== "object") throw new Error(`Missing ${mode} palette`);
+    for (const key of APPEARANCE_SURFACES)
+      if (typeof palette[key] !== "string" || !/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(palette[key]))
+        throw new Error(`Invalid ${mode}.${key} color`);
+  }
+  return normalizeAppearanceSettings(value);
+}
+
 export function normalizeCustomSettings(
   input: unknown,
   customProviders: CustomProvider[],
@@ -1746,6 +1973,7 @@ export function normalizeCustomSettings(
     obj.chatSidebar && typeof obj.chatSidebar === "object" ? obj.chatSidebar : {}
   ) as Record<string, unknown>;
   return {
+    conversationTitleEnabled: obj.conversationTitleEnabled !== false,
     conversationTitleModel: normalizeSelectedModelForProviders(
       normalizeSelectedModel(obj.conversationTitleModel),
       customProviders,
@@ -1756,6 +1984,10 @@ export function normalizeCustomSettings(
     },
     rightDock: normalizeRightDockSettings(obj.rightDock),
     fontScale: normalizeFontScaleSettings(obj.fontScale),
+    draftPersistence: normalizeDraftPersistenceSettings(obj.draftPersistence),
+    chatLayout: normalizeChatLayoutSettings(obj.chatLayout),
+    appearance: normalizeAppearanceSettings(obj.appearance),
+    providerHistory: normalizeProviderHistorySettings(obj.providerHistory),
   };
 }
 

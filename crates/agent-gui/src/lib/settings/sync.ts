@@ -1,5 +1,6 @@
 import {
   type AppSettings,
+  DEFAULT_APPEARANCE_SETTINGS,
   DEFAULT_BACKGROUND_SETTINGS,
   normalizeChatRuntimeControls,
   normalizeRightDockSettings,
@@ -338,6 +339,10 @@ function syncableCustomSettings(
     },
     // fontScale 是本机 UI 偏好：固定为默认值，避免本地调整触发网关广播
     fontScale: { sidebar: 1, chat: 1, rightDock: 1 },
+    draftPersistence: { enabled: true },
+    chatLayout: { contentWidth: 768, composerHeight: 70, fullWidth: false },
+    appearance: DEFAULT_APPEARANCE_SETTINGS,
+    providerHistory: { enabled: true, items: [] },
     // background 引用本机文件路径：固定为默认值，避免路径外泄或被网关回写覆盖
     background: DEFAULT_BACKGROUND_SETTINGS,
   };
@@ -906,6 +911,10 @@ export function applyGatewaySettingsSyncPayload(
     customSettings: {
       ...current.customSettings,
       ...incomingCustomSettings,
+      conversationTitleEnabled:
+        typeof incomingCustomSettings.conversationTitleEnabled === "boolean"
+          ? incomingCustomSettings.conversationTitleEnabled
+          : current.customSettings.conversationTitleEnabled,
       rightDock: Object.hasOwn(incomingCustomSettings, "rightDock")
         ? mergeSyncedRightDockSettings(
             current.customSettings.rightDock,
@@ -915,6 +924,10 @@ export function applyGatewaySettingsSyncPayload(
       chatSidebar: current.customSettings.chatSidebar,
       // fontScale 是本机 UI 偏好，不参与网关同步
       fontScale: current.customSettings.fontScale,
+      draftPersistence: current.customSettings.draftPersistence,
+      chatLayout: current.customSettings.chatLayout,
+      appearance: current.customSettings.appearance,
+      providerHistory: current.customSettings.providerHistory,
       // background 引用本机文件路径，不参与网关同步
       background: current.customSettings.background,
       // 离线模型 ID 和路由模式只属于当前设备。

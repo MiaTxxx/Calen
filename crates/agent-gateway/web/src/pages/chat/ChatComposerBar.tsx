@@ -13,12 +13,14 @@ import {
 import { createPortal } from "react-dom";
 import {
   MentionComposer,
+  type MentionComposerDraft,
   type MentionComposerHandle,
   type MentionComposerSkill,
 } from "../../components/chat/MentionComposer";
 import { GitBranchSelector } from "../../components/git/GitBranchSelector";
 import {
   Brain,
+  BrushCleaning,
   ChevronDown,
   ChevronUp,
   Clock3,
@@ -223,6 +225,14 @@ export const ChatComposerBar = memo(function ChatComposerBar(props: {
   gitDisabledMessage?: string;
   workspaceActivityClient?: WorkspaceActivityClient | null;
   onSend: () => void;
+  onDraftChange?: (draft: MentionComposerDraft) => void;
+  onResetContext?: () => void;
+  contextResetDisabled?: boolean;
+  contentWidth?: number;
+  editorHeight?: number;
+  fullWidth?: boolean;
+  onContentWidthChange?: (width: number) => void;
+  onEditorHeightChange?: (height: number) => void;
   onStop: () => void;
   onPrepareChatRuntime?: () => void;
   onComposerBusyChange: (isBusy: boolean) => void;
@@ -254,6 +264,14 @@ export const ChatComposerBar = memo(function ChatComposerBar(props: {
     gitDisabledMessage,
     workspaceActivityClient,
     onSend,
+    onDraftChange,
+    onResetContext,
+    contextResetDisabled = false,
+    contentWidth = 768,
+    editorHeight = 70,
+    fullWidth = false,
+    onContentWidthChange,
+    onEditorHeightChange,
     onStop,
     onPrepareChatRuntime,
     onComposerBusyChange,
@@ -290,6 +308,25 @@ export const ChatComposerBar = memo(function ChatComposerBar(props: {
   const thinkingSupported = reasoningOptions.length > 0;
   const sendDisabled = isInputDisabled || isUploadingFiles || !hasSendableDraft;
   const canQueueDraftWhileSending = isSending && !sendDisabled;
+  const beginLayoutResize = useCallback(
+    (kind: "width" | "height", event: ReactPointerEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const handleMove = (moveEvent: PointerEvent) => {
+        if (kind === "width")
+          onContentWidthChange?.(contentWidth + (moveEvent.clientX - startX) * 2);
+        else onEditorHeightChange?.(editorHeight + startY - moveEvent.clientY);
+      };
+      const handleUp = () => {
+        window.removeEventListener("pointermove", handleMove);
+        window.removeEventListener("pointerup", handleUp);
+      };
+      window.addEventListener("pointermove", handleMove);
+      window.addEventListener("pointerup", handleUp, { once: true });
+    },
+    [contentWidth, editorHeight, onContentWidthChange, onEditorHeightChange],
+  );
   const primaryActionTitle = canQueueDraftWhileSending
     ? t("chat.queue.addToQueue")
     : isSending
@@ -700,9 +737,19 @@ export const ChatComposerBar = memo(function ChatComposerBar(props: {
           />
 
           <div className="relative px-4 pt-3.5" onFocusCapture={onPrepareChatRuntime}>
+            {onEditorHeightChange ? (
+              <button
+                type="button"
+                className="chat-layout-resize-handle absolute inset-x-0 -top-1 z-30 mx-auto h-2 w-16 cursor-ns-resize"
+                aria-label={t("settings.chatLayoutHeight")}
+                title={t("settings.chatLayoutHeight")}
+                onPointerDown={(event) => beginLayoutResize("height", event)}
+              />
+            ) : null}
             <MentionComposer
               ref={composerRef}
               onSend={onSend}
+              onDraftChange={onDraftChange}
               onEmptyChange={setComposerIsEmpty}
               onBusyChange={onComposerBusyChange}
               onPasteFiles={onPasteFiles}
@@ -711,8 +758,18 @@ export const ChatComposerBar = memo(function ChatComposerBar(props: {
               workdir={workdir}
               enabledSkills={enabledSkills}
               className="px-0 py-0"
+              editorHeight={editorHeight}
             />
           </div>
+          {onContentWidthChange && !fullWidth ? (
+            <button
+              type="button"
+              className="chat-layout-resize-handle absolute bottom-12 right-0 top-3 z-30 w-2 cursor-ew-resize"
+              aria-label={t("settings.chatLayoutWidth")}
+              title={t("settings.chatLayoutWidth")}
+              onPointerDown={(event) => beginLayoutResize("width", event)}
+            />
+          ) : null}
 
           <div className="relative flex items-center justify-between gap-2 px-3 pb-2 pt-1">
             <div className="flex min-w-0 flex-1 items-center gap-1">
@@ -753,6 +810,20 @@ export const ChatComposerBar = memo(function ChatComposerBar(props: {
                   ) : null}
                 </button>
               </RuntimeControlTooltip>
+
+              {onResetContext ? (
+                <RuntimeControlTooltip label={t("chat.clearContext")}>
+                  <button
+                    type="button"
+                    disabled={contextResetDisabled}
+                    onClick={onResetContext}
+                    aria-label={t("chat.clearContext")}
+                    className="composer-toolbar-action inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-hidden transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40 dark:hover:text-white"
+                  >
+                    <BrushCleaning className="h-4 w-4" />
+                  </button>
+                </RuntimeControlTooltip>
+              ) : null}
 
               <RuntimeControlTooltip label={thinkingTooltip}>
                 <button

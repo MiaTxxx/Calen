@@ -77,6 +77,7 @@ export type StoredChatContextMeta = {
 export type StoredContextSegment = {
   segmentIndex: number;
   segmentId: string;
+  boundaryKind?: "manual-reset";
   summary?: StoredSummaryMessage;
   messages: Message[];
   messageCount: number;
@@ -132,7 +133,18 @@ export type RenderAssistantGroup = {
   isFromCompactedSegment: boolean;
 };
 
-export type RenderTimelineItem = RenderSummaryCard | RenderUserMessage | RenderAssistantGroup;
+export type RenderContextReset = {
+  kind: "context-reset";
+  key: string;
+  segmentIndex: number;
+  timestamp: number;
+};
+
+export type RenderTimelineItem =
+  | RenderSummaryCard
+  | RenderUserMessage
+  | RenderAssistantGroup
+  | RenderContextReset;
 
 export type ConversationViewState = {
   meta: StoredChatContextMeta;
@@ -549,6 +561,7 @@ function normalizeSegment(
   return {
     segmentIndex,
     segmentId: segment.segmentId || crypto.randomUUID(),
+    boundaryKind: segment.boundaryKind === "manual-reset" ? "manual-reset" : undefined,
     summary: segment.summary,
     messages,
     messageCount,
@@ -601,6 +614,15 @@ function buildTimelineItemsForSegment(
   isCompacted: boolean,
 ): RenderTimelineItem[] {
   const items: RenderTimelineItem[] = [];
+
+  if (segment.boundaryKind === "manual-reset") {
+    items.push({
+      kind: "context-reset",
+      key: `context-reset-${segment.segmentIndex}-${segment.segmentId}`,
+      segmentIndex: segment.segmentIndex,
+      timestamp: segment.createdAt,
+    });
+  }
 
   if (segment.summary) {
     items.push({
@@ -656,7 +678,7 @@ function buildTimelineItemsForSegment(
 }
 
 function markTimelineItemCompacted(item: RenderTimelineItem): RenderTimelineItem {
-  if (item.kind === "summary" || item.isFromCompactedSegment) {
+  if (item.kind === "summary" || item.kind === "context-reset" || item.isFromCompactedSegment) {
     return item;
   }
 
@@ -780,6 +802,33 @@ export function applyCompactionCheckpoint(
     return state;
   }
   return appendMessagesToConversation(state, [checkpointMessage]);
+}
+
+export function appendManualContextReset(
+  state: ConversationViewState,
+  timestamp = Date.now(),
+): ConversationViewState {
+  const segments = state.segments.map((segment) => ({
+    ...segment,
+    messages: segment.messages.slice(),
+  }));
+  const nextSegment = createEmptySegment(segments.length, timestamp);
+  nextSegment.boundaryKind = "manual-reset";
+  segments.push(nextSegment);
+  const activeSegmentIndex = segments.length - 1;
+  const meta = buildConversationMeta({
+    systemPrompt: state.meta.systemPrompt,
+    tools: state.meta.tools,
+    segments,
+    activeSegmentIndex,
+  });
+
+  return {
+    meta,
+    segments,
+    activeSegmentIndex,
+    historyRenderItems: flattenSegmentsToTimeline(segments, activeSegmentIndex),
+  };
 }
 
 export function appendMessagesToConversation(

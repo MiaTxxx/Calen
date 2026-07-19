@@ -2,6 +2,7 @@ import type { Context, Message, UserMessage } from "@earendil-works/pi-ai";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow, ProgressBarStatus } from "@tauri-apps/api/window";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
   type CSSProperties,
@@ -44,6 +45,7 @@ import { createHookRunScope } from "../lib/automation/hookRunner";
 import type { CompactionStatus } from "../lib/chat/compaction/types";
 import { buildPersistableMessagesFromSnapshot } from "../lib/chat/conversation/chatAbort";
 import {
+  appendManualContextReset,
   appendMessagesToConversation,
   buildRequestContext,
   type ConversationViewState,
@@ -58,6 +60,20 @@ import {
   createGatewayBridgeEventController,
 } from "../lib/chat/conversation/run";
 import { createTurnCancellation } from "../lib/chat/conversation/turnCancellation";
+import {
+  type ChatComposerDraft,
+  createChatComposerDraftInput,
+  parseChatComposerDraftRecord,
+} from "../lib/chat/drafts/composerDraftModel";
+import { ComposerDraftWriteQueue } from "../lib/chat/drafts/composerDraftWriteQueue";
+import {
+  clearChatComposerDrafts,
+  deleteChatComposerDraft,
+  filterExistingChatComposerDraftAttachments,
+  getChatComposerDraft,
+  listChatComposerDrafts,
+  upsertChatComposerDraft,
+} from "../lib/chat/drafts/tauriComposerDraftStore";
 import {
   type ChatHistoryShareStatus,
   type ChatHistorySummary,
@@ -99,6 +115,10 @@ import {
   preparePreferredMonacoNlsLocale,
   setPreferredMonacoNlsLocale,
 } from "../lib/monacoNls";
+import {
+  createWindowsTaskbarActivityController,
+  isWindowsTauriRuntime,
+} from "../lib/platform/windowsTaskbarActivity";
 import {
   createModelFromConfig,
   isThinkingAlwaysOnForModel,
@@ -438,7 +458,7 @@ function buildTextFromComposerDraft(
         return formatFileMentionToken(segment.reference);
       }
       if (segment.type === "skillMention") {
-        return `$${segment.skill.name}`;
+        return `/${segment.skill.name}`;
       }
       if (segment.type === "commitMention") {
         return formatComposerCommitMention(segment.commit);
@@ -648,6 +668,31 @@ export function ChatPage(props: ChatPageProps) {
   const [runningConversationIds, setRunningConversationIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const hasActiveConversations = runningConversationIds.size > 0;
+  const taskbarActivityControllerRef = useRef<ReturnType<
+    typeof createWindowsTaskbarActivityController
+  > | null>(null);
+
+  useEffect(() => {
+    const runtimeWindow = window as Window & { __TAURI__?: unknown; __TAURI_INTERNALS__?: unknown };
+    if (!isWindowsTauriRuntime(runtimeWindow, navigator.userAgent, navigator.platform)) return;
+    const controller = createWindowsTaskbarActivityController({
+      apply: (active) =>
+        getCurrentWindow().setProgressBar({
+          status: active ? ProgressBarStatus.Indeterminate : ProgressBarStatus.None,
+        }),
+      onError: (error) => console.warn("Failed to update Windows taskbar activity", error),
+    });
+    taskbarActivityControllerRef.current = controller;
+    return () => {
+      controller.dispose();
+      taskbarActivityControllerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    taskbarActivityControllerRef.current?.setActive(hasActiveConversations);
+  }, [hasActiveConversations]);
   const [conversationOpenState, setConversationOpenState] = useState<ConversationOpenState>({
     conversationId: "",
     phase: "idle",
@@ -1333,6 +1378,9 @@ export function ChatPage(props: ChatPageProps) {
   const composerBusyRef = useRef(false);
   const composerRef = useRef<MentionComposerHandle | null>(null);
   const composerDraftCacheRef = useRef<Map<string, MentionComposerDraft>>(new Map());
+  const persistedComposerDraftsRef = useRef<Map<string, ChatComposerDraft>>(new Map());
+  const composerDraftSaveTimersRef = useRef<Map<string, number>>(new Map());
+  const composerDraftWriteQueueRef = useRef(new ComposerDraftWriteQueue());
   const conversationLoadSequenceRef = useRef(0);
   const subagentStoresRef = useRef(createSubagentStoreManager());
   const previousSubagentRuntimeConversationRef = useRef(currentConversationId);
@@ -1346,9 +1394,12 @@ export function ChatPage(props: ChatPageProps) {
   const currentConversationHistoryUpdatedAtRef = useRef<number | null>(null);
   const locallySyncedHistoryUpdatedAtRef = useRef(new Map<string, number>());
   const gatewayBridgeHistorySummaryRef = useRef(new Map<string, ChatHistorySummary>());
-  const startNewConversationActionRef = useRef<(options?: { workdir?: string }) => void>(
-    () => undefined,
-  );
+  const startNewConversationActionRef = useRef<
+    (options?: {
+      workdir?: string;
+      identity?: { conversationId: string; sessionId: string; createdAt: number };
+    }) => void
+  >(() => undefined);
   const openInitialActionRef = useRef<(id: string) => Promise<"cache-hit" | "painted">>(
     async () => "painted",
   );
@@ -1960,12 +2011,73 @@ export function ChatPage(props: ChatPageProps) {
         })),
     [currentConversationId, queuedChatTurns],
   );
+  const draftPersistenceEnabled = settings.customSettings.draftPersistence.enabled;
+
+  function cancelComposerDraftSave(conversationId: string) {
+    const timer = composerDraftSaveTimersRef.current.get(conversationId);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      composerDraftSaveTimersRef.current.delete(conversationId);
+    }
+  }
+
+  function persistComposerDraftSnapshot(
+    conversationId: string,
+    draft: MentionComposerDraft,
+    uploadedFiles: PendingUploadedFile[],
+    workdir: string,
+  ): Promise<void> {
+    const key = conversationId.trim();
+    if (!key || !draftPersistenceEnabled) return Promise.resolve();
+    cancelComposerDraftSave(key);
+    if ((draft.isEmpty || !draft.text.trim()) && uploadedFiles.length === 0) {
+      composerDraftCacheRef.current.delete(key);
+      persistedComposerDraftsRef.current.delete(key);
+      return composerDraftWriteQueueRef.current.enqueue(key, async () => {
+        await deleteChatComposerDraft(key).catch((error) => {
+          console.warn("Failed to delete empty composer draft", error);
+        });
+        persistedComposerDraftsRef.current.delete(key);
+      });
+    }
+    composerDraftCacheRef.current.set(key, draft);
+    const input = createChatComposerDraftInput(key, workdir, draft, uploadedFiles);
+    return composerDraftWriteQueueRef.current.enqueue(key, async () => {
+      await upsertChatComposerDraft(input)
+        .then((record) => {
+          const parsed = parseChatComposerDraftRecord(record);
+          if (parsed) persistedComposerDraftsRef.current.set(key, parsed);
+        })
+        .catch((error) => {
+          console.warn("Failed to persist composer draft", error);
+        });
+    });
+  }
+
+  function scheduleComposerDraftSave(draft: MentionComposerDraft) {
+    const conversationId = currentConversationIdRef.current.trim();
+    if (!conversationId || !draftPersistenceEnabled) return;
+    composerDraftCacheRef.current.set(conversationId, draft);
+    cancelComposerDraftSave(conversationId);
+    const timer = window.setTimeout(() => {
+      composerDraftSaveTimersRef.current.delete(conversationId);
+      persistComposerDraftSnapshot(
+        conversationId,
+        draft,
+        getPendingUploadsForConversation(conversationId),
+        displayedConversationWorkdir,
+      );
+    }, 250);
+    composerDraftSaveTimersRef.current.set(conversationId, timer);
+  }
 
   const deleteConversationLocalCaches = useCallback(
     (conversationId: string) => {
       const key = conversationId.trim();
       if (!key) return;
+      cancelComposerDraftSave(key);
       composerDraftCacheRef.current.delete(key);
+      persistedComposerDraftsRef.current.delete(key);
       locallySyncedHistoryUpdatedAtRef.current.delete(key);
       gatewayBridgeHistorySummaryRef.current.delete(key);
       setPendingUploadsForConversation(key, []);
@@ -1995,12 +2107,12 @@ export function ChatPage(props: ChatPageProps) {
     }
 
     const draft = composer.getDraft();
-    if (draft.isEmpty || !draft.text.trim()) {
-      composerDraftCacheRef.current.delete(targetConversationId);
-      return;
-    }
-
-    composerDraftCacheRef.current.set(targetConversationId, draft);
+    persistComposerDraftSnapshot(
+      targetConversationId,
+      draft,
+      getPendingUploadsForConversation(targetConversationId),
+      displayedConversationWorkdir,
+    );
   }
 
   function clearCachedComposerDraft(conversationId = currentConversationIdRef.current) {
@@ -2008,8 +2120,33 @@ export function ChatPage(props: ChatPageProps) {
     if (!targetConversationId) {
       return;
     }
+    cancelComposerDraftSave(targetConversationId);
     composerDraftCacheRef.current.delete(targetConversationId);
+    persistedComposerDraftsRef.current.delete(targetConversationId);
+    if (draftPersistenceEnabled) {
+      void composerDraftWriteQueueRef.current.enqueue(targetConversationId, async () => {
+        await deleteChatComposerDraft(targetConversationId).catch((error) => {
+          console.warn("Failed to delete composer draft", error);
+        });
+        persistedComposerDraftsRef.current.delete(targetConversationId);
+      });
+    }
   }
+
+  useEffect(() => {
+    if (!draftPersistenceEnabled) return;
+    let unlisten: (() => void) | null = null;
+    void getCurrentWindow()
+      .onCloseRequested(async () => {
+        const conversationId = currentConversationIdRef.current.trim();
+        cacheActiveComposerDraft(conversationId);
+        await composerDraftWriteQueueRef.current.flush(conversationId);
+      })
+      .then((dispose) => {
+        unlisten = dispose;
+      });
+    return () => unlisten?.();
+  }, [draftPersistenceEnabled, displayedConversationWorkdir]);
 
   useEffect(() => {
     if (activeView !== "chat") {
@@ -2021,19 +2158,115 @@ export function ChatPage(props: ChatPageProps) {
       return;
     }
 
-    const frameId = window.requestAnimationFrame(() => {
+    let cancelled = false;
+    const restore = async (storedDraft: ChatComposerDraft | null) => {
+      if (cancelled || currentConversationIdRef.current.trim() !== targetConversationId) return;
+      if (storedDraft) {
+        let uploadedFiles = storedDraft.uploadedFiles;
+        try {
+          uploadedFiles = await filterExistingChatComposerDraftAttachments(
+            storedDraft.workdir,
+            storedDraft.uploadedFiles,
+          );
+        } catch (error) {
+          console.warn("Failed to validate restored composer attachments", error);
+        }
+        if (cancelled || currentConversationIdRef.current.trim() !== targetConversationId) return;
+        const missingAttachmentCount = storedDraft.uploadedFiles.length - uploadedFiles.length;
+        if (missingAttachmentCount > 0) {
+          addNotify(
+            "warning",
+            t("chat.draftAttachmentsMissing").replace("{count}", String(missingAttachmentCount)),
+          );
+        }
+        storedDraft = { ...storedDraft, uploadedFiles };
+        composerDraftCacheRef.current.set(targetConversationId, storedDraft.draft);
+        persistedComposerDraftsRef.current.set(targetConversationId, storedDraft);
+        setPendingUploadsForConversation(targetConversationId, storedDraft.uploadedFiles);
+      }
       const cachedDraft = composerDraftCacheRef.current.get(targetConversationId);
       const composer = composerRef.current;
       if (!cachedDraft || !composer || composer.hasContent()) {
         return;
       }
       composer.setDraft(cachedDraft);
+    };
+
+    const frameId = window.requestAnimationFrame(() => {
+      const cached = persistedComposerDraftsRef.current.get(targetConversationId) ?? null;
+      if (cached || !draftPersistenceEnabled) {
+        void restore(cached);
+        return;
+      }
+      void getChatComposerDraft(targetConversationId)
+        .then((record) => restore(parseChatComposerDraftRecord(record)))
+        .catch((error) => console.warn("Failed to restore composer draft", error));
     });
 
     return () => {
+      cancelled = true;
       window.cancelAnimationFrame(frameId);
     };
-  }, [activeView, currentConversationId]);
+  }, [
+    activeView,
+    addNotify,
+    currentConversationId,
+    currentConversationIdRef,
+    draftPersistenceEnabled,
+    setPendingUploadsForConversation,
+    t,
+  ]);
+
+  useEffect(() => {
+    if (draftPersistenceEnabled) return;
+    for (const timer of composerDraftSaveTimersRef.current.values()) window.clearTimeout(timer);
+    composerDraftSaveTimersRef.current.clear();
+    composerDraftCacheRef.current.clear();
+    persistedComposerDraftsRef.current.clear();
+    void composerDraftWriteQueueRef.current.flush().then(() =>
+      clearChatComposerDrafts().catch((error) => {
+        console.warn("Failed to clear disabled composer drafts", error);
+      }),
+    );
+  }, [draftPersistenceEnabled]);
+
+  useEffect(() => {
+    if (!draftPersistenceEnabled) return;
+    void listChatComposerDrafts()
+      .then((records) => {
+        for (const record of records) {
+          const parsed = parseChatComposerDraftRecord(record);
+          if (!parsed) continue;
+          persistedComposerDraftsRef.current.set(parsed.conversationId, parsed);
+          composerDraftCacheRef.current.set(parsed.conversationId, parsed.draft);
+          if (!sidebarStore.peek(parsed.conversationId)) {
+            const selectedProvider = settings.customProviders.find(
+              (provider) => provider.id === settings.selectedModel?.customProviderId,
+            );
+            sidebarStore.upsertLocal(
+              createPendingHistoryItem({
+                conversationId: parsed.conversationId,
+                title: `草稿 · ${parsed.preview || "未发送消息"}`,
+                providerId: selectedProvider?.type ?? "codex",
+                model: settings.selectedModel?.model ?? "draft",
+                sessionId: parsed.conversationId,
+                cwd: parsed.workdir || undefined,
+                createdAt: parsed.createdAt || parsed.updatedAt,
+                updatedAt: parsed.updatedAt,
+              }),
+            );
+          }
+        }
+      })
+      .catch((error) => console.warn("Failed to list composer drafts", error));
+  }, [draftPersistenceEnabled, settings.customProviders, settings.selectedModel, sidebarStore]);
+
+  useEffect(() => {
+    if (!draftPersistenceEnabled) return;
+    const draft = composerRef.current?.getDraft();
+    if (!draft) return;
+    scheduleComposerDraftSave(draft);
+  }, [draftPersistenceEnabled, pendingUploadedFiles]);
 
   const pruneIdleConversationCaches = useCallback(
     (extraKeepIds: Iterable<string> = []) => {
@@ -3811,10 +4044,15 @@ export function ChatPage(props: ChatPageProps) {
           : buildFallbackConversationTitle(
               getFirstUserMessageText(buildRequestContext(baseConversationState)) ||
                 titleSourceText,
+              settings.locale,
             );
 
     let titlePromise: Promise<string | null> | null = null;
-    if (isFirstTurn && !privateStockPortfolioRequest) {
+    if (
+      isFirstTurn &&
+      !privateStockPortfolioRequest &&
+      settings.customSettings.conversationTitleEnabled
+    ) {
       const titleModelSelection = resolveConversationTitleModelSelection(
         settings,
         effectiveSelectedModel,
@@ -3843,6 +4081,7 @@ export function ChatPage(props: ChatPageProps) {
         sidebarStore,
         titleJobRef,
         gatewayBridgeEvents,
+        locale: settings.locale,
       });
     }
 
@@ -4526,7 +4765,7 @@ export function ChatPage(props: ChatPageProps) {
 
   const handleNewConversation = useCallback(() => {
     openController.cancel();
-    clearCachedComposerDraft();
+    cacheActiveComposerDraft();
     startNewConversationActionRef.current({
       workdir: isAgentMode ? activeWorkspaceProjectPath || undefined : undefined,
     });
@@ -4536,6 +4775,20 @@ export function ChatPage(props: ChatPageProps) {
     (id: string) => {
       const targetConversationId = id.trim();
       if (!targetConversationId) {
+        return;
+      }
+      cacheActiveComposerDraft();
+      const savedDraft = persistedComposerDraftsRef.current.get(targetConversationId);
+      if (savedDraft && sidebarStore.peek(targetConversationId)?.isPending) {
+        openController.cancel();
+        startNewConversationActionRef.current({
+          workdir: savedDraft.workdir || undefined,
+          identity: {
+            conversationId: targetConversationId,
+            sessionId: targetConversationId,
+            createdAt: savedDraft.createdAt || savedDraft.updatedAt,
+          },
+        });
         return;
       }
       openController.open(targetConversationId);
@@ -4555,6 +4808,12 @@ export function ChatPage(props: ChatPageProps) {
   const handleConversationDeleted = useCallback(
     (id: string) => {
       cleanupDeletedConversationActionRef.current(id);
+      void composerDraftWriteQueueRef.current.enqueue(id, async () => {
+        await deleteChatComposerDraft(id).catch((error) => {
+          console.warn("Failed to delete conversation draft", error);
+        });
+        persistedComposerDraftsRef.current.delete(id);
+      });
       setSharedHistoryItemsState(sharedHistoryItemsRef.current.filter((item) => item.id !== id));
     },
     [setSharedHistoryItemsState],
@@ -5013,6 +5272,121 @@ export function ChatPage(props: ChatPageProps) {
     if (persistedCwd) return persistedCwd;
     return displayedConversationWorkdir || undefined;
   })();
+  const contextResetDisabled =
+    isSending ||
+    compactionStatus.phase === "running" ||
+    hydratingConversationId === currentConversationId ||
+    hydrationFailedConversationId === currentConversationId ||
+    conversationState.meta.totalMessageCount === 0;
+
+  const commitManualContextReset = useCallback(
+    async (conversationId: string) => {
+      if (
+        !conversationId ||
+        currentConversationIdRef.current.trim() !== conversationId ||
+        contextResetDisabled ||
+        !currentChatProvider ||
+        !currentChatModelId
+      ) {
+        return false;
+      }
+      cacheActiveComposerDraft(conversationId);
+      const previousState =
+        conversationRuntimeCacheRef.current.get(conversationId)?.state ?? conversationState;
+      const nextState = appendManualContextReset(previousState);
+      updateConversationRuntimeEntry(conversationId, (entry) => ({ ...entry, state: nextState }));
+      setContext(buildRequestContext(nextState));
+      const historyItem = sidebarStore.peek(conversationId);
+      const persisted = await persistConversation({
+        conversationId,
+        sessionId: currentConversationSessionId,
+        providerId: currentChatProvider.type,
+        model: currentChatModelId,
+        cwd: displayedConversationWorkdir || undefined,
+        state: nextState,
+        fallbackTitle: historyItem?.title || t("chat.pendingTitle"),
+        createdAt: currentConversationCreatedAt,
+        titlePromise: null,
+        titleLookahead: false,
+      });
+      if (!persisted) {
+        updateConversationRuntimeEntry(conversationId, (entry) => ({
+          ...entry,
+          state: previousState,
+        }));
+        setContext(buildRequestContext(previousState));
+        return false;
+      }
+      scrollFollowRef.current?.stickToBottom();
+      return true;
+    },
+    [
+      contextResetDisabled,
+      conversationState,
+      currentChatModelId,
+      currentChatProvider,
+      currentConversationCreatedAt,
+      currentConversationIdRef,
+      currentConversationSessionId,
+      displayedConversationWorkdir,
+      persistConversation,
+      setContext,
+      sidebarStore,
+      t,
+      updateConversationRuntimeEntry,
+    ],
+  );
+
+  const handleResetContext = useCallback(async () => {
+    const conversationId = currentConversationIdRef.current.trim();
+    if (!conversationId || contextResetDisabled) return;
+    const confirmed = await requestConfirmDialog({
+      title: t("chat.clearContextConfirmTitle"),
+      description: t("chat.clearContextConfirmDescription"),
+      confirmLabel: t("chat.clearContext"),
+      cancelLabel: t("chat.cancel"),
+    });
+    if (!confirmed) return;
+    await commitManualContextReset(conversationId);
+  }, [commitManualContextReset, contextResetDisabled, requestConfirmDialog, t]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    void listen<{ requestId: string; conversationId: string }>(
+      "gateway:chat-context-reset",
+      (event) => {
+        const requestId = event.payload.requestId.trim();
+        const conversationId = event.payload.conversationId.trim();
+        void (async () => {
+          let succeeded = false;
+          let message = "";
+          try {
+            if (conversationId !== currentConversationIdRef.current.trim()) {
+              message = "Conversation must be open in the desktop app before resetting context.";
+            } else if (contextResetDisabled) {
+              message = "Conversation is running, loading, compacting, or has no context to reset.";
+            } else {
+              succeeded = await commitManualContextReset(conversationId);
+              if (!succeeded) message = "Desktop failed to persist the context reset.";
+            }
+          } catch (error) {
+            message = asErrorMessage(error, "Desktop failed to reset conversation context.");
+          }
+          await invoke("gateway_chat_context_reset_respond", {
+            request_id: requestId,
+            conversation_id: conversationId,
+            succeeded,
+            message,
+          } as any).catch((error) => {
+            console.warn("gateway_chat_context_reset_respond failed", error);
+          });
+        })();
+      },
+    ).then((dispose) => {
+      unlisten = dispose;
+    });
+    return () => unlisten?.();
+  }, [commitManualContextReset, contextResetDisabled, currentConversationIdRef]);
   const isCompactionRunning = compactionStatus.phase === "running";
   const isConversationHydrating = hydratingConversationId === currentConversationId;
   const isConversationHydrationFailed = hydrationFailedConversationId === currentConversationId;
@@ -5315,6 +5689,8 @@ export function ChatPage(props: ChatPageProps) {
                 onOpenSettings={onOpenSettings}
                 onSuggestionSelect={handleEmptyStateSuggestion}
                 suggestionsDisabled={isSuggestionTyping}
+                contentWidth={settings.customSettings.chatLayout.contentWidth}
+                fullWidth={settings.customSettings.chatLayout.fullWidth}
               />
 
               <ChatComposerBar
@@ -5332,6 +5708,9 @@ export function ChatPage(props: ChatPageProps) {
                 gitClient={tauriGitClient}
                 workspaceActivityClient={tauriWorkspaceActivityClient}
                 onSend={handleSend}
+                onDraftChange={scheduleComposerDraftSave}
+                onResetContext={() => void handleResetContext()}
+                contextResetDisabled={contextResetDisabled}
                 onStop={handleStopSending}
                 onComposerBusyChange={handleComposerBusyChange}
                 onChatRuntimeControlsChange={handleChatRuntimeControlsChange}
@@ -5345,6 +5724,23 @@ export function ChatPage(props: ChatPageProps) {
                 onEditQueuedTurn={editQueuedTurn}
                 onRemoveQueuedTurn={removeQueuedTurn}
                 onHeightChange={setComposerOverlayHeight}
+                contentWidth={settings.customSettings.chatLayout.contentWidth}
+                editorHeight={settings.customSettings.chatLayout.composerHeight}
+                fullWidth={settings.customSettings.chatLayout.fullWidth}
+                onContentWidthChange={(contentWidth) =>
+                  setSettings((prev) =>
+                    updateCustomSettings(prev, {
+                      chatLayout: { ...prev.customSettings.chatLayout, contentWidth },
+                    }),
+                  )
+                }
+                onEditorHeightChange={(composerHeight) =>
+                  setSettings((prev) =>
+                    updateCustomSettings(prev, {
+                      chatLayout: { ...prev.customSettings.chatLayout, composerHeight },
+                    }),
+                  )
+                }
               />
               {isFileDropActive ? (
                 <div

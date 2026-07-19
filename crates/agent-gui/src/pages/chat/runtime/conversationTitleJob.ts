@@ -3,6 +3,7 @@ import type { GatewayBridgeEventController } from "../../../lib/chat/conversatio
 import {
   buildConversationTitlePrompt,
   normalizeConversationTitle,
+  truncateConversationTitle,
 } from "../../../lib/chat/page/chatPageHelpers";
 import { assistantMessageToText, streamAssistantMessage } from "../../../lib/providers/llm";
 import type { ProviderId } from "../../../lib/settings";
@@ -26,6 +27,7 @@ type StartConversationTitleJobParams = {
   sidebarStore: Pick<SidebarStore, "peek" | "upsertLocal">;
   titleJobRef: MutableRefObject<TitleJobRefValue>;
   gatewayBridgeEvents: GatewayBridgeEventController;
+  locale: string;
 };
 
 const GATEWAY_BRIDGE_TITLE_MIN_INTERVAL_MS = 250;
@@ -53,6 +55,7 @@ export function startConversationTitleJob(params: StartConversationTitleJobParam
     sidebarStore,
     titleJobRef,
     gatewayBridgeEvents,
+    locale,
   } = params;
   let streamedTitle = "";
   let lastForwardedGatewayTitle = "";
@@ -94,10 +97,13 @@ export function startConversationTitleJob(params: StartConversationTitleJobParam
     },
     onTextDelta: (delta) => {
       streamedTitle += delta;
-      const preview = streamedTitle
-        .replace(/[\r\n]+/g, " ")
-        .replace(/^[`"'""'']+|[`"'""'']+$/g, "")
-        .trim();
+      const preview = truncateConversationTitle(
+        streamedTitle
+          .replace(/[\r\n]+/g, " ")
+          .replace(/^[`"'""'']+|[`"'""'']+$/g, "")
+          .trim(),
+        locale,
+      );
       if (!preview) return;
       forwardGatewayTitlePreview(preview);
       const currentItem = sidebarStore.peek(conversationId);
@@ -109,7 +115,7 @@ export function startConversationTitleJob(params: StartConversationTitleJobParam
       });
     },
   })
-    .then((assistant) => normalizeConversationTitle(assistantMessageToText(assistant)))
+    .then((assistant) => normalizeConversationTitle(assistantMessageToText(assistant), locale))
     .then((title) => title || null)
     .catch(() => null);
 

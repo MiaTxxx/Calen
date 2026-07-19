@@ -27,6 +27,11 @@ import { LocaleContext, t as translate } from "@/i18n";
 import type { ChatHistorySummary } from "@/lib/chat/chatHistory";
 import { buildModelOptions } from "@/lib/chat/chatPageHelpers";
 import type { HistoryMessageRef } from "@/lib/chat/conversationState";
+import {
+  buildWebComposerDraftPreview,
+  createIndexedDbComposerDraftStore,
+  type WebComposerDraftRecord,
+} from "@/lib/chat/drafts/indexedDbComposerDraftStore";
 import { createActivityStore } from "@/lib/chat/stream/activityStore";
 import {
   type ChatCommandOutcome,
@@ -299,6 +304,9 @@ export default function GatewayApp() {
   });
   const composerRef = useRef<MentionComposerHandle | null>(null);
   const composerDraftCacheRef = useRef<Map<string, MentionComposerDraft>>(new Map());
+  const persistedComposerDraftsRef = useRef<Map<string, WebComposerDraftRecord>>(new Map());
+  const composerDraftSaveTimerRef = useRef<number | null>(null);
+  const composerDraftStore = useMemo(() => createIndexedDbComposerDraftStore(), []);
   const conversationIdRef = useRef(conversationId);
   const selectedHistoryIdRef = useRef(selectedHistoryId);
   const statusRef = useRef<AgentStatus | null>(status);
@@ -547,12 +555,44 @@ export default function GatewayApp() {
     }
 
     const draft = composer.getDraft();
-    if (draft.isEmpty || !draft.text.trim()) {
+    const uploadedFiles = getPendingUploadsForConversation(targetConversationId);
+    if ((draft.isEmpty || !draft.text.trim()) && uploadedFiles.length === 0) {
       composerDraftCacheRef.current.delete(targetConversationId);
+      persistedComposerDraftsRef.current.delete(targetConversationId);
+      void composerDraftStore.delete(targetConversationId);
       return;
     }
 
     composerDraftCacheRef.current.set(targetConversationId, draft);
+    if (settings.customSettings.draftPersistence.enabled) {
+      const updatedAt = Date.now();
+      void composerDraftStore
+        .upsert({
+          conversationId: targetConversationId,
+          workdir: conversationWorkdirsRef.current.get(targetConversationId) ?? "",
+          draft,
+          uploadedFiles,
+          preview: buildWebComposerDraftPreview(draft.text),
+          updatedAt,
+        })
+        .then((record) => persistedComposerDraftsRef.current.set(targetConversationId, record))
+        .catch((error) => console.warn("Failed to persist WebUI composer draft", error));
+    }
+  }
+  const cacheVisibleComposerDraftRef = useRef(cacheVisibleComposerDraft);
+  cacheVisibleComposerDraftRef.current = cacheVisibleComposerDraft;
+
+  function scheduleVisibleComposerDraftSave(draft: MentionComposerDraft) {
+    const targetConversationId = getVisibleComposerConversationId().trim();
+    if (!targetConversationId || !settings.customSettings.draftPersistence.enabled) return;
+    composerDraftCacheRef.current.set(targetConversationId, draft);
+    if (composerDraftSaveTimerRef.current !== null) {
+      window.clearTimeout(composerDraftSaveTimerRef.current);
+    }
+    composerDraftSaveTimerRef.current = window.setTimeout(() => {
+      composerDraftSaveTimerRef.current = null;
+      cacheVisibleComposerDraft(targetConversationId);
+    }, 250);
   }
 
   function clearCachedComposerDraft(conversationId = getVisibleComposerConversationId()) {
@@ -561,7 +601,62 @@ export default function GatewayApp() {
       return;
     }
     composerDraftCacheRef.current.delete(targetConversationId);
+    persistedComposerDraftsRef.current.delete(targetConversationId);
+    void composerDraftStore.delete(targetConversationId).catch((error) => {
+      console.warn("Failed to delete WebUI composer draft", error);
+    });
   }
+
+  useEffect(() => {
+    if (!settings.customSettings.draftPersistence.enabled) {
+      composerDraftCacheRef.current.clear();
+      persistedComposerDraftsRef.current.clear();
+      void composerDraftStore.clear().catch((error) => {
+        console.warn("Failed to clear disabled WebUI drafts", error);
+      });
+      return;
+    }
+    void composerDraftStore
+      .list()
+      .then((records) => {
+        for (const record of records) {
+          persistedComposerDraftsRef.current.set(record.conversationId, record);
+          composerDraftCacheRef.current.set(record.conversationId, record.draft);
+          conversationWorkdirsRef.current.set(record.conversationId, record.workdir);
+          setPendingUploadsForConversation(record.conversationId, record.uploadedFiles);
+          if (!isLocalDraftConversationId(record.conversationId)) continue;
+          sidebarStore.upsertLocal({
+            id: record.conversationId,
+            title: record.preview || (settings.locale === "zh-CN" ? "草稿" : "Draft"),
+            providerId: "",
+            model: settings.selectedModel?.model ?? "draft",
+            cwd: record.workdir,
+            messageCount: 0,
+            createdAt: record.createdAt || record.updatedAt,
+            updatedAt: record.updatedAt,
+            isPending: true,
+          });
+        }
+      })
+      .catch((error) => console.warn("Failed to restore WebUI composer drafts", error));
+  }, [composerDraftStore, settings.customSettings.draftPersistence.enabled]);
+
+  useEffect(() => {
+    const flush = () => cacheVisibleComposerDraftRef.current();
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("beforeunload", flush);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      flush();
+      window.removeEventListener("beforeunload", flush);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      if (composerDraftSaveTimerRef.current !== null) {
+        window.clearTimeout(composerDraftSaveTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     conversationIdRef.current = conversationId;
@@ -1770,7 +1865,7 @@ export default function GatewayApp() {
       // until a server upsert (post-bind) confirms the conversation.
       sidebarStore.upsertLocal({
         id: activeConversationId,
-        title: buildOptimisticConversationTitle(message),
+        title: buildOptimisticConversationTitle(message, settings.locale),
         providerId: settings.selectedModel?.customProviderId ?? "",
         model: settings.selectedModel?.model ?? "",
         cwd: effectiveWorkdir || undefined,
@@ -2154,7 +2249,7 @@ export default function GatewayApp() {
     const currentConversationId = conversationIdRef.current.trim();
     if (currentConversationId) {
       transcriptStoreRegistry.peek(currentConversationId)?.foldSettledTurns();
-      clearCachedComposerDraft(currentConversationId);
+      cacheVisibleComposerDraft(currentConversationId);
     }
     invalidateHistoryLoad();
     markVisibleConversationRevision();
@@ -2520,6 +2615,10 @@ export default function GatewayApp() {
         transcriptStoreRegistry.remove(id);
         conversationWorkdirsRef.current.delete(id);
         composerDraftCacheRef.current.delete(id);
+        persistedComposerDraftsRef.current.delete(id);
+        void composerDraftStore.delete(id).catch((error) => {
+          console.warn("Failed to delete removed conversation draft", error);
+        });
         setPendingUploadsForConversation(id, []);
         if (id === displayedId) {
           displayedRemoved = true;
@@ -2543,6 +2642,7 @@ export default function GatewayApp() {
     },
     [
       activeWorkspaceProjectPath,
+      composerDraftStore,
       isAgentMode,
       setPendingUploadsForConversation,
       transcriptStoreRegistry,
@@ -2554,6 +2654,10 @@ export default function GatewayApp() {
       transcriptStoreRegistry.remove(id);
       conversationWorkdirsRef.current.delete(id);
       composerDraftCacheRef.current.delete(id);
+      persistedComposerDraftsRef.current.delete(id);
+      void composerDraftStore.delete(id).catch((error) => {
+        console.warn("Failed to delete local conversation draft", error);
+      });
       setPendingUploadsForConversation(id, []);
       if (conversationIdRef.current === id || selectedHistoryIdRef.current === id) {
         startNewConversation({
@@ -2563,6 +2667,7 @@ export default function GatewayApp() {
     },
     [
       activeWorkspaceProjectPath,
+      composerDraftStore,
       isAgentMode,
       setPendingUploadsForConversation,
       transcriptStoreRegistry,
@@ -3420,16 +3525,26 @@ export default function GatewayApp() {
     const frameId = window.requestAnimationFrame(() => {
       const cachedDraft = composerDraftCacheRef.current.get(targetConversationId);
       const composer = composerRef.current;
-      if (!cachedDraft || !composer || composer.hasContent()) {
+      if (!composer || composer.hasContent()) {
         return;
       }
-      composer.setDraft(cachedDraft);
+      if (cachedDraft) {
+        composer.setDraft(cachedDraft);
+        return;
+      }
+      void composerDraftStore.get(targetConversationId).then((record) => {
+        if (!record || getDisplayedConversationId() !== targetConversationId) return;
+        composerDraftCacheRef.current.set(targetConversationId, record.draft);
+        persistedComposerDraftsRef.current.set(targetConversationId, record);
+        composerRef.current?.setDraft(record.draft);
+        setPendingUploadsForConversation(targetConversationId, record.uploadedFiles);
+      });
     });
 
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [activeView, displayedConversationId]);
+  }, [activeView, composerDraftStore, displayedConversationId]);
 
   const displayedConversationSummary = useMemo(() => {
     const displayedId = displayedConversationId.trim();
@@ -3515,6 +3630,37 @@ export default function GatewayApp() {
   const composerIsSending = transcriptBusy;
   const transcriptError = displayedTranscriptRowCount === 0 ? null : chatError;
   const composerCompactionBlocked = transcriptToolStatusIsCompaction;
+  const contextResetDisabled =
+    transcriptBusy ||
+    displayedHasPendingCommand ||
+    historyDetailLoading ||
+    composerCompactionBlocked ||
+    displayedTranscript.entryCount === 0 ||
+    isLocalDraftConversationId(displayedConversationId);
+  const handleResetContext = useCallback(async () => {
+    const targetConversationId = displayedConversationId.trim();
+    if (!api || !targetConversationId || contextResetDisabled) return;
+    const confirmed = await requestConfirmDialog({
+      title: translate("chat.clearContextConfirmTitle", settings.locale),
+      description: translate("chat.clearContextConfirmDescription", settings.locale),
+      confirmLabel: translate("chat.clearContext", settings.locale),
+      cancelLabel: translate("chat.cancel", settings.locale),
+    });
+    if (!confirmed || getDisplayedConversationId() !== targetConversationId) return;
+    try {
+      await api.resetChatContext(targetConversationId);
+      transcriptFollow.stickToBottom();
+    } catch (error) {
+      setChatError(asErrorMessage(error, "Failed to reset conversation context."));
+    }
+  }, [
+    api,
+    contextResetDisabled,
+    displayedConversationId,
+    requestConfirmDialog,
+    settings.locale,
+    transcriptFollow,
+  ]);
   const sidebarSectionsDisabled = shouldDisableGatewaySidebarSections({
     connectionLost: gatewayConnectionLost,
     agentStatusFresh: sidebarAgentStatusFresh,
@@ -3636,7 +3782,40 @@ export default function GatewayApp() {
   if (!settingsSyncReady) {
     return (
       <LocaleContext.Provider value={localeContextValue}>
-        <div className="gateway-shell">
+        <div
+          className="gateway-shell calen-themed"
+          style={
+            {
+              "--calen-app": settings.customSettings.appearance[effectiveTheme].app,
+              "--calen-titlebar": settings.customSettings.appearance[effectiveTheme].titleBar,
+              "--calen-sidebar": settings.customSettings.appearance[effectiveTheme].sidebar,
+              "--calen-chat-canvas": settings.customSettings.appearance[effectiveTheme].chatCanvas,
+              "--calen-composer": settings.customSettings.appearance[effectiveTheme].composer,
+              "--calen-right-dock": settings.customSettings.appearance[effectiveTheme].rightDock,
+              "--calen-card": settings.customSettings.appearance[effectiveTheme].card,
+              "--calen-user-bubble": settings.customSettings.appearance[effectiveTheme].userBubble,
+              "--calen-primary-text":
+                settings.customSettings.appearance[effectiveTheme].primaryText,
+              "--calen-secondary-text":
+                settings.customSettings.appearance[effectiveTheme].secondaryText,
+              "--calen-border": settings.customSettings.appearance[effectiveTheme].border,
+              "--calen-accent": settings.customSettings.appearance[effectiveTheme].accent,
+              "--calen-font-family":
+                settings.customSettings.appearance.fontFamily === "local" &&
+                settings.customSettings.appearance.localFontName
+                  ? `"${settings.customSettings.appearance.localFontName}", sans-serif`
+                  : settings.customSettings.appearance.fontFamily === "serif"
+                    ? "Georgia, serif"
+                    : settings.customSettings.appearance.fontFamily === "monospace"
+                      ? "Cascadia Code, Consolas, monospace"
+                      : settings.customSettings.appearance.fontFamily === "cjk"
+                        ? "PingFang SC, Microsoft YaHei, sans-serif"
+                        : settings.customSettings.appearance.fontFamily === "system"
+                          ? "system-ui, sans-serif"
+                          : "OpenAI Sans, PingFang SC, Microsoft YaHei, sans-serif",
+            } as CSSProperties
+          }
+        >
           <main className="gateway-main-shell">
             <div className="gateway-main-backdrop" />
             <div className="gateway-chat-frame flex items-center justify-center">
@@ -3773,7 +3952,12 @@ export default function GatewayApp() {
                 <div
                   className="gateway-chat-frame zone-font-scale"
                   style={
-                    { "--zone-font-scale": settings.customSettings.fontScale.chat } as CSSProperties
+                    {
+                      "--zone-font-scale": settings.customSettings.fontScale.chat,
+                      "--gateway-chat-column-width": settings.customSettings.chatLayout.fullWidth
+                        ? "calc(100% - 32px)"
+                        : `${settings.customSettings.chatLayout.contentWidth}px`,
+                    } as CSSProperties
                   }
                   onDragEnter={handleFileDragEnter}
                   onDragOver={handleFileDragOver}
@@ -4001,6 +4185,26 @@ export default function GatewayApp() {
                           }
                         })();
                       }}
+                      onDraftChange={scheduleVisibleComposerDraftSave}
+                      onResetContext={() => void handleResetContext()}
+                      contextResetDisabled={contextResetDisabled}
+                      contentWidth={settings.customSettings.chatLayout.contentWidth}
+                      editorHeight={settings.customSettings.chatLayout.composerHeight}
+                      fullWidth={settings.customSettings.chatLayout.fullWidth}
+                      onContentWidthChange={(contentWidth) =>
+                        setSettings((prev) =>
+                          updateCustomSettings(prev, {
+                            chatLayout: { ...prev.customSettings.chatLayout, contentWidth },
+                          }),
+                        )
+                      }
+                      onEditorHeightChange={(composerHeight) =>
+                        setSettings((prev) =>
+                          updateCustomSettings(prev, {
+                            chatLayout: { ...prev.customSettings.chatLayout, composerHeight },
+                          }),
+                        )
+                      }
                       onStop={() => {
                         void cancelChat(displayedConversationId);
                       }}

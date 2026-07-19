@@ -20,19 +20,28 @@ const enabledSkills = [
   },
 ];
 
-test("extractSkillMentionNamesFromText finds explicit skill tokens without treating common env vars as skills", () => {
+test("extractSkillMentionNamesFromText finds explicit /skill tokens without treating paths as skills", () => {
   assert.deepEqual(
     skills.extractSkillMentionNamesFromText(
-      "Use $code-review and $release_notes, keep $PATH literal and ignore price$tags.",
+      "Use /code-review and /release_notes, keep /usr/bin/env literal and ignore https://example.com/page."
     ),
-    ["code-review", "release_notes"],
+    ["code-review", "release_notes"]
+  );
+});
+
+test("extractSkillMentionNamesFromText still parses legacy $skill tokens without treating common env vars as skills", () => {
+  assert.deepEqual(
+    skills.extractSkillMentionNamesFromText(
+      "Use $code-review and $release_notes, keep $PATH literal and ignore price$tags."
+    ),
+    ["code-review", "release_notes"]
   );
 });
 
 test("resolveExplicitSkillMentions only returns enabled skills and deduplicates structured/text mentions", () => {
   assert.deepEqual(
     skills.resolveExplicitSkillMentions({
-      text: "$disabled $release_notes $code-review $code-review",
+      text: "/disabled /release_notes /code-review /code-review",
       structured: [
         {
           name: "code-review",
@@ -42,7 +51,7 @@ test("resolveExplicitSkillMentions only returns enabled skills and deduplicates 
       ],
       enabledSkills,
     }),
-    [enabledSkills[0], enabledSkills[1]],
+    [enabledSkills[0], enabledSkills[1]]
   );
 });
 
@@ -62,7 +71,12 @@ test("buildSkillsSystemPrompt marks explicit mentions without granting disabled 
   });
 
   assert.match(prompt, /Explicitly mentioned this turn:/);
-  assert.match(prompt, /- code-review \(skillFile: code-review\/SKILL\.md, baseDir: code-review\)/);
+  assert.match(
+    prompt,
+    /- code-review \(skillFile: code-review\/SKILL\.md, baseDir: code-review\)/
+  );
   assert.doesNotMatch(prompt, /disabled\/SKILL\.md/);
-  assert.ok(prompt.includes("`$` mentions never grant access to disabled Skills"));
+  assert.ok(
+    prompt.includes("`/` mentions never grant access to disabled Skills")
+  );
 });

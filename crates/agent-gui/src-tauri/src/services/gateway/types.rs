@@ -89,6 +89,13 @@ pub(crate) struct GatewayChatCancelEvent {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct GatewayChatContextResetEvent {
+    pub(crate) request_id: String,
+    pub(crate) conversation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GatewayChatQueueRequestEvent {
     pub request_id: String,
     pub action: String,

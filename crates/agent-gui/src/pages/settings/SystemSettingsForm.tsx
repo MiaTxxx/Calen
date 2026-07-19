@@ -17,10 +17,13 @@ import {
 
 import { SUPPORTED_LOCALES, useLocale } from "../../i18n";
 import {
+  APPEARANCE_SURFACES,
+  DEFAULT_APPEARANCE_SETTINGS,
   DEFAULT_BACKGROUND_SETTINGS,
   DEFAULT_WORKSPACE_PROJECT_ID,
   type ExecutionMode,
   type FontScaleSettings,
+  parseAppearanceSettingsJson,
   THEME_OPTIONS,
   type Theme,
   updateCustomSettings,
@@ -29,8 +32,6 @@ import {
 import { NetworkProxySettingsCard } from "./NetworkProxySettingsCard";
 import { AgentActivationSwitch } from "./shared";
 import type { SettingsSectionProps } from "./types";
-
-const FONT_SCALE_OPTIONS = [0.9, 1, 1.1, 1.2] as const;
 
 export function SystemSettingsForm(props: SettingsSectionProps) {
   const { settings, setSettings } = props;
@@ -72,13 +73,6 @@ export function SystemSettingsForm(props: SettingsSectionProps) {
     { key: "rightDock", label: t("settings.fontSizeRightDock") },
   ];
 
-  function getFontScaleLabel(value: number) {
-    if (value === 0.9) return t("settings.fontSizeSmall");
-    if (value === 1.1) return t("settings.fontSizeLarge");
-    if (value === 1.2) return t("settings.fontSizeXLarge");
-    return t("settings.fontSizeStandard");
-  }
-
   function setZoneFontScale(zone: keyof FontScaleSettings, value: number) {
     setSettings((prev) =>
       updateCustomSettings(prev, {
@@ -88,6 +82,28 @@ export function SystemSettingsForm(props: SettingsSectionProps) {
   }
 
   const background = settings.customSettings.background;
+  const [appearanceMode, setAppearanceMode] = useState<"light" | "dark">("light");
+  const [appearanceJson, setAppearanceJson] = useState("");
+  const [appearanceError, setAppearanceError] = useState("");
+  const appearance = settings.customSettings.appearance;
+  const appearancePalette = appearance[appearanceMode];
+
+  function updateAppearance(patch: Partial<typeof appearance>) {
+    setSettings((prev) =>
+      updateCustomSettings(prev, {
+        appearance: { ...prev.customSettings.appearance, ...patch },
+      }),
+    );
+  }
+
+  function importAppearance() {
+    try {
+      updateAppearance(parseAppearanceSettingsJson(appearanceJson));
+      setAppearanceError("");
+    } catch (error) {
+      setAppearanceError(error instanceof Error ? error.message : String(error));
+    }
+  }
   const [backgroundPicking, setBackgroundPicking] = useState(false);
   const [backgroundError, setBackgroundError] = useState("");
 
@@ -332,6 +348,227 @@ export function SystemSettingsForm(props: SettingsSectionProps) {
         </section>
       </div>
 
+      <details className="rounded-2xl border border-border/60 bg-card p-4">
+        <summary className="cursor-pointer text-sm font-medium text-foreground">
+          {t("settings.themeEditor")}
+        </summary>
+        <div className="mt-4 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex rounded-lg bg-muted/50 p-0.5">
+              {(["light", "dark"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setAppearanceMode(mode)}
+                  className={`rounded-md px-3 py-1 text-xs ${appearanceMode === mode ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+                >
+                  {mode === "light" ? t("settings.light") : t("settings.dark")}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => updateAppearance(DEFAULT_APPEARANCE_SETTINGS)}
+              className="rounded-lg border px-3 py-1.5 text-xs"
+            >
+              {t("settings.resetAll")}
+            </button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {APPEARANCE_SURFACES.map((surface) => (
+              <label
+                key={surface}
+                className="flex items-center gap-2 rounded-lg border p-2 text-xs"
+              >
+                <input
+                  type="color"
+                  value={appearancePalette[surface].slice(0, 7)}
+                  onChange={(event) =>
+                    updateAppearance({
+                      [appearanceMode]: { ...appearancePalette, [surface]: event.target.value },
+                    })
+                  }
+                  className="h-7 w-9 cursor-pointer border-0 bg-transparent"
+                />
+                <span className="min-w-0 flex-1 truncate">{surface}</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateAppearance({
+                      [appearanceMode]: {
+                        ...appearancePalette,
+                        [surface]: DEFAULT_APPEARANCE_SETTINGS[appearanceMode][surface],
+                      },
+                    })
+                  }
+                  className="text-muted-foreground hover:text-foreground"
+                  title={t("settings.reset")}
+                >
+                  R
+                </button>
+              </label>
+            ))}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <select
+              value={appearance.fontFamily}
+              onChange={(event) =>
+                updateAppearance({ fontFamily: event.target.value as typeof appearance.fontFamily })
+              }
+              className="rounded-lg border bg-background px-3 py-2 text-xs"
+            >
+              {["system", "openai", "cjk", "serif", "monospace", "local"].map((font) => (
+                <option key={font} value={font}>
+                  {font}
+                </option>
+              ))}
+            </select>
+            <input
+              value={appearance.localFontName}
+              disabled={appearance.fontFamily !== "local"}
+              onChange={(event) => updateAppearance({ localFontName: event.target.value })}
+              placeholder={t("settings.localFontName")}
+              className="rounded-lg border bg-background px-3 py-2 text-xs"
+            />
+          </div>
+          <textarea
+            value={appearanceJson}
+            onChange={(event) => setAppearanceJson(event.target.value)}
+            placeholder={t("settings.themeJson")}
+            className="min-h-24 w-full rounded-lg border bg-background p-2 font-mono text-xs"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setAppearanceJson(JSON.stringify(appearance, null, 2))}
+              className="rounded-lg border px-3 py-1.5 text-xs"
+            >
+              {t("settings.export")}
+            </button>
+            <button
+              type="button"
+              onClick={importAppearance}
+              className="rounded-lg border px-3 py-1.5 text-xs"
+            >
+              {t("settings.import")}
+            </button>
+          </div>
+          {appearanceError ? <p className="text-xs text-destructive">{appearanceError}</p> : null}
+        </div>
+      </details>
+
+      <section className="space-y-4 rounded-2xl border border-border/60 bg-card p-4">
+        <div>
+          <div className="text-sm font-medium text-foreground">{t("settings.chatLayout")}</div>
+          <p className="mt-1 text-xs text-muted-foreground">{t("settings.chatLayoutDesc")}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            [640, false, t("settings.chatLayoutNarrow")],
+            [768, false, t("settings.chatLayoutStandard")],
+            [1024, false, t("settings.chatLayoutWide")],
+            [768, true, t("settings.chatLayoutFull")],
+          ].map(([width, fullWidth, label]) => (
+            <button
+              key={String(label)}
+              type="button"
+              onClick={() =>
+                setSettings((prev) =>
+                  updateCustomSettings(prev, {
+                    chatLayout: {
+                      ...prev.customSettings.chatLayout,
+                      contentWidth: Number(width),
+                      fullWidth: Boolean(fullWidth),
+                    },
+                  }),
+                )
+              }
+              className="rounded-lg border border-border/60 bg-background/80 px-3 py-2 text-xs hover:bg-muted/40"
+            >
+              {String(label)}
+            </button>
+          ))}
+        </div>
+        <label className="flex items-center gap-3 text-xs">
+          <span className="w-24">{t("settings.chatLayoutWidth")}</span>
+          <input
+            type="range"
+            min={560}
+            max={1400}
+            step={8}
+            disabled={settings.customSettings.chatLayout.fullWidth}
+            value={settings.customSettings.chatLayout.contentWidth}
+            onChange={(event) =>
+              setSettings((prev) =>
+                updateCustomSettings(prev, {
+                  chatLayout: {
+                    ...prev.customSettings.chatLayout,
+                    contentWidth: Number(event.target.value),
+                  },
+                }),
+              )
+            }
+            className="min-w-0 flex-1 accent-primary"
+          />
+          <span className="w-14 text-right tabular-nums">
+            {settings.customSettings.chatLayout.fullWidth
+              ? t("settings.chatLayoutFull")
+              : `${settings.customSettings.chatLayout.contentWidth}px`}
+          </span>
+        </label>
+        <label className="flex items-center gap-3 text-xs">
+          <span className="w-24">{t("settings.chatLayoutHeight")}</span>
+          <input
+            type="range"
+            min={70}
+            max={480}
+            step={5}
+            value={settings.customSettings.chatLayout.composerHeight}
+            onChange={(event) =>
+              setSettings((prev) =>
+                updateCustomSettings(prev, {
+                  chatLayout: {
+                    ...prev.customSettings.chatLayout,
+                    composerHeight: Number(event.target.value),
+                  },
+                }),
+              )
+            }
+            className="min-w-0 flex-1 accent-primary"
+          />
+          <span className="w-14 text-right tabular-nums">
+            {settings.customSettings.chatLayout.composerHeight}px
+          </span>
+        </label>
+      </section>
+
+      <section className="space-y-3 rounded-2xl border border-border/60 bg-card p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              {t("settings.saveDrafts")}
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {t("settings.saveDraftsDesc")}
+            </p>
+          </div>
+          <AgentActivationSwitch
+            checked={settings.customSettings.draftPersistence.enabled}
+            title={t("settings.saveDrafts")}
+            onToggle={() =>
+              setSettings((prev) =>
+                updateCustomSettings(prev, {
+                  draftPersistence: {
+                    enabled: !prev.customSettings.draftPersistence.enabled,
+                  },
+                }),
+              )
+            }
+          />
+        </div>
+      </section>
+
       <section className="space-y-3 rounded-2xl border border-border/60 bg-card p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
@@ -466,24 +703,19 @@ export function SystemSettingsForm(props: SettingsSectionProps) {
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 bg-background/80 px-3.5 py-2.5"
             >
               <div className="text-sm font-medium text-foreground">{zone.label}</div>
-              <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-0.5">
-                {FONT_SCALE_OPTIONS.map((value) => {
-                  const selected = fontScale[zone.key] === value;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setZoneFontScale(zone.key, value)}
-                      className={`rounded-md px-2.5 py-1 text-xs transition-all ${
-                        selected
-                          ? "bg-background font-semibold text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      {getFontScaleLabel(value)}
-                    </button>
-                  );
-                })}
+              <div className="flex min-w-[220px] items-center gap-2">
+                <input
+                  type="range"
+                  min={0.8}
+                  max={1.4}
+                  step={0.01}
+                  value={fontScale[zone.key]}
+                  onChange={(event) => setZoneFontScale(zone.key, Number(event.target.value))}
+                  className="min-w-0 flex-1 accent-primary"
+                />
+                <span className="w-10 text-right text-xs tabular-nums">
+                  {fontScale[zone.key].toFixed(2)}
+                </span>
               </div>
             </div>
           ))}

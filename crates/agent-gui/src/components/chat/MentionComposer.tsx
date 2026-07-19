@@ -109,7 +109,7 @@ type ComposerContextMenuState = {
   hasContent: boolean;
 };
 
-/** Where the @/$ trigger lives inside a text node */
+/** Where the @ or / trigger lives inside a text node */
 interface MentionContext {
   trigger: "file" | "skill";
   query: string;
@@ -169,6 +169,7 @@ export interface MentionComposerProps {
   onSend: () => void;
   /** Called only when empty/non-empty state flips. */
   onEmptyChange?: (isEmpty: boolean) => void;
+  onDraftChange?: (draft: MentionComposerDraft) => void;
   onBusyChange?: (isBusy: boolean) => void;
   onPasteFiles?: (files: File[]) => void;
   disabled?: boolean;
@@ -176,6 +177,7 @@ export interface MentionComposerProps {
   workdir: string;
   enabledSkills?: MentionComposerSkill[];
   className?: string;
+  editorHeight?: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -235,7 +237,7 @@ const GITHUB_ICON_SVG =
 /* ------------------------------------------------------------------ */
 
 function formatSkillMentionToken(skill: Pick<MentionComposerSkillMention, "name">) {
-  return `$${skill.name}`;
+  return `/${skill.name}`;
 }
 
 function formatCommitMentionToken(
@@ -1001,7 +1003,7 @@ function selectionTextPosition(root: HTMLElement): { textNode: Text; offset: num
   return null;
 }
 
-/** Detect an in-progress @file or $skill mention at the cursor position. */
+/** Detect an in-progress @file or /skill mention at the cursor position. */
 function detectMention(root: HTMLElement, skillsEnabled: boolean): MentionContext | null {
   const position = selectionTextPosition(root);
   if (!position) return null;
@@ -1018,7 +1020,7 @@ function detectMention(root: HTMLElement, skillsEnabled: boolean): MentionContex
       trigger = "file";
       break;
     }
-    if (before[i] === "$" && skillsEnabled) {
+    if (before[i] === "/" && skillsEnabled) {
       triggerIdx = i;
       trigger = "skill";
       break;
@@ -1731,6 +1733,7 @@ export const MentionComposer = memo(
     {
       onSend,
       onEmptyChange,
+      onDraftChange,
       onBusyChange,
       onPasteFiles,
       disabled = false,
@@ -1738,6 +1741,7 @@ export const MentionComposer = memo(
       workdir,
       enabledSkills = [],
       className,
+      editorHeight,
     }: MentionComposerProps,
     ref,
   ) {
@@ -2608,10 +2612,18 @@ export const MentionComposer = memo(
       }
       pruneDetachedLargePastes();
       refreshEmptyState();
+      onDraftChange?.(buildDraft());
       if (!isComposingRef.current) {
         refreshMention();
       }
-    }, [closeComposerContextMenu, pruneDetachedLargePastes, refreshEmptyState, refreshMention]);
+    }, [
+      buildDraft,
+      closeComposerContextMenu,
+      onDraftChange,
+      pruneDetachedLargePastes,
+      refreshEmptyState,
+      refreshMention,
+    ]);
 
     const handleKeyUp = useCallback(
       (e: KeyboardEvent<HTMLDivElement>) => {
@@ -3031,12 +3043,13 @@ export const MentionComposer = memo(
           onCompositionEnd={handleCompositionEnd}
           onBlur={handleBlur}
           className={cn(
-            "mention-composer min-h-[70px] max-h-[160px] w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] outline-hidden",
+            "mention-composer min-h-[70px] w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] outline-hidden",
             "text-sm",
             isDomEmpty && "is-empty",
             disabled && "cursor-not-allowed opacity-60",
             className,
           )}
+          style={editorHeight ? { height: `${editorHeight}px`, maxHeight: "55vh" } : undefined}
           data-placeholder={placeholder}
         />
       </div>

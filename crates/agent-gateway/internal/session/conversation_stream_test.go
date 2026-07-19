@@ -43,6 +43,46 @@ func completedControl(runID string, conversationID string) *gatewayv1.ChatContro
 	}
 }
 
+func TestContextResetControlAppendsManualResetBoundary(t *testing.T) {
+	m := NewManager()
+	m.ingestChatControl("reset-1", &gatewayv1.ChatControlEvent{
+		RequestId:      "reset-1",
+		ConversationId: "conv-1",
+		Type:           "conversation.context_reset",
+		State:          "completed",
+	})
+
+	sub := m.SubscribeConversationStream("conv-1", 0, "")
+	defer sub.Cleanup()
+	if len(sub.Events) != 1 {
+		t.Fatalf("events = %d, want 1", len(sub.Events))
+	}
+	event := sub.Events[0]
+	if event.Type != "conversation.context_reset" {
+		t.Fatalf("event type = %q", event.Type)
+	}
+	if event.Payload["boundary_kind"] != "manual-reset" {
+		t.Fatalf("event payload = %#v", event.Payload)
+	}
+}
+
+func TestFailedContextResetControlDoesNotAppendBoundary(t *testing.T) {
+	m := NewManager()
+	m.ingestChatControl("reset-1", &gatewayv1.ChatControlEvent{
+		RequestId:      "reset-1",
+		ConversationId: "conv-1",
+		Type:           "conversation.context_reset",
+		State:          "failed",
+		ErrorCode:      "context_reset_failed",
+	})
+
+	sub := m.SubscribeConversationStream("conv-1", 0, "")
+	defer sub.Cleanup()
+	if len(sub.Events) != 0 {
+		t.Fatalf("events = %d, want 0", len(sub.Events))
+	}
+}
+
 func drainEvents(t *testing.T, ch <-chan *ConversationEvent, count int) []*ConversationEvent {
 	t.Helper()
 	events := make([]*ConversationEvent, 0, count)

@@ -181,7 +181,10 @@ export function useConversationHistoryActions(params: UseConversationHistoryActi
     pruneIdleConversationCaches([conversationId]);
   }
 
-  function startNewConversation(options?: { workdir?: string }) {
+  function startNewConversation(options?: {
+    workdir?: string;
+    identity?: { conversationId: string; sessionId: string; createdAt: number };
+  }) {
     cancelConversationHydration();
     const visibleConversationId = currentConversationIdRef.current;
     setConversationRuntimeCacheEntry(
@@ -191,7 +194,7 @@ export function useConversationHistoryActions(params: UseConversationHistoryActi
     );
     resetVisibleTransientState();
 
-    const nextIdentity = createConversationIdentity();
+    const nextIdentity = options?.identity ?? createConversationIdentity();
     const nextEntry = createBlankConversationEntry({
       conversationState,
       sessionId: nextIdentity.sessionId,

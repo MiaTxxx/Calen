@@ -52,6 +52,13 @@ pub struct SystemUploadedReadableFileInput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SystemUploadedFileReference {
+    pub absolute_path: Option<String>,
+    pub relative_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SystemPastedTextInput {
     pub file_name: String,
     pub content: String,
@@ -980,6 +987,26 @@ pub(crate) fn system_read_uploaded_native_attachment_sync(
     })
 }
 
+pub(crate) fn system_validate_uploaded_file_references_sync(
+    workdir: String,
+    files: Vec<SystemUploadedFileReference>,
+) -> Result<Vec<usize>, String> {
+    let workdir = canonicalize_upload_workdir(&workdir)?;
+    Ok(files
+        .iter()
+        .enumerate()
+        .filter_map(|(index, file)| {
+            canonicalize_uploaded_attachment_path(
+                &workdir,
+                file.absolute_path.as_deref(),
+                Some(file.relative_path.as_str()),
+            )
+            .ok()
+            .map(|_| index)
+        })
+        .collect())
+}
+
 pub(crate) fn system_list_skill_files_sync() -> Result<SystemListSkillFilesResponse, String> {
     crate::services::skills::system_list_skill_files_sync()
 }
@@ -1241,6 +1268,18 @@ pub async fn system_read_uploaded_native_attachment(
     })
     .await
     .map_err(|e| format!("system_read_uploaded_native_attachment join failed: {e}"))?
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn system_validate_uploaded_file_references(
+    workdir: String,
+    files: Vec<SystemUploadedFileReference>,
+) -> Result<Vec<usize>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        system_validate_uploaded_file_references_sync(workdir, files)
+    })
+    .await
+    .map_err(|e| format!("system_validate_uploaded_file_references join failed: {e}"))?
 }
 
 #[tauri::command]
@@ -1573,6 +1612,39 @@ mod tests {
             error.contains("附件路径超出当前工作目录"),
             "error = {error}"
         );
+    }
+
+    #[test]
+    fn validate_uploaded_file_references_filters_missing_and_outside_files() {
+        let temp = tempdir().expect("create temp dir");
+        let workdir = temp.path().join("workspace");
+        let upload_dir = workdir.join("uploads").join("batch");
+        fs::create_dir_all(&upload_dir).expect("create upload dir");
+        let upload = upload_dir.join("note.txt");
+        fs::write(&upload, b"hello").expect("write upload");
+        let outside = temp.path().join("outside.txt");
+        fs::write(&outside, b"outside").expect("write outside file");
+
+        let valid = system_validate_uploaded_file_references_sync(
+            workdir.to_string_lossy().into_owned(),
+            vec![
+                SystemUploadedFileReference {
+                    absolute_path: Some(upload.to_string_lossy().into_owned()),
+                    relative_path: "uploads/batch/note.txt".to_string(),
+                },
+                SystemUploadedFileReference {
+                    absolute_path: None,
+                    relative_path: "uploads/batch/missing.txt".to_string(),
+                },
+                SystemUploadedFileReference {
+                    absolute_path: Some(outside.to_string_lossy().into_owned()),
+                    relative_path: "outside.txt".to_string(),
+                },
+            ],
+        )
+        .expect("validate attachment references");
+
+        assert_eq!(valid, vec![0]);
     }
 
     #[test]

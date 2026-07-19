@@ -7,10 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/MiaTxxx/Calen/crates/agent-gateway/internal/config"
+	"github.com/MiaTxxx/Calen/crates/agent-gateway/internal/handler"
 	gatewayv1 "github.com/MiaTxxx/Calen/crates/agent-gateway/internal/proto/v1"
 	"github.com/MiaTxxx/Calen/crates/agent-gateway/internal/session"
+	"github.com/google/uuid"
 )
 
 // chatStreamSubscription is one persistent per-conversation subscription on a
@@ -221,6 +222,9 @@ func (c *websocketConnection) handleChatCommand(req websocketRequest) {
 	case "chat.cancel":
 		c.handleChatCancel(req)
 		return
+	case "chat.context_reset":
+		c.handleChatContextReset(req, body)
+		return
 	default:
 		_ = c.writeError(req.ID, "unsupported chat command")
 		return
@@ -270,6 +274,56 @@ func (c *websocketConnection) handleChatCommand(req websocketRequest) {
 	go dispatchAcceptedChatCommand(
 		context.Background(), c.cfg, c.sm, cleanupWatch, start, body, baseMessageRef, newChatTraceID(),
 	)
+}
+
+func (c *websocketConnection) handleChatContextReset(
+	req websocketRequest,
+	body handler.ChatRequestBody,
+) {
+	conversationID := strings.TrimSpace(body.ConversationID)
+	if conversationID == "" {
+		_ = c.writeError(req.ID, "conversation_id is required")
+		return
+	}
+	for _, activity := range c.sm.ActiveConversationActivities() {
+		if strings.TrimSpace(activity.ConversationID) == conversationID {
+			_ = c.writeError(req.ID, "conversation is running")
+			return
+		}
+	}
+	if !c.sm.IsOnline() {
+		_ = c.writeError(req.ID, "agent offline")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), chatDeliveryTimeout(c.cfg))
+	defer cancel()
+	requestID := "context-reset-" + uuid.NewString()
+	response, err := awaitAgentUnaryResponse(ctx, c.sm, requestID, buildChatContextResetEnvelope(
+		requestID,
+		conversationID,
+	))
+	if err != nil {
+		_ = c.writeError(req.ID, websocketErrorMessage(err))
+		return
+	}
+	control := response.GetChatControl()
+	if control == nil || strings.TrimSpace(control.GetType()) != "conversation.context_reset" {
+		_ = c.writeError(req.ID, "desktop returned an invalid context reset response")
+		return
+	}
+	if strings.TrimSpace(control.GetState()) != "completed" {
+		message := strings.TrimSpace(control.GetMessage())
+		if message == "" {
+			message = "context reset failed"
+		}
+		_ = c.writeError(req.ID, message)
+		return
+	}
+	_ = c.writePriorityResponse(req.ID, map[string]any{
+		"conversation_id": conversationID,
+		"reset":           true,
+	})
 }
 
 // respondChatCommandDeduped answers a duplicated client_request_id with the

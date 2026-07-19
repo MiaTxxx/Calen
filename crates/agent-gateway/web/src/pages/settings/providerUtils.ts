@@ -307,17 +307,9 @@ export function mergeFetchedModels(
 
 export function sortModelsBySelection(
   models: ProviderModelConfig[],
-  activeModels: ReadonlySet<string>,
+  _activeModels: ReadonlySet<string>,
 ): ProviderModelConfig[] {
-  const selected: ProviderModelConfig[] = [];
-  const unselected: ProviderModelConfig[] = [];
-
-  for (const model of models) {
-    if (activeModels.has(model.id)) selected.push(model);
-    else unselected.push(model);
-  }
-
-  return [...selected, ...unselected];
+  return models.slice();
 }
 
 export function createDraftModelConfig(

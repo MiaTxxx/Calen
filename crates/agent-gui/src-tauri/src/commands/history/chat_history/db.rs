@@ -37,6 +37,7 @@ fn load_stale_chat_history_fts_segments(
             h.updated_at AS conversation_updated_at,
             s.segment_index AS segment_index,
             s.segment_id AS segment_id,
+            s.boundary_kind AS boundary_kind,
             s.summary_json AS summary_json,
             s.messages_json AS messages_json,
             s.message_count AS message_count,
@@ -73,6 +74,7 @@ fn load_stale_chat_history_fts_segments(
                 segment: ChatHistorySegmentInput {
                     segment_index: row.get("segment_index")?,
                     segment_id: row.get("segment_id")?,
+                    boundary_kind: row.get("boundary_kind")?,
                     summary_json: row.get("summary_json")?,
                     messages_json: row.get("messages_json")?,
                     message_count: row.get("message_count")?,

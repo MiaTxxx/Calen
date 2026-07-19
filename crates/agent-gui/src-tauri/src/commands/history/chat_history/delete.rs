@@ -32,6 +32,11 @@ fn delete_chat_history_sync(
     )
     .map_err(|e| format!("删除历史分段失败：{e}"))?;
     tx.execute(
+        "DELETE FROM chatComposerDraft WHERE conversation_id = ?1",
+        params![chat_id.as_str()],
+    )
+    .map_err(|e| format!("删除聊天草稿失败：{e}"))?;
+    tx.execute(
         "DELETE FROM chatHistory WHERE id = ?1",
         params![chat_id.as_str()],
     )

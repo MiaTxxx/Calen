@@ -135,6 +135,7 @@ export function createTranscriptStore(options?: {
 }): TranscriptStore {
   let historyEntries: ChatEntry[] = [];
   let turns: Turn[] = [];
+  let contextResetRows: TranscriptRow[] = [];
   // edit_resend optimistic-truncation stash: the pre-truncation transcript
   // captured at submit time so a failed/parked command can restore it locally
   // — the offline case where the compensating history refresh cannot run.
@@ -283,6 +284,7 @@ export function createTranscriptStore(options?: {
       foldedRows = dedupeRowKeys([
         ...historyRows(),
         ...foldedTurns.flatMap((turn) => rowsForTurn(turn)),
+        ...contextResetRows,
       ]);
       foldedRowsCache = { historyEntries, foldedTurns, rows: foldedRows };
     }
@@ -686,6 +688,20 @@ export function createTranscriptStore(options?: {
       }
       case "rebased": {
         applyRebased(event);
+        return;
+      }
+      case "conversation.context_reset": {
+        foldSettled(true);
+        contextResetRows = [
+          ...contextResetRows,
+          {
+            key: `context-reset:${seq || contextResetRows.length + 1}`,
+            origin: "stream",
+            kind: "context-reset",
+          },
+        ];
+        foldedRowsCache = null;
+        schedule(true);
         return;
       }
       case "snapshot": {

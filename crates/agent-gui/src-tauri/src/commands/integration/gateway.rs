@@ -127,6 +127,24 @@ pub async fn gateway_chat_complete(
 }
 
 #[tauri::command(rename_all = "snake_case")]
+pub async fn gateway_chat_context_reset_respond(
+    request_id: String,
+    conversation_id: String,
+    succeeded: bool,
+    message: String,
+    gateway_controller: tauri::State<'_, Arc<GatewayController>>,
+) -> Result<(), String> {
+    gateway_controller
+        .send_gateway_chat_context_reset_response(
+            request_id,
+            conversation_id,
+            succeeded,
+            message,
+        )
+        .await
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub async fn gateway_chat_fail(
     request_id: String,
     conversation_id: Option<String>,

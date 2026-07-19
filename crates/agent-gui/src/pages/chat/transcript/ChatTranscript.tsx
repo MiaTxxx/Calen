@@ -43,6 +43,8 @@ export const ChatTranscript = memo(function ChatTranscript(props: ChatTranscript
     liveTranscriptStore,
     isCompactionRunning,
     bottomReservePx = 0,
+    contentWidth = 768,
+    fullWidth = false,
     onResendFromEdit,
     onOpenSettings,
     onSuggestionSelect,
@@ -178,7 +180,10 @@ export const ChatTranscript = memo(function ChatTranscript(props: ChatTranscript
       onContextMenu={handleTranscriptContextMenu}
     >
       <ScrollArea ref={setScrollAreaRoot} viewportRef={setScrollViewport} className="h-full">
-        <div className="mx-auto w-full max-w-[768px] px-5 py-4">
+        <div
+          className="mx-auto w-full px-5 py-4"
+          style={{ maxWidth: fullWidth ? "100%" : `${contentWidth}px` }}
+        >
           {showNoModelsState || showStartChatState ? (
             <div className="flex min-h-[calc(100vh-220px)] flex-col items-center justify-center">
               <ChatEmptyState

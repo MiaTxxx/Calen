@@ -1836,6 +1836,7 @@ mod tests {
         ChatHistorySegmentRecord {
             segment_index,
             segment_id: segment_id.to_string(),
+            boundary_kind: None,
             summary_json: summary_json.map(str::to_string),
             messages_json: messages_json.to_string(),
             message_count: 0,

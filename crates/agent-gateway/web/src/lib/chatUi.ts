@@ -932,7 +932,7 @@ export function resolveConversationBrowserTitle(params: {
   return projectName || formatConversationTitle(null, conversationId);
 }
 
-export function buildOptimisticConversationTitle(message: string) {
+export function buildOptimisticConversationTitle(message: string, locale = "zh-CN") {
   const firstParagraph = message
     .split(/\r?\n\s*\r?\n/)
     .map((paragraph) => paragraph.replace(/\s+/g, " ").trim())
@@ -940,5 +940,7 @@ export function buildOptimisticConversationTitle(message: string) {
   if (!firstParagraph) {
     return "新对话";
   }
-  return Array.from(firstParagraph).slice(0, 10).join("");
+  if (locale.toLowerCase().startsWith("zh"))
+    return Array.from(firstParagraph).slice(0, 10).join("");
+  return firstParagraph.split(/\s+/).slice(0, 10).join(" ");
 }

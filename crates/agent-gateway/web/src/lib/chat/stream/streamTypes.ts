@@ -38,6 +38,13 @@ export type RunLifecycleEvent =
       client_request_id?: string;
     }
   | {
+      type: "conversation.context_reset";
+      conversation_id: string;
+      run_id: string;
+      seq: number;
+      boundary_kind?: "manual-reset";
+    }
+  | {
       type: "snapshot";
       conversation_id: string;
       run_id: string;

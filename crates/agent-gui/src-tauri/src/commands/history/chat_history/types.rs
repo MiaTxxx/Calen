@@ -22,6 +22,29 @@ pub struct ChatHistoryListResponse {
     pub total_count: i64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatComposerDraftRecord {
+    pub conversation_id: String,
+    pub workdir: String,
+    pub draft_json: String,
+    pub uploaded_files_json: String,
+    pub preview: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatComposerDraftInput {
+    pub conversation_id: String,
+    pub workdir: String,
+    pub draft_json: String,
+    pub uploaded_files_json: String,
+    pub preview: String,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ChatHistoryListFilter {
     pub cwd: Option<String>,
@@ -47,6 +70,7 @@ pub struct ChatHistoryWorkdirsResponse {
 pub struct ChatHistorySegmentRecord {
     pub segment_index: i64,
     pub segment_id: String,
+    pub boundary_kind: Option<String>,
     pub summary_json: Option<String>,
     pub messages_json: String,
     pub message_count: i64,
@@ -136,6 +160,7 @@ pub struct ChatHistoryActiveSegmentRecord {
 pub struct ChatHistorySegmentInput {
     pub segment_index: i64,
     pub segment_id: String,
+    pub boundary_kind: Option<String>,
     pub summary_json: Option<String>,
     pub messages_json: String,
     pub message_count: i64,

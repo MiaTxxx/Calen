@@ -177,12 +177,14 @@ function isSkillMentionNameChar(value: string) {
   return /^[A-Za-z0-9_:-]$/.test(value);
 }
 
+// 技能引用触发符:`/` 为当前约定;`$` 为旧约定,历史消息与已排队草稿仍需解析。
 export function extractSkillMentionNamesFromText(text: string): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
 
   for (let index = 0; index < text.length; index += 1) {
-    if (text[index] !== "$") continue;
+    const trigger = text[index];
+    if (trigger !== "/" && trigger !== "$") continue;
 
     const before = index > 0 ? text[index - 1] : "";
     if (before && !/\s/.test(before)) continue;
@@ -196,8 +198,10 @@ export function extractSkillMentionNamesFromText(text: string): string[] {
       nameEnd += 1;
     }
 
+    // `/foo/bar` 是路径而非技能引用;`$FOO` 排除常见环境变量。
+    if (trigger === "/" && text[nameEnd] === "/") continue;
     const name = text.slice(nameStart, nameEnd);
-    if (isCommonSkillMentionEnvVar(name)) continue;
+    if (trigger === "$" && isCommonSkillMentionEnvVar(name)) continue;
     if (seen.has(name)) continue;
     seen.add(name);
     names.push(name);
@@ -562,9 +566,9 @@ export function buildSkillsSystemPrompt(params: {
       ? [
           "",
           "Explicitly mentioned this turn:",
-          "- The user explicitly mentioned the following enabled Skills with `$skill-name` in this turn.",
+          "- The user explicitly mentioned the following enabled Skills with `/skill-name` in this turn.",
           "- Treat these mentions as user intent to prioritize those Skills. Read and follow the mentioned Skill instructions before acting when they are relevant.",
-          "- `$` mentions never grant access to disabled Skills; only the enabled Skills listed in this prompt are available.",
+          "- `/` mentions never grant access to disabled Skills; only the enabled Skills listed in this prompt are available.",
           ...explicit.map(
             (skill) => `- ${skill.name} (skillFile: ${skill.skillFile}, baseDir: ${skill.baseDir})`,
           ),

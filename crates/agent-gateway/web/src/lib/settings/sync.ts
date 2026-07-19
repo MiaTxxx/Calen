@@ -1,5 +1,6 @@
 import {
   type AppSettings,
+  DEFAULT_APPEARANCE_SETTINGS,
   normalizeChatRuntimeControls,
   normalizeRightDockSettings,
   normalizeSettings,
@@ -334,6 +335,10 @@ function syncableCustomSettings(
     },
     // fontScale 是本机 UI 偏好：固定为默认值，避免本地调整触发网关广播
     fontScale: { sidebar: 1, chat: 1, rightDock: 1 },
+    draftPersistence: { enabled: true },
+    chatLayout: { contentWidth: 768, composerHeight: 70, fullWidth: false },
+    appearance: DEFAULT_APPEARANCE_SETTINGS,
+    providerHistory: { enabled: true, items: [] },
   };
 }
 
@@ -903,6 +908,10 @@ export function applyGatewaySettingsSyncPayload(
     memory: memory as AppSettings["memory"],
     customSettings: {
       ...incomingCustomSettings,
+      conversationTitleEnabled:
+        typeof incomingCustomSettings.conversationTitleEnabled === "boolean"
+          ? incomingCustomSettings.conversationTitleEnabled
+          : current.customSettings.conversationTitleEnabled,
       rightDock: Object.hasOwn(incomingCustomSettings, "rightDock")
         ? mergeSyncedRightDockSettings(
             current.customSettings.rightDock,
@@ -912,6 +921,10 @@ export function applyGatewaySettingsSyncPayload(
       chatSidebar: current.customSettings.chatSidebar,
       // fontScale 是本机 UI 偏好，不参与网关同步
       fontScale: current.customSettings.fontScale,
+      draftPersistence: current.customSettings.draftPersistence,
+      chatLayout: current.customSettings.chatLayout,
+      appearance: current.customSettings.appearance,
+      providerHistory: current.customSettings.providerHistory,
     },
     skills: (source.skills as AppSettings["skills"] | undefined) ?? current.skills,
     chatRuntimeControls: Object.hasOwn(source, "chatRuntimeControls")
