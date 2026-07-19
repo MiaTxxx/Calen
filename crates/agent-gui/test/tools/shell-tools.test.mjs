@@ -843,8 +843,9 @@ test("Bash tool blocks fixed Skills root access even when Skills are disabled", 
   assert.equal(result.isError, true);
   assert.match(
     result.content[0].text,
-    /Bash cannot read or search ~\/\.liveagent\/skills/
+    /Bash cannot read or search ~\/\.calen\/skills/
   );
+  assert.match(result.content[0].text, /legacy ~\/\.liveagent\/skills/);
   assert.deepEqual(calls, []);
 });
 

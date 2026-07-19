@@ -107,7 +107,9 @@ const loader = createTsModuleLoader({
 });
 
 const markdownModule = loader.loadModule("src/components/Markdown.tsx");
-const agentRunnerModule = loader.loadModule("src/lib/chat/runner/agentRunner.ts");
+const agentRunnerModule = loader.loadModule(
+  "src/lib/chat/runner/agentRunner.ts"
+);
 
 test("markdown image syntax falls back to alt text instead of rendering a real image", () => {
   const node = markdownModule.markdownComponents.img({
@@ -121,7 +123,9 @@ test("markdown image syntax falls back to alt text instead of rendering a real i
   assert.equal(node.props.title, "东门老街");
   assert.equal(node.props.children, "东门老街");
 
-  const titleOnly = markdownModule.markdownComponents.img({ title: "南头古城" });
+  const titleOnly = markdownModule.markdownComponents.img({
+    title: "南头古城",
+  });
   assert.ok(titleOnly);
   assert.equal(titleOnly.props.children, "南头古城");
 
@@ -159,30 +163,33 @@ test("external link safety modal renders through document body portal", () => {
 
 test("agent tool rules require Image for chat-visible images", () => {
   const suffix = agentRunnerModule.buildToolsSuffix("/workspace");
-  assert.match(suffix, /To display any image in the chat UI, call the Image tool\./);
   assert.match(
     suffix,
-    /Do not embed images with Markdown syntax like !\[alt\]\(path\), HTML <img>, file:\/\/ URLs, or local relative image paths in your final text\./,
+    /To display any image in the chat UI, call the Image tool\./
   );
   assert.match(
     suffix,
-    /Local image: pass `path` exactly as seen, including workspace-relative, absolute, or skill:\/\/ paths\./,
+    /Do not embed images with Markdown syntax like !\[alt\]\(path\), HTML <img>, file:\/\/ URLs, or local relative image paths in your final text\./
   );
   assert.match(
     suffix,
-    /Do not use Bash, open, xdg-open, Markdown, or HTML to display Skill images\./,
+    /Local image: pass `path` exactly as seen, including workspace-relative, absolute, or skill:\/\/ paths\./
   );
   assert.match(
     suffix,
-    /For remote images, call Image with url\/urls or source\/sources directly instead of downloading them, unless the user explicitly asks to save the file locally\./,
+    /Do not use Bash, open, xdg-open, Markdown, or HTML to display Skill images\./
   );
   assert.match(
     suffix,
-    /If another tool saves, downloads, screenshots, generates, or returns an image file path or image URL and the user should see it, call Image with that path or URL before the final response\./,
+    /For remote images, call Image with url\/urls or source\/sources directly instead of downloading them, unless the user explicitly asks to save the file locally\./
   );
   assert.match(
     suffix,
-    /Final text may describe or caption images already displayed by Image, but must not attempt to render images directly\./,
+    /If another tool saves, downloads, screenshots, generates, or returns an image file path or image URL and the user should see it, call Image with that path or URL before the final response\./
+  );
+  assert.match(
+    suffix,
+    /Final text may describe or caption images already displayed by Image, but must not attempt to render images directly\./
   );
 });
 
@@ -193,17 +200,26 @@ test("agent tool rules prefer one parallel Agent batch over sequential calls", (
     "Write",
     "Bash",
   ]);
-  assert.match(suffix, /issue ONE Agent call whose `agents` array lists every job/);
   assert.match(
     suffix,
-    /Use sequential Agent calls only when a later job needs an earlier job's output/,
+    /issue ONE Agent call whose `agents` array lists every job/
   );
-  assert.match(suffix, /Default to mode=readonly for research, review, and discussion agents/);
   assert.match(
     suffix,
-    /call Agent again with the same stable id\(s\) and only the new prompt/,
+    /Use sequential Agent calls only when a later job needs an earlier job's output/
   );
-  assert.match(suffix, /If an Agent call is rejected, no subagents were started/);
+  assert.match(
+    suffix,
+    /Default to mode=readonly for research, review, and discussion agents/
+  );
+  assert.match(
+    suffix,
+    /call Agent again with the same stable id\(s\) and only the new prompt/
+  );
+  assert.match(
+    suffix,
+    /If an Agent call is rejected, no subagents were started/
+  );
 });
 
 test("SendMessage tool rules explain parent-private visibility", () => {
@@ -213,8 +229,14 @@ test("SendMessage tool rules explain parent-private visibility", () => {
     "Read",
   ]);
   assert.match(suffix, /Messages sent to parent are private to the parent/);
-  assert.match(suffix, /send to=\* when peer agents need to read a report or summary/);
-  assert.match(suffix, /Message delivery is deferred to the next model turn boundary/);
+  assert.match(
+    suffix,
+    /send to=\* when peer agents need to read a report or summary/
+  );
+  assert.match(
+    suffix,
+    /Message delivery is deferred to the next model turn boundary/
+  );
 });
 
 test("agent tool rules keep local file discovery on file tools instead of Bash", () => {
@@ -226,8 +248,14 @@ test("agent tool rules keep local file discovery on file tools instead of Bash",
     "Bash",
     "SkillsManager",
   ]);
-  assert.match(suffix, /Preferred form: workspace-relative paths exactly as tools return them/);
-  assert.match(suffix, /For files inside a Skill, call file tools with a path like `skill:\/\/<baseDir>\/references\/guide\.md`/);
+  assert.match(
+    suffix,
+    /Preferred form: workspace-relative paths exactly as tools return them/
+  );
+  assert.match(
+    suffix,
+    /For files inside a Skill, call file tools with a path like `skill:\/\/<baseDir>\/references\/guide\.md`/
+  );
   assert.match(suffix, /Do not run Bash cat\/ls\/find\/grep/);
 });
 
@@ -238,11 +266,23 @@ test("agent tool rules steer new files to concrete Write paths", () => {
     "Edit",
     "Bash",
   ]);
-  assert.match(suffix, /New files: call Write with a file path that includes the filename and the full content/);
+  assert.match(
+    suffix,
+    /New files: call Write with a file path that includes the filename and the full content/
+  );
   assert.match(suffix, /parent directories are created automatically/);
-  assert.match(suffix, /Write and Edit check the file's current on-disk state automatically/);
-  assert.match(suffix, /path must include the intended filename, not just a directory/);
-  assert.match(suffix, /write \/ create files via heredocs, `tee`, `touch`, `cp`, or `mkdir`/);
+  assert.match(
+    suffix,
+    /Write and Edit check the file's current on-disk state automatically/
+  );
+  assert.match(
+    suffix,
+    /path must include the intended filename, not just a directory/
+  );
+  assert.match(
+    suffix,
+    /write \/ create files via heredocs, `tee`, `touch`, `cp`, or `mkdir`/
+  );
 });
 
 test("agent tool rules keep workspace and Skills deletion on Delete", () => {
@@ -253,7 +293,7 @@ test("agent tool rules keep workspace and Skills deletion on Delete", () => {
   ]);
   assert.match(
     suffix,
-    /For workspace or Skill deletion, use Delete with the exact path returned by List\/Glob\/Grep\/Read/,
+    /For workspace or Skill deletion, use Delete with the exact path returned by List\/Glob\/Grep\/Read/
   );
   assert.match(suffix, /Do not run Bash rm, rmdir, unlink, or find -delete/);
 });
@@ -266,16 +306,20 @@ test("agent tool rules route installed Skill scripts through skill cwd", () => {
     "List",
     "Glob",
   ]);
-  assert.match(suffix, /Bash\.cwd follows the path rules in \*\*Workspace & Paths\*\*/);
+  assert.match(
+    suffix,
+    /Bash\.cwd follows the path rules in \*\*Workspace & Paths\*\*/
+  );
   assert.match(suffix, /use cwd="skill:\/\/<enabled-skill>\/scripts"/);
-  assert.match(suffix, /Do not cd into ~\/\.liveagent\/skills or workspace skills\/ guesses/);
+  assert.match(suffix, /Do not cd into ~\/\.calen\/skills/);
+  assert.match(suffix, /legacy ~\/\.liveagent\/skills/);
 });
 
 test("agent Bash rules are Windows-native when runtime platform is Windows", () => {
   const suffix = agentRunnerModule.buildToolsSuffix(
     "/workspace",
     ["Bash", "ManagedProcess"],
-    "windows",
+    "windows"
   );
   assert.match(suffix, /Current platform: Windows/);
   assert.match(suffix, /Use PowerShell syntax by default/);
@@ -284,35 +328,37 @@ test("agent Bash rules are Windows-native when runtime platform is Windows", () 
 });
 
 test("fs tool descriptions keep Image as the only display path for images", () => {
-  const sourcePath = fileURLToPath(new URL("../../src/lib/tools/fsTools.ts", import.meta.url));
+  const sourcePath = fileURLToPath(
+    new URL("../../src/lib/tools/fsTools.ts", import.meta.url)
+  );
   const source = fs.readFileSync(sourcePath, "utf8");
 
   assert.match(
     source,
-    /Use Image instead when the user asks to show, view, render, or display an image in the chat UI\. Do not use Markdown image syntax or HTML img tags to display files\./,
+    /Use Image instead when the user asks to show, view, render, or display an image in the chat UI\. Do not use Markdown image syntax or HTML img tags to display files\./
   );
   assert.match(
     source,
-    /This is the only supported way for assistant-side image rendering\./,
+    /This is the only supported way for assistant-side image rendering\./
   );
   assert.match(
     source,
-    /Supports workspace paths, enabled Skill paths, external absolute paths, http\/https URLs, base64 data URLs, and SVG images/,
+    /Supports workspace paths, enabled Skill paths, external absolute paths, http\/https URLs, base64 data URLs, and SVG images/
   );
   assert.match(
     source,
-    /For remote images, pass url\/urls or source\/sources directly instead of downloading the image first, unless the user explicitly asks to save it locally\./,
+    /For remote images, pass url\/urls or source\/sources directly instead of downloading the image first, unless the user explicitly asks to save it locally\./
   );
   assert.match(
     source,
-    /Multiple mixed image sources to display in order\. Use this for mixed path \+ URL \+ base64 galleries\./,
+    /Multiple mixed image sources to display in order\. Use this for mixed path \+ URL \+ base64 galleries\./
   );
   assert.match(
     source,
-    /Do not embed images in final text with Markdown image syntax, HTML img tags, file:\/\/ URLs, or local relative image paths\./,
+    /Do not embed images in final text with Markdown image syntax, HTML img tags, file:\/\/ URLs, or local relative image paths\./
   );
   assert.match(
     source,
-    /Use this instead of Bash rm, rmdir, unlink, or find -delete for workspace or Skill files\./,
+    /Use this instead of Bash rm, rmdir, unlink, or find -delete for workspace or Skill files\./
   );
 });
