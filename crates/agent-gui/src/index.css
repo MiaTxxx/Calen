@@ -51,6 +51,17 @@
   .calen-themed .chat-user-bubble {
     background: var(--calen-user-bubble) !important;
   }
+  /* 自定义背景：把主界面大面积表面透明化，让 AppChrome 的 -z-10 背景图透出。
+     必须与上面的 .calen-themed 着色处于同一 @layer base，并靠更高特异性
+     （多一个 .has-custom-bg）压过它们的 !important；放到无层规则里会被
+     分层的 !important 反向击败，这正是此前失效的原因。 */
+  .has-custom-bg .app-chrome-surface,
+  .has-custom-bg .calen-themed .chat-main-surface {
+    background: transparent !important;
+  }
+  .has-custom-bg .calen-themed .chat-history-sidebar {
+    background: hsl(var(--sidebar-bg) / 0.62) !important;
+  }
   .chat-layout-resize-handle::after {
     content: "";
     position: absolute;
@@ -2569,16 +2580,6 @@ body > div:not(#root) [data-streamdown="mermaid"] svg {
 .chat-history-sidebar,
 .chat-history-row {
   contain: layout paint style;
-}
-
-/* 自定义背景模式：<html> 带 has-custom-bg 时，把主界面大面积表面透明化，
-   让 AppChrome 里的背景图层（-z-10）透出来。卡片/弹层保持不透明以保证可读性。 */
-.has-custom-bg .app-chrome-surface,
-.has-custom-bg .calen-themed .chat-main-surface {
-  background: transparent !important;
-}
-.has-custom-bg .calen-themed .chat-history-sidebar {
-  background: hsl(var(--sidebar-bg) / 0.62) !important;
 }
 
 /*
