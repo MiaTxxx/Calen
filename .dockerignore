@@ -3,6 +3,7 @@
 .codex
 .claude
 .codex-artifacts
+# Calen local application data (legacy-compatible storage path).
 .liveagent
 
 **/node_modules

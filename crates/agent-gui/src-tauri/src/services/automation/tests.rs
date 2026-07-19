@@ -3,7 +3,7 @@ use serde_json::json;
 use super::db;
 use super::store::AutomationStore;
 use super::types::*;
-use super::validate::validate_cron_expression;
+use super::validate::{parse_fixed_interval_duration, validate_cron_expression};
 
 fn apply_input(base_revision: u64, ops: Vec<AutomationOp>) -> AutomationApplyInput {
     AutomationApplyInput { base_revision, ops }
@@ -50,6 +50,50 @@ fn store_with_task(op: AutomationOp) -> (AutomationStore, CronTask) {
 #[test]
 fn validate_cron_expression_accepts_six_field_syntax() {
     validate_cron_expression("0 * * * * *").expect("validate six-field cron");
+}
+
+#[test]
+fn fixed_interval_parser_accepts_supported_units() {
+    assert_eq!(
+        parse_fixed_interval_duration("@every 90m")
+            .expect("parse minutes")
+            .expect("fixed interval")
+            .as_secs(),
+        5_400
+    );
+    assert_eq!(
+        parse_fixed_interval_duration("@every 2h")
+            .expect("parse hours")
+            .expect("fixed interval")
+            .as_secs(),
+        7_200
+    );
+    assert_eq!(
+        parse_fixed_interval_duration("@every 3d")
+            .expect("parse days")
+            .expect("fixed interval")
+            .as_secs(),
+        259_200
+    );
+}
+
+#[test]
+fn fixed_interval_parser_rejects_invalid_values_and_units() {
+    for expression in ["@every 0m", "@every 1000h", "@every 2w", "@every 1.5h"] {
+        assert!(
+            parse_fixed_interval_duration(expression).is_err(),
+            "{expression}"
+        );
+        assert!(
+            validate_cron_expression(expression).is_err(),
+            "{expression}"
+        );
+    }
+}
+
+#[test]
+fn validate_cron_expression_accepts_fixed_interval_syntax() {
+    validate_cron_expression("@every 90m").expect("validate fixed interval");
 }
 
 #[test]
@@ -131,10 +175,7 @@ fn cron_apply_reorder_requires_full_permutation() {
     let response = store
         .cron_apply(apply_input(
             base,
-            vec![
-                create_bash_task_op("a", "A"),
-                create_bash_task_op("b", "B"),
-            ],
+            vec![create_bash_task_op("a", "A"), create_bash_task_op("b", "B")],
         ))
         .expect("seed");
 
@@ -269,9 +310,7 @@ fn released_prompt_run_returns_to_pending() {
 fn recover_marks_interrupted_runs_expired() {
     let (store, task) = store_with_task(create_prompt_task_op("p1"));
     store.queue_prompt_run(&task).expect("queue");
-    let recovered = store
-        .recover_interrupted_prompt_runs()
-        .expect("recover");
+    let recovered = store.recover_interrupted_prompt_runs().expect("recover");
     assert_eq!(recovered, 1);
 
     let runs = store.list_runs("p1", 10).expect("list runs");
@@ -355,8 +394,14 @@ fn masked_headers_round_trip_keeps_stored_secret() {
 
     let task = &masked.cron.tasks[0];
     let headers = task.requests.as_ref().unwrap()[0].headers.as_ref().unwrap();
-    assert_eq!(headers.get("Authorization").map(String::as_str), Some("Bearer secret-token"));
-    assert_eq!(task.requests.as_ref().unwrap()[0].url, "https://example.com/hook-v2");
+    assert_eq!(
+        headers.get("Authorization").map(String::as_str),
+        Some("Bearer secret-token")
+    );
+    assert_eq!(
+        task.requests.as_ref().unwrap()[0].url,
+        "https://example.com/hook-v2"
+    );
 }
 
 #[test]

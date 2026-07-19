@@ -159,7 +159,8 @@ export function CronTaskModal({
     scheduleMode !== "interval" ||
     (Boolean(intervalValue.trim()) &&
       Number.isSafeInteger(Number(intervalValue)) &&
-      Number(intervalValue) >= 1);
+      Number(intervalValue) >= 1 &&
+      Number(intervalValue) <= 999);
 
   const formReady =
     Boolean(name.trim()) &&
@@ -171,7 +172,7 @@ export function CronTaskModal({
   function resolveCronExpression(): string {
     if (scheduleMode === "interval") {
       const value = Number(intervalValue.trim());
-      if (!Number.isSafeInteger(value) || value < 1) {
+      if (!Number.isSafeInteger(value) || value < 1 || value > 999) {
         throw new Error(t("settings.cronIntervalInvalid"));
       }
       return intervalToCronExpression({ value, unit: intervalUnit });
@@ -401,7 +402,7 @@ export function CronTaskModal({
                     {(() => {
                       try {
                         const value = Number(intervalValue.trim());
-                        if (!Number.isSafeInteger(value) || value < 1) return null;
+                        if (!Number.isSafeInteger(value) || value < 1 || value > 999) return null;
                         const preview = intervalToCronExpression({ value, unit: intervalUnit });
                         return (
                           <p className="font-mono text-xs text-muted-foreground">

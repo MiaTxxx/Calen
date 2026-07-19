@@ -17,6 +17,7 @@ use crate::runtime::task_runner::{
 use super::db::now_ms;
 use super::store::{AutomationStore, PromptQueueOutcome};
 use super::types::{CompletedRun, CronTask, HttpRequestSpec};
+use super::validate::parse_fixed_interval_duration;
 
 const CRON_SCRIPT_TIMEOUT_MS: u64 = 60_000;
 const SWEEP_INTERVAL: Duration = Duration::from_secs(30);
@@ -24,7 +25,7 @@ const SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 #[derive(Debug, Clone)]
 struct ScheduledJob {
     job_id: Uuid,
-    cron: String,
+    schedule: String,
 }
 
 pub struct AutomationScheduler {
@@ -62,9 +63,10 @@ impl AutomationScheduler {
     async fn run_loop(self: Arc<Self>) {
         {
             let store = Arc::clone(&self.store);
-            let recovered =
-                tauri::async_runtime::spawn_blocking(move || store.recover_interrupted_prompt_runs())
-                    .await;
+            let recovered = tauri::async_runtime::spawn_blocking(move || {
+                store.recover_interrupted_prompt_runs()
+            })
+            .await;
             match recovered {
                 Ok(Ok(count)) if count > 0 => {
                     eprintln!("automation: expired {count} prompt run(s) interrupted by restart");
@@ -152,7 +154,7 @@ impl AutomationScheduler {
             .filter(|(task_id, scheduled)| {
                 desired
                     .get(*task_id)
-                    .map(|task| task.cron.trim() != scheduled.cron)
+                    .map(|task| task.cron.trim() != scheduled.schedule)
                     .unwrap_or(true)
             })
             .map(|(task_id, _)| task_id.clone())
@@ -177,12 +179,31 @@ impl AutomationScheduler {
             if jobs.contains_key(task_id) {
                 continue;
             }
-            let cron_expr = task.cron.trim().to_string();
-            let job = {
+            let schedule = task.cron.trim().to_string();
+            let fixed_interval = match parse_fixed_interval_duration(&schedule) {
+                Ok(value) => value,
+                Err(error) => {
+                    self.report_task_error(task_id, Some(error));
+                    continue;
+                }
+            };
+            let job = if let Some(interval) = fixed_interval {
                 let manager = Arc::clone(self);
                 let task = task.clone();
                 let workdir = workdir.clone();
-                Job::new_async_tz(cron_expr.as_str(), Local, move |_job_id, _lock| {
+                Job::new_repeated_async(interval, move |_job_id, _lock| {
+                    let manager = Arc::clone(&manager);
+                    let task = task.clone();
+                    let workdir = workdir.clone();
+                    Box::pin(async move {
+                        manager.fire(task, workdir);
+                    })
+                })
+            } else {
+                let manager = Arc::clone(self);
+                let task = task.clone();
+                let workdir = workdir.clone();
+                Job::new_async_tz(schedule.as_str(), Local, move |_job_id, _lock| {
                     let manager = Arc::clone(&manager);
                     let task = task.clone();
                     let workdir = workdir.clone();
@@ -196,13 +217,7 @@ impl AutomationScheduler {
                     let job_id = job.guid();
                     match scheduler.add(job).await {
                         Ok(_) => {
-                            jobs.insert(
-                                task_id.clone(),
-                                ScheduledJob {
-                                    job_id,
-                                    cron: cron_expr,
-                                },
-                            );
+                            jobs.insert(task_id.clone(), ScheduledJob { job_id, schedule });
                             self.report_task_error(task_id, None);
                         }
                         Err(error) => {
@@ -389,9 +404,18 @@ fn execute_blocking(task: CronTask, workdir: String) -> CompletedRun {
 fn execute_bash(task: &CronTask, workdir: String) -> CompletedRun {
     let started_at = now_ms();
     let overall = Instant::now();
-    let script = task.script.as_deref().unwrap_or_default().trim().to_string();
+    let script = task
+        .script
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     if script.is_empty() {
-        return failed_run(&task.id, "No Bash script configured for this Cron task.".to_string(), true);
+        return failed_run(
+            &task.id,
+            "No Bash script configured for this Cron task.".to_string(),
+            true,
+        );
     }
     if workdir.trim().is_empty() {
         return failed_run(
@@ -433,7 +457,11 @@ fn execute_http(task: &CronTask) -> CompletedRun {
     let overall = Instant::now();
     let requests = task.requests.clone().unwrap_or_default();
     if requests.is_empty() {
-        return failed_run(&task.id, "No HTTP requests configured for this Cron task.".to_string(), true);
+        return failed_run(
+            &task.id,
+            "No HTTP requests configured for this Cron task.".to_string(),
+            true,
+        );
     }
     let client = match build_http_client() {
         Ok(client) => client,
@@ -443,7 +471,11 @@ fn execute_http(task: &CronTask) -> CompletedRun {
     let mut sections = Vec::new();
     let mut success = true;
     for (index, request) in requests.into_iter().enumerate() {
-        let display = format!("{} {}", request.method.trim().to_uppercase(), request.url.trim());
+        let display = format!(
+            "{} {}",
+            request.method.trim().to_uppercase(),
+            request.url.trim()
+        );
         match run_single_http_request(&client, to_http_input(request)) {
             Ok(result) => sections.push(format_http_result(index + 1, &display, &result)),
             Err(error) => {

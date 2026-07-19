@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use chrono::Local;
 use serde_json::{Map, Value};
@@ -13,10 +14,43 @@ use super::types::{
 pub const MIN_HOOK_TIMEOUT_MS: u64 = 1_000;
 pub const MAX_HOOK_TIMEOUT_MS: u64 = 10 * 60_000;
 
+const MIN_FIXED_INTERVAL_VALUE: u64 = 1;
+const MAX_FIXED_INTERVAL_VALUE: u64 = 999;
+
+pub(crate) fn parse_fixed_interval_duration(expression: &str) -> Result<Option<Duration>, String> {
+    let trimmed = expression.trim();
+    let Some(rest) = trimmed.strip_prefix("@every") else {
+        return Ok(None);
+    };
+    let value_with_unit = rest.trim();
+    if value_with_unit.is_empty() || value_with_unit.split_whitespace().count() != 1 {
+        return Err("Fixed interval must use @every Nm, @every Nh, or @every Nd".to_string());
+    }
+    let (digits, unit) = value_with_unit.split_at(value_with_unit.len().saturating_sub(1));
+    let value = digits
+        .parse::<u64>()
+        .map_err(|_| "Fixed interval value must be a whole number".to_string())?;
+    if !(MIN_FIXED_INTERVAL_VALUE..=MAX_FIXED_INTERVAL_VALUE).contains(&value) {
+        return Err(format!(
+            "Fixed interval value must be between {MIN_FIXED_INTERVAL_VALUE} and {MAX_FIXED_INTERVAL_VALUE}"
+        ));
+    }
+    let seconds_per_unit = match unit {
+        "m" => 60,
+        "h" => 60 * 60,
+        "d" => 24 * 60 * 60,
+        _ => return Err("Fixed interval unit must be m, h, or d".to_string()),
+    };
+    Ok(Some(Duration::from_secs(value * seconds_per_unit)))
+}
+
 pub fn validate_cron_expression(expression: &str) -> Result<(), String> {
     let trimmed = expression.trim();
     if trimmed.is_empty() {
         return Err("Cron 表达式不能为空".to_string());
+    }
+    if parse_fixed_interval_duration(trimmed)?.is_some() {
+        return Ok(());
     }
     if trimmed.split_whitespace().count() != 6 {
         return Err("Cron 表达式必须是标准六段格式（秒 分 时 日 月 周）".to_string());
@@ -167,15 +201,16 @@ fn parse_headers(
     }
 }
 
-fn parse_selected_model(
-    value: Option<&Value>,
-    label: &str,
-) -> Result<SelectedModelRef, String> {
+fn parse_selected_model(value: Option<&Value>, label: &str) -> Result<SelectedModelRef, String> {
     let map = value
         .and_then(Value::as_object)
         .ok_or_else(|| format!("{label}.selectedModel 不能为空"))?;
     Ok(SelectedModelRef {
-        custom_provider_id: required_string(map, "customProviderId", &format!("{label}.selectedModel"))?,
+        custom_provider_id: required_string(
+            map,
+            "customProviderId",
+            &format!("{label}.selectedModel"),
+        )?,
         model: required_string(map, "model", &format!("{label}.selectedModel"))?,
     })
 }
@@ -298,9 +333,12 @@ pub fn validate_hook(value: Value, label: &str) -> Result<HookDef, String> {
 
 /// Merge a partial patch onto a stored item (top-level keys), returning the
 /// merged object for re-validation.
-pub fn merge_patch(stored: &impl serde::Serialize, patch: Value, label: &str) -> Result<Value, String> {
-    let base = serde_json::to_value(stored)
-        .map_err(|e| format!("{label} 序列化失败：{e}"))?;
+pub fn merge_patch(
+    stored: &impl serde::Serialize,
+    patch: Value,
+    label: &str,
+) -> Result<Value, String> {
+    let base = serde_json::to_value(stored).map_err(|e| format!("{label} 序列化失败：{e}"))?;
     let mut merged = expect_object(base, label)?;
     let patch = expect_object(patch, &format!("{label}.patch"))?;
     for (key, value) in patch {
@@ -314,10 +352,7 @@ pub fn merge_patch(stored: &impl serde::Serialize, patch: Value, label: &str) ->
 
 /// Replace masked header values in `incoming` with the currently stored values
 /// so remote clients can round-trip requests without seeing secrets.
-pub fn restore_masked_headers(
-    incoming: &mut Value,
-    stored_requests: Option<&[HttpRequestSpec]>,
-) {
+pub fn restore_masked_headers(incoming: &mut Value, stored_requests: Option<&[HttpRequestSpec]>) {
     let Some(requests) = incoming.get_mut("requests").and_then(Value::as_array_mut) else {
         return;
     };

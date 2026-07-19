@@ -195,6 +195,23 @@ test("withStreamRetry does not retry non-retryable errors", async () => {
   assert.equal(events[0].type, "error");
 });
 
+test("withStreamRetry fails fast for mixed 429 quota errors", async () => {
+  let calls = 0;
+  const wrapped = withStreamRetry(
+    () => {
+      calls += 1;
+      return createErrorStream(
+        "429 RESOURCE_EXHAUSTED: exceeded current quota"
+      );
+    },
+    { maxAttempts: 5 }
+  );
+
+  const events = await collectEvents(wrapped);
+  assert.equal(calls, 1);
+  assert.equal(events[0].type, "error");
+});
+
 test("withStreamRetry retries expanded transport failures like ECONNRESET", async () => {
   let calls = 0;
   const wrapped = withStreamRetry(
@@ -231,6 +248,22 @@ test("withStreamRetry onRetry callback fires before each reconnect attempt", asy
   assert.equal(retries[0].attempt, 1);
   assert.equal(retries[1].attempt, 2);
   assert.match(retries[0].errorMessage ?? "", /502/);
+});
+
+test("withStreamRetry status callback does not expose raw provider errors", async () => {
+  const retries = [];
+  const wrapped = withStreamRetry(
+    () =>
+      createErrorStream(
+        "503 upstream failed for https://secret.example/api?token=sensitive"
+      ),
+    { maxAttempts: 2, onRetry: (info) => retries.push(info) }
+  );
+
+  await collectEvents(wrapped);
+  assert.equal(retries.length, 1);
+  assert.equal(retries[0].errorMessage, "HTTP 503");
+  assert.doesNotMatch(retries[0].errorMessage, /secret|token|sensitive/i);
 });
 
 test("withStreamRetry backoff aborted before it can fire prevents any further attempt", async () => {
@@ -297,6 +330,14 @@ test("isTransientStreamError classifies transport and quota failures", () => {
     isTransientStreamError(
       createAssistant(undefined, "error", {
         errorMessage: "insufficient_quota",
+      })
+    ),
+    false
+  );
+  assert.equal(
+    isTransientStreamError(
+      createAssistant(undefined, "error", {
+        errorMessage: "429 RESOURCE_EXHAUSTED: exceeded current quota",
       })
     ),
     false

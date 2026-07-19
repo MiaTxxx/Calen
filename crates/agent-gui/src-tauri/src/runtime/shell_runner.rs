@@ -41,14 +41,6 @@ impl PreferredShell {
             _ => Self::Auto,
         }
     }
-
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Bash => "bash",
-            Self::PowerShell => "powershell",
-        }
-    }
 }
 
 static PREFERRED_SHELL: OnceLock<RwLock<PreferredShell>> = OnceLock::new();
@@ -412,7 +404,7 @@ fn discover_windows_bash_program() -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.is_file())
 }
 
-pub(crate) fn platform_shell_candidates(cmd: &str) -> Vec<ShellCandidate> {
+fn platform_shell_candidates(cmd: &str) -> Vec<ShellCandidate> {
     #[cfg(windows)]
     {
         let preference = preferred_shell();
@@ -612,7 +604,10 @@ where
             stdio_factory().map_err(|err| format!("Failed to prepare shell stdio: {err}"))?;
         let mut c = Command::new(&candidate.program);
         c.args(&candidate.args);
-        c.envs(envs.iter().map(|(key, value)| (key.as_str(), value.as_str())));
+        c.envs(
+            envs.iter()
+                .map(|(key, value)| (key.as_str(), value.as_str())),
+        );
         if let Some(network) = crate::services::network::try_global() {
             let proxy_env = network.process_env()?;
             for key in proxy_env.remove {

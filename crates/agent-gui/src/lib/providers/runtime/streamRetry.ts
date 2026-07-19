@@ -1,4 +1,5 @@
 import {
+  type AssistantMessage,
   type AssistantMessageEvent,
   type AssistantMessageEventStream,
   createAssistantMessageEventStream,
@@ -48,6 +49,9 @@ const COMMITTING_EVENT_TYPES = new Set<AssistantMessageEvent["type"]>([
 const EXTRA_RETRYABLE_ERROR_PATTERN =
   /ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE|UND_ERR_|ERR_NETWORK|network request failed|failed to fetch|fetch error|temporarily unavailable|bad gateway|gateway timeout|cloudflare|cf-ray|connection reset|broken pipe|tls handshake|ssl handshake|proxy error|upstream request timeout|stream closed|incomplete chunked|unexpected eof|eof while reading|read econnreset|write econnreset|client network socket disconnected|request timed? ?out|aborted due to timeout|response closed|server disconnected/i;
 
+const NON_RETRYABLE_ERROR_PATTERN =
+  /insufficient_quota|quota|out of budget|billing|invalid.?api.?key|unauthorized|authentication|permission.?denied|forbidden|401|403/i;
+
 function isTerminalEvent(event: AssistantMessageEvent): event is TerminalEvent {
   return event.type === "done" || event.type === "error";
 }
@@ -68,26 +72,36 @@ function extractErrorMessage(message: unknown): string | undefined {
   return undefined;
 }
 
+function summarizeRetryableError(message: unknown): string | undefined {
+  const raw = extractErrorMessage(message);
+  if (!raw) return undefined;
+  const httpStatus = /(?:^|\D)(408|409|425|429|500|502|503|504)(?:\D|$)/.exec(raw)?.[1];
+  if (httpStatus) return `HTTP ${httpStatus}`;
+  if (/timed? ?out|ETIMEDOUT|timeout/i.test(raw)) return "request timeout";
+  if (/ECONNRESET|connection reset|broken pipe|unexpected eof|stream closed/i.test(raw)) {
+    return "connection interrupted";
+  }
+  if (/failed to fetch|network request failed|ERR_NETWORK|ENOTFOUND|EAI_AGAIN/i.test(raw)) {
+    return "network unavailable";
+  }
+  return "temporary provider error";
+}
+
 /**
  * Whether a failed assistant turn looks transient enough to restart before any
  * content has been committed. Layers pi-ai's classifier with a small local set
  * of transport phrases that frequently appear from reverse proxies / raw fetch.
  */
 export function isTransientStreamError(message: unknown): boolean {
-  if (isRetryableAssistantError(message as any)) return true;
   if (!message || typeof message !== "object") return false;
   const record = message as { stopReason?: unknown; errorMessage?: unknown };
   if (record.stopReason !== "error") return false;
   const errorMessage = typeof record.errorMessage === "string" ? record.errorMessage.trim() : "";
   if (!errorMessage) return false;
-  // Hard fail-fast for auth / billing — never auto-retry these.
-  if (
-    /insufficient_quota|out of budget|quota exceeded|billing|invalid.?api.?key|unauthorized|authentication|permission.?denied|401|403/i.test(
-      errorMessage,
-    )
-  ) {
-    return false;
-  }
+  // Hard fail-fast before the generic classifier: mixed messages such as
+  // "429 RESOURCE_EXHAUSTED: exceeded current quota" must never reconnect.
+  if (NON_RETRYABLE_ERROR_PATTERN.test(errorMessage)) return false;
+  if (isRetryableAssistantError(message as AssistantMessage)) return true;
   return EXTRA_RETRYABLE_ERROR_PATTERN.test(errorMessage);
 }
 
@@ -174,7 +188,9 @@ export function withStreamRetry(
               attempt,
               maxAttempts,
               delayMs,
-              errorMessage: extractErrorMessage(failed),
+              // Status hooks may be forwarded to Gateway clients. Only emit
+              // a bounded category, never the raw provider response.
+              errorMessage: summarizeRetryableError(failed),
             });
             await sleepWithAbort(delayMs, signal);
             attempt += 1;

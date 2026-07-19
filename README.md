@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MiaTxxx/Calen/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/MiaTxxx/Calen?display_name=tag&style=flat-square" /></a>
+  <a href="https://github.com/MiaTxxx/Calen/releases/latest">Latest release: v1.1.7</a>
   <img alt="Windows x64" src="https://img.shields.io/badge/desktop-Windows%20x64-2563EB?style=flat-square" />
   <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8D8?style=flat-square" />
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-16A34A?style=flat-square" /></a>
@@ -34,6 +34,14 @@ Calen puts an AI agent inside a working desktop environment. Within the permissi
 The desktop app is the product and the source of truth for local data and tool execution. An optional **Gateway** lets a browser reach a _running_ desktop agent — tools and storage stay on the desktop, but chat, history, settings, and uploads then travel through the authenticated Gateway relay.
 
 Calen also ships a self-contained stock-research domain. Quotes, filings, portfolios, and experimental quant results always carry their source and freshness; they are never presented as facts the model may invent.
+
+## What's new in v1.1.7
+
+- Scheduled tasks can use a custom fixed interval in minutes, hours, or days, while advanced cron expressions remain available.
+- Windows Agent tools can prefer Bash or PowerShell, with an automatic fallback mode when the selected shell is unavailable.
+- Transient model/API stream failures reconnect automatically before any visible or executable response content is committed, while authentication and quota failures still fail fast.
+
+See the [v1.1.7 release notes](docs/releases/v1.1.7.md) for details.
 
 ## Core capabilities
 

@@ -65,7 +65,7 @@ const MANAGE_CRON_TASK_PARAMETERS = Type.Object({
     Type.String({
       minLength: 1,
       description:
-        "Six-field cron expression in the format: second minute hour day month weekday. Required for create. Optional patch field for update when changing schedule.",
+        "Schedule as either '@every Nm', '@every Nh', or '@every Nd' for a true fixed interval (N is 1-999), or a six-field cron expression: second minute hour day month weekday. Required for create. Optional patch field for update when changing schedule.",
     }),
   ),
   type: Type.Optional(
