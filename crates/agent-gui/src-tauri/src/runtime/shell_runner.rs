@@ -823,6 +823,10 @@ mod tests {
     };
     use std::fs;
     use std::path::PathBuf;
+    #[cfg(unix)]
+    use std::sync::Arc;
+    #[cfg(unix)]
+    use std::time::{Duration, Instant};
 
     #[test]
     fn sanitize_rel_path_accepts_windows_style_separators() {

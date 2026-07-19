@@ -4,7 +4,6 @@ use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::{
     collections::{BTreeMap, HashMap},
-    fs,
     time::Duration,
 };
 use uuid::Uuid;

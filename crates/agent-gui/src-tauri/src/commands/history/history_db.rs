@@ -1,5 +1,5 @@
 use rusqlite::{Connection, OptionalExtension};
-use std::{collections::HashSet, fs, path::PathBuf, sync::Mutex, time::Duration};
+use std::{collections::HashSet, path::PathBuf, sync::Mutex, time::Duration};
 
 const DB_FILENAME: &str = "chat-history.sqlite3";
 const HISTORY_DB_SCHEMA_VERSION: i64 = 2;

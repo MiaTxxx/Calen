@@ -1,3 +1,10 @@
+#[path = "../../agent-gui/src-tauri/src/runtime/app_paths.rs"]
+pub mod app_paths;
+
+pub mod runtime {
+    pub use crate::app_paths;
+}
+
 #[path = "../../agent-gui/src-tauri/src/commands/stock_portfolio/types.rs"]
 mod types;
 #[path = "../../agent-gui/src-tauri/src/commands/stock_portfolio/repository.rs"]
