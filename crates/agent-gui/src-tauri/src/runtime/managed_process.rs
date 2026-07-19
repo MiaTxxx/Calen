@@ -167,11 +167,7 @@ fn now_ms() -> u128 {
 }
 
 fn app_storage_dir() -> Result<PathBuf, String> {
-    let home =
-        dirs::home_dir().ok_or_else(|| "Failed to locate the user home directory".to_string())?;
-    let dir = home.join(format!(".{}", env!("CARGO_PKG_NAME")));
-    fs::create_dir_all(&dir).map_err(|err| format!("Failed to create app storage dir: {err}"))?;
-    Ok(dir)
+    crate::runtime::app_paths::app_data_dir()
 }
 
 fn process_log_dir() -> Result<PathBuf, String> {

@@ -22,10 +22,11 @@ pub fn create_managed_translation_manager(
     app: &tauri::AppHandle,
     network: AppNetworkManager,
 ) -> Result<Arc<TranslationManager>, String> {
-    let home = dirs::home_dir()
-        .ok_or_else(|| "无法确定用户主目录，不能创建离线翻译模型目录".to_string())?;
+    let models_dir = crate::runtime::app_paths::app_data_subdir("models")
+        .map_err(|error| format!("无法创建离线翻译模型目录：{error}"))?
+        .join("translation");
     TranslationManager::with_paths_and_client(
-        home.join(".liveagent").join("models").join("translation"),
+        models_dir,
         resolve_runtime_path(app)?,
         Arc::new(network),
     )

@@ -25,6 +25,8 @@ export const AssistantBubble = memo(function AssistantBubble(props: {
   toolStatusVariant?: "default" | "compaction";
   // 消息导航条锚点前缀（行 key）；设置后每个 round 会带 data-nav-anchor。
   navAnchorPrefix?: string;
+  workspaceRoot?: string;
+  onOpenWorkspaceFile?: (path: string) => void;
 }) {
   const {
     rounds,
@@ -35,6 +37,8 @@ export const AssistantBubble = memo(function AssistantBubble(props: {
     toolStatus,
     toolStatusVariant,
     navAnchorPrefix,
+    workspaceRoot,
+    onOpenWorkspaceFile,
   } = props;
   const showLabels = rounds.length > 1;
 
@@ -57,6 +61,8 @@ export const AssistantBubble = memo(function AssistantBubble(props: {
             toolStatusVariant={idx === rounds.length - 1 ? toolStatusVariant : "default"}
             runningToolCallIds={round.runningToolCallIds ?? EMPTY_RUNNING_TOOL_CALL_IDS}
             thinkingOpen={round.thinkingOpen}
+            workspaceRoot={workspaceRoot}
+            onOpenWorkspaceFile={onOpenWorkspaceFile}
           />
         ))}
       </div>

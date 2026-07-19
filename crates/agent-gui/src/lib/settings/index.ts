@@ -212,7 +212,7 @@ export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
   localFontName: "",
 };
 
-// 主界面自定义背景：图片文件落盘在 ~/.liveagent/backgrounds，这里只存路径与遮罩参数。
+// 主界面自定义背景：图片文件落盘在 ~/.calen/backgrounds（兼容 ~/.liveagent/backgrounds），这里只存路径与遮罩参数。
 export type BackgroundSettings = {
   enabled: boolean;
   imagePath: string;

@@ -784,7 +784,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     "workspaceFilePreview.loading": "正在加载预览...",
     "workspaceFilePreview.title": "文件预览",
     "workspaceFilePreview.edit": "编辑",
-    "workspaceFilePreview.openExternal": "用默认应用打开",
+    "workspaceFilePreview.openExternal": "在默认应用/浏览器中打开",
     "workspaceFilePreview.openExternalFailed": "用默认应用打开失败",
     "workspaceFilePreview.reload": "重新加载",
     "workspaceFilePreview.close": "关闭预览",
@@ -1231,7 +1231,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.agentModeDesc": "允许调用工具，执行文件与命令行操作",
     "settings.agentDevMode": "Agent dev 模式",
     "settings.agentDevModeDesc":
-      "与 Agent 模式一致，但会把当前对话的流式请求与返回逐行写入 ~/.liveagent/debug/<对话ID>.jsonl",
+      "与 Agent 模式一致，但会把当前对话的流式请求与返回逐行写入 ~/.calen/debug/<对话ID>.jsonl（兼容旧目录 ~/.liveagent/debug）",
     "settings.defaultShell": "默认 Shell（Windows）",
     "settings.defaultShellDesc":
       "仅影响 Agent 的 Bash / ManagedProcess 工具在 Windows 上优先启动的 shell。交互终端不受影响。",
@@ -2760,7 +2760,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     "workspaceFilePreview.loading": "Loading preview...",
     "workspaceFilePreview.title": "File Preview",
     "workspaceFilePreview.edit": "Edit",
-    "workspaceFilePreview.openExternal": "Open in Default App",
+    "workspaceFilePreview.openExternal": "Open in Default App / Browser",
     "workspaceFilePreview.openExternalFailed": "Failed to open in default app",
     "workspaceFilePreview.reload": "Reload",
     "workspaceFilePreview.close": "Close preview",
@@ -3233,7 +3233,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.agentModeDesc": "Allows tool calls, file and command-line operations",
     "settings.agentDevMode": "Agent Dev Mode",
     "settings.agentDevModeDesc":
-      "Same as Agent mode, but also writes each streaming request and response line-by-line to ~/.liveagent/debug/<conversationId>.jsonl",
+      "Same as Agent mode, but also writes each streaming request and response line-by-line to ~/.calen/debug/<conversationId>.jsonl (legacy ~/.liveagent/debug is still accepted)",
     "settings.defaultShell": "Default Shell (Windows)",
     "settings.defaultShellDesc":
       "Only affects which shell the Agent Bash / ManagedProcess tools prefer on Windows. Interactive terminals are unchanged.",

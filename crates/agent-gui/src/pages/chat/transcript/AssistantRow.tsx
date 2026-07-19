@@ -27,6 +27,8 @@ export type AssistantRowProps = {
   isAgentMode: boolean;
   isCompactionRunning: boolean;
   toolStatus: string | null;
+  workspaceRoot?: string;
+  onOpenWorkspaceFile?: (path: string) => void;
   onResendFromEdit: (
     messageRef: HistoryMessageRef,
     text: string,
@@ -47,6 +49,8 @@ export const AssistantRow = memo(function AssistantRow(props: AssistantRowProps)
     isAgentMode,
     isCompactionRunning,
     toolStatus,
+    workspaceRoot,
+    onOpenWorkspaceFile,
     onResendFromEdit,
   } = props;
   const { t } = useLocale();
@@ -69,6 +73,8 @@ export const AssistantRow = memo(function AssistantRow(props: AssistantRowProps)
           renderMode={row.renderMode}
           toolStatus={row.live ? toolStatus : null}
           toolStatusVariant={row.live && isCompactionRunning ? "compaction" : "default"}
+          workspaceRoot={workspaceRoot}
+          onOpenWorkspaceFile={onOpenWorkspaceFile}
         />
       ) : row.live ? (
         <div className="flex w-full max-w-full items-start gap-3">

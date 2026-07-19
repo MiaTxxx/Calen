@@ -29,6 +29,7 @@ export type ChatTranscriptProps = {
   bottomReservePx?: number;
   contentWidth?: number;
   fullWidth?: boolean;
+  onOpenWorkspaceFile?: (path: string) => void;
   onResendFromEdit: (
     messageRef: HistoryMessageRef,
     text: string,

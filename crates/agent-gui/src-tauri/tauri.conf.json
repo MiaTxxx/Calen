@@ -25,7 +25,10 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$HOME/.liveagent/backgrounds/**"]
+        "scope": [
+          "$HOME/.calen/backgrounds/**",
+          "$HOME/.liveagent/backgrounds/**"
+        ]
       }
     }
   },

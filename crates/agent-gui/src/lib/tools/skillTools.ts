@@ -318,7 +318,7 @@ function buildSkillManagerErrorText(args: Record<string, unknown>, error: unknow
 
   lines.push(
     `To read or locate files inside this Skill, retry with Read/List/Glob/Grep using path="skill://${baseDir}/...".`,
-    "Do not use Bash cat/ls/find/grep or absolute ~/.liveagent/skills paths for Skill file access.",
+    "Do not use Bash cat/ls/find/grep or absolute ~/.calen/skills (or legacy ~/.liveagent/skills) paths for Skill file access.",
   );
 
   return lines.join(" ");

@@ -11,6 +11,7 @@ import {
   type WorkspaceProject,
   workspaceProjectPathKey,
 } from "../../lib/settings";
+import { displayAppDataPath } from "../../lib/shared/appDataPath";
 import { cn } from "../../lib/shared/utils";
 import type {
   SidebarConversation,
@@ -638,9 +639,9 @@ const ProjectRow = memo(function ProjectRow(props: {
                     ? "text-muted-foreground/80"
                     : "text-muted-foreground/65",
               )}
-              title={project.path}
+              title={displayAppDataPath(project.path)}
             >
-              {project.path}
+              {displayAppDataPath(project.path)}
             </span>
           </span>
         </div>
@@ -653,7 +654,7 @@ const ProjectRow = memo(function ProjectRow(props: {
               ? "hover:text-destructive focus-visible:bg-destructive/10"
               : "hover:text-foreground focus-visible:bg-foreground/[0.06]",
           )}
-          title={project.path}
+          title={displayAppDataPath(project.path)}
           onClick={() => onSelectProject(project)}
         >
           <Folder
@@ -706,7 +707,7 @@ const ProjectRow = memo(function ProjectRow(props: {
                     : "text-muted-foreground/65 group-hover/project:text-muted-foreground/85",
               )}
             >
-              {project.path}
+              {displayAppDataPath(project.path)}
             </span>
           </span>
         </button>

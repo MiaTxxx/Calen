@@ -37,9 +37,8 @@ impl StockPortfolioRepository {
     }
 
     pub fn open_default() -> Result<Self, String> {
-        let home = dirs::home_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-        let dir = home.join(".liveagent");
-        fs::create_dir_all(&dir).map_err(|e| format!("创建股票账本目录失败：{e}"))?;
+        let dir = crate::runtime::app_paths::app_data_dir()
+            .map_err(|e| format!("创建股票账本目录失败：{e}"))?;
         let conn = Connection::open(dir.join(DB_FILENAME))
             .map_err(|e| format!("打开股票账本数据库失败：{e}"))?;
         Self::new(conn)

@@ -203,10 +203,14 @@ function parseSkillUrl(value: string) {
 
 function fixedSkillsRelativePathFromAbsolute(value: string) {
   const normalized = normalizeComparablePath(value);
-  const marker = "/.liveagent/skills/";
-  const index = normalized.indexOf(marker);
-  if (index < 0) return null;
-  return normalized.slice(index + marker.length);
+  const markers = ["/.liveagent/skills/", "/.calen/skills/"];
+  for (const marker of markers) {
+    const index = normalized.indexOf(marker);
+    if (index >= 0) {
+      return normalized.slice(index + marker.length);
+    }
+  }
+  return null;
 }
 
 function operationForIntent(intent: PathIntent, label: string) {
@@ -435,8 +439,9 @@ export class ToolPathResolver {
     }
 
     if (raw.startsWith("~")) {
-      // "~/.liveagent/skills/..." is recognizable without knowing the home
-      // directory; resolve it as a Skill path before attempting ~ expansion.
+      // "~/.calen/skills/..." (and legacy "~/.liveagent/skills/...") is
+      // recognizable without knowing the home directory; resolve it as a Skill
+      // path before attempting ~ expansion.
       const fixedSkillRel = fixedSkillsRelativePathFromAbsolute(raw);
       if (fixedSkillRel !== null) {
         if (!this.skillsRootEnabled) {

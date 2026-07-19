@@ -1038,10 +1038,7 @@ fn resolve_sidecar_launch(app: &AppHandle) -> Result<SidecarLaunch, String> {
 }
 
 fn stock_data_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or_else(|| "无法定位用户目录".to_string())?;
-    let path = home.join(".liveagent").join("stock-research");
-    std::fs::create_dir_all(&path).map_err(|error| format!("创建股票数据目录失败：{error}"))?;
-    Ok(path)
+    crate::runtime::app_paths::app_data_subdir("stock-research")
 }
 
 fn stock_settings_db() -> Result<Connection, String> {

@@ -471,7 +471,10 @@ export function WorkspaceFilePreviewOverlay(props: WorkspaceFilePreviewOverlayPr
     [activePath, activePreviewRequest?.imagePaths, kind],
   );
   const canOpenEditor = Boolean(activePreviewRequest && isWorkspaceEditablePreviewPath(activePath));
-  const canOpenExternal = Boolean(activePreviewRequest && activePath && !canOpenEditor);
+  // Always allow opening with the OS default app (browser for HTML, etc.).
+  // Editable files previously hid this control so users couldn't launch HTML
+  // previews in their real browser from the in-app viewer.
+  const canOpenExternal = Boolean(activePreviewRequest && activePath);
 
   const openImagePath = useCallback(
     (path: string, transitionDirection: ImagePreviewTransitionDirection = 0) => {

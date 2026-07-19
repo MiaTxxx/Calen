@@ -438,7 +438,9 @@ export function createShellTools(params: {
 
   function commandReferencesFixedSkillsRoot(command: string) {
     const value = normalizeCommandForPolicy(command);
-    if (/(\.liveagent\/skills|~\/\.liveagent\/skills)/i.test(value)) return true;
+    if (/(\.(?:liveagent|calen)\/skills|~\/\.(?:liveagent|calen)\/skills)/i.test(value)) {
+      return true;
+    }
     const root = cachedSkillsRootDir.trim().replace(/\\/g, "/");
     return Boolean(root && value.includes(root));
   }
@@ -452,8 +454,8 @@ export function createShellTools(params: {
     const root = cachedSkillsRootDir.trim().replace(/\\/g, "/");
     const escapedRoot = root ? root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : null;
     const skillPathPrefix = escapedRoot
-      ? `(?:~/\\.liveagent/skills|/\\.liveagent/skills|${escapedRoot})`
-      : "(?:~/\\.liveagent/skills|/\\.liveagent/skills)";
+      ? `(?:~/\\.(?:liveagent|calen)/skills|/\\.(?:liveagent|calen)/skills|${escapedRoot})`
+      : "(?:~/\\.(?:liveagent|calen)/skills|/\\.(?:liveagent|calen)/skills)";
     const fileReadPattern = new RegExp(
       `(?:^|[\\s;&|()])(?:cat|head|tail|less|more|ls|find|grep|fgrep|egrep|rg|sed|awk)\\b(?:\\s+-[A-Za-z0-9_-]+)*\\s+['"]?${skillPathPrefix}`,
       "i",
@@ -467,8 +469,8 @@ export function createShellTools(params: {
     const root = cachedSkillsRootDir.trim().replace(/\\/g, "/");
     const escapedRoot = root ? root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : null;
     const skillPathPrefix = escapedRoot
-      ? `(?:~/\\.liveagent/skills|/\\.liveagent/skills|${escapedRoot})`
-      : "(?:~/\\.liveagent/skills|/\\.liveagent/skills)";
+      ? `(?:~/\\.(?:liveagent|calen)/skills|/\\.(?:liveagent|calen)/skills|${escapedRoot})`
+      : "(?:~/\\.(?:liveagent|calen)/skills|/\\.(?:liveagent|calen)/skills)";
     const cdPattern = new RegExp(
       `(?:^|[\\s;&|()])(?:cd|pushd)\\b\\s+(?:--\\s+)?['"]?${skillPathPrefix}(?:[/\\s'";&|)]|$)`,
       "i",
@@ -483,8 +485,8 @@ export function createShellTools(params: {
     const names = new Set<string>();
     const segmentChars = "[A-Za-z0-9._-]+";
     const patterns: RegExp[] = [
-      new RegExp(`~/\\.liveagent/skills/(${segmentChars})`, "gi"),
-      new RegExp(`(?:^|[\\s;&|(])/\\.liveagent/skills/(${segmentChars})`, "gi"),
+      new RegExp(`~/\\.(?:liveagent|calen)/skills/(${segmentChars})`, "gi"),
+      new RegExp(`(?:^|[\\s;&|(])/\\.(?:liveagent|calen)/skills/(${segmentChars})`, "gi"),
     ];
     for (const re of patterns) {
       for (const match of value.matchAll(re)) names.add(match[1]);
@@ -505,7 +507,7 @@ export function createShellTools(params: {
   }
 
   function commandSearchesFilesystemForSkills(command: string) {
-    return /\bfind\s+\/(?:\s|$)[\s\S]*(skills|\.liveagent|SKILL\.md|skill\.json|README\.md)/i.test(
+    return /\bfind\s+\/(?:\s|$)[\s\S]*(skills|\.(?:liveagent|calen)|SKILL\.md|skill\.json|README\.md)/i.test(
       normalizeCommandForPolicy(command),
     );
   }
@@ -520,7 +522,7 @@ export function createShellTools(params: {
     if (params.cwd.scope === "skill") {
       if (commandReferencesFixedSkillsRoot(params.command)) {
         throw new Error(
-          "Bash with a Skill cwd must use paths relative to that cwd. Do not cd into or execute absolute ~/.liveagent/skills paths.",
+          "Bash with a Skill cwd must use paths relative to that cwd. Do not cd into or execute absolute ~/.calen/skills (or legacy ~/.liveagent/skills) paths.",
         );
       }
       if (commandSearchesFilesystemForSkills(params.command)) {
@@ -542,7 +544,7 @@ export function createShellTools(params: {
       // and Skill-aware access policy that raw Bash cannot match.
       if (commandFileReadVerbAgainstSkillsAbsolute(params.command)) {
         throw new Error(
-          "Bash cannot read or search ~/.liveagent/skills or absolute Skill paths. Use Read/List/Glob/Grep with a skill://<enabled-skill>/... path instead of cat, head, tail, ls, find, grep, rg, sed, or awk.",
+          "Bash cannot read or search ~/.calen/skills (or legacy ~/.liveagent/skills) or absolute Skill paths. Use Read/List/Glob/Grep with a skill://<enabled-skill>/... path instead of cat, head, tail, ls, find, grep, rg, sed, or awk.",
         );
       }
       if (commandChangesDirectoryToSkillsAbsolute(params.command)) {
@@ -556,7 +558,7 @@ export function createShellTools(params: {
       const referencedSkills = extractSkillBaseDirsFromAbsolutePath(params.command);
       if (referencedSkills.length === 0) {
         throw new Error(
-          "Bash references the ~/.liveagent/skills root without naming a specific installed Skill. Include a Skill name such as ~/.liveagent/skills/<skill-name>/... or set cwd to skill://<enabled-skill>/scripts.",
+          "Bash references the Skills root without naming a specific installed Skill. Include a Skill name such as ~/.calen/skills/<skill-name>/... (legacy ~/.liveagent/skills is accepted) or set cwd to skill://<enabled-skill>/scripts.",
         );
       }
       for (const baseDir of referencedSkills) {
@@ -598,7 +600,9 @@ export function createShellTools(params: {
 
     if (
       params.cwd.scope !== "skill" &&
-      /(\.liveagent\/skills|~\/\.liveagent\/skills|\bskills\/[^ \n;&|]+\/scripts\b)/.test(combined)
+      /(\.(?:liveagent|calen)\/skills|~\/\.(?:liveagent|calen)\/skills|\bskills\/[^ \n;&|]+\/scripts\b)/.test(
+        combined,
+      )
     ) {
       hints.push(
         "Hint: To run a Skill script, set cwd to skill://<enabled-skill>/scripts and use a relative command, or execute the absolute script path directly when the Skill is enabled.",
@@ -607,7 +611,9 @@ export function createShellTools(params: {
 
     if (
       /(cat|ls|find|grep|rg|sed)\b/.test(params.command) &&
-      /(\.liveagent\/skills|~\/\.liveagent\/skills|skills\/)/.test(params.command)
+      /(\.(?:liveagent|calen)\/skills|~\/\.(?:liveagent|calen)\/skills|skills\/)/.test(
+        params.command,
+      )
     ) {
       hints.push(
         "Hint: If you are reading, listing, or searching Skill files, use Read/List/Glob/Grep with skill://<enabled-skill>/... paths instead of Bash.",

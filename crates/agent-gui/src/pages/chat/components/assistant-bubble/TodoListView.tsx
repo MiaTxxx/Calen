@@ -7,21 +7,63 @@ import { getBuiltinResultKind } from "./assistantBubbleUtils";
 /**
  * Defensive shape filter for rendering todos straight from streaming tool-call
  * arguments: partially parsed items (missing fields, wrong types) are dropped
- * instead of crashing the checklist.
+ * instead of crashing the checklist. Tolerates incomplete streaming payloads
+ * (missing status/activeForm) so multi-item lists appear before the model
+ * finishes every field.
  */
 export function sanitizeTodoItems(value: unknown): TodoItem[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is TodoItem => {
-    if (!item || typeof item !== "object") return false;
+  const items: TodoItem[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
     const candidate = item as Record<string, unknown>;
-    return (
-      typeof candidate.content === "string" &&
-      (candidate.status === "pending" ||
-        candidate.status === "in_progress" ||
-        candidate.status === "completed") &&
-      typeof candidate.activeForm === "string"
-    );
-  });
+    const content = typeof candidate.content === "string" ? candidate.content.trim() : "";
+    if (!content) continue;
+    const statusRaw = candidate.status;
+    const status =
+      statusRaw === "pending" || statusRaw === "in_progress" || statusRaw === "completed"
+        ? statusRaw
+        : "pending";
+    const activeForm =
+      typeof candidate.activeForm === "string" && candidate.activeForm.trim()
+        ? candidate.activeForm
+        : content;
+    items.push({ content, status, activeForm });
+  }
+  return items;
+}
+
+/**
+ * Prefer the latest settled TodoWrite result in this round. Fall back to the
+ * newest streaming arguments when no result is available yet. Without this,
+ * RoundContent renders every TodoWrite block independently and earlier
+ * snapshots (still in_progress) keep spinning after the list is finished.
+ */
+export function pickLatestTodoSnapshot(items: ToolTraceItem[]): {
+  todos: TodoItem[];
+  settled: boolean;
+} {
+  let latestSettled: TodoItem[] | null = null;
+  let latestStreaming: TodoItem[] | null = null;
+  for (const item of items) {
+    if (item.toolCall.name !== "TodoWrite") continue;
+    const result = item.toolResult;
+    if (result && !result.isError && getBuiltinResultKind(result) === "todo_write") {
+      const details = result.details as TodoWriteResultDetails;
+      if (Array.isArray(details.todos)) {
+        latestSettled = details.todos;
+      }
+      continue;
+    }
+    const streaming = sanitizeTodoItems(item.toolCall.arguments?.todos);
+    if (streaming.length > 0) {
+      latestStreaming = streaming;
+    }
+  }
+  if (latestSettled) {
+    return { todos: latestSettled, settled: true };
+  }
+  return { todos: latestStreaming ?? [], settled: false };
 }
 
 function TodoRow(props: { todo: TodoItem }) {
@@ -86,20 +128,20 @@ export function TodoListView(props: { todos: TodoItem[] }) {
  * still writing it. Error results keep the regular tool card instead (see
  * RoundContent), so this only renders the happy path.
  */
-export function TodoListBlock({ item }: { item: ToolTraceItem }) {
+export function TodoListBlock(props: {
+  item?: ToolTraceItem;
+  /** Prefer this when multiple TodoWrite snapshots exist in the same round. */
+  items?: ToolTraceItem[];
+}) {
   const { t } = useLocale();
-  const result = item.toolResult;
-  const resultDetails =
-    result && !result.isError && getBuiltinResultKind(result) === "todo_write"
-      ? (result.details as TodoWriteResultDetails)
-      : null;
-  const todos = resultDetails
-    ? resultDetails.todos
-    : sanitizeTodoItems(item.toolCall.arguments?.todos);
+  const sourceItems =
+    props.items && props.items.length > 0 ? props.items : props.item ? [props.item] : [];
+  const snapshot = pickLatestTodoSnapshot(sourceItems);
+  const todos = snapshot.todos;
 
   // While arguments are still streaming in, wait for the first complete item
   // instead of flashing an empty frame.
-  if (!resultDetails && todos.length === 0) return null;
+  if (todos.length === 0) return null;
 
   return (
     <div className="tool-card-enter overflow-hidden rounded-[12px] border border-black/[0.06] bg-white/[0.72] shadow-[0_0_0_0.5px_rgba(0,0,0,0.03),0_1px_2px_rgba(0,0,0,0.03),0_2px_6px_rgba(0,0,0,0.02)] backdrop-blur-xl backdrop-saturate-[1.8] dark:border-white/[0.1] dark:bg-white/[0.06] dark:shadow-[0_0_0_0.5px_rgba(255,255,255,0.04),0_1px_2px_rgba(0,0,0,0.2),0_3px_8px_rgba(0,0,0,0.12)] dark:backdrop-saturate-[1.4]">

@@ -45,6 +45,7 @@ export const ChatTranscript = memo(function ChatTranscript(props: ChatTranscript
     bottomReservePx = 0,
     contentWidth = 768,
     fullWidth = false,
+    onOpenWorkspaceFile,
     onResendFromEdit,
     onOpenSettings,
     onSuggestionSelect,
@@ -210,6 +211,7 @@ export const ChatTranscript = memo(function ChatTranscript(props: ChatTranscript
               usageContextWindow={usageContextWindow}
               workspaceRoot={workspaceRoot}
               gitClient={gitClient}
+              onOpenWorkspaceFile={onOpenWorkspaceFile}
               onResendFromEdit={onResendFromEdit}
             />
           </div>

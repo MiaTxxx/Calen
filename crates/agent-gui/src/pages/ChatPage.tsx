@@ -5686,6 +5686,7 @@ export function ChatPage(props: ChatPageProps) {
                 liveTranscriptStore={liveTranscriptStore}
                 isCompactionRunning={isCompactionRunning}
                 bottomReservePx={composerOverlayHeight}
+                onOpenWorkspaceFile={handleOpenWorkspaceFile}
                 onResendFromEdit={handleResendFromEdit}
                 onOpenSettings={onOpenSettings}
                 onSuggestionSelect={handleEmptyStateSuggestion}

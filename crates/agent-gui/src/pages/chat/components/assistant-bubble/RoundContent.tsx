@@ -91,6 +91,8 @@ export const RoundContent = memo(function RoundContent(props: {
   thinkingOpen?: boolean;
   // 消息导航条的跳转锚点（data-nav-anchor），由转录行注入。
   navAnchor?: string;
+  workspaceRoot?: string;
+  onOpenWorkspaceFile?: (path: string) => void;
 }) {
   const {
     round,
@@ -105,6 +107,8 @@ export const RoundContent = memo(function RoundContent(props: {
     runningToolCallIds,
     thinkingOpen,
     navAnchor,
+    workspaceRoot,
+    onOpenWorkspaceFile,
   } = props;
   const hasContent =
     round.blocks.some((block) => {
@@ -145,7 +149,8 @@ export const RoundContent = memo(function RoundContent(props: {
         </div>
       ) : null}
 
-      {groupedBlocks.map((block) => {
+      {groupedBlocks.map((block, blockIndex) => {
+        const isLastGroupedBlock = blockIndex === groupedBlocks.length - 1;
         if (block.kind === "thinking") {
           return (
             <ThinkingBlock
@@ -168,8 +173,23 @@ export const RoundContent = memo(function RoundContent(props: {
 
           // TodoWrite renders as a bare checklist in the reply flow; only
           // failed calls fall through to the tool card so the error is visible.
+          // Skip intermediate TodoWrite snapshots — only the last non-error
+          // TodoWrite in the round is rendered so earlier in_progress rows
+          // cannot keep spinning after the list is finished.
           if (block.item.toolCall.name === "TodoWrite" && !block.item.toolResult?.isError) {
-            return <TodoListBlock key={block.key} item={block.item} />;
+            const todoItems = groupedBlocks
+              .filter(
+                (candidate): candidate is Extract<typeof candidate, { kind: "tool" }> =>
+                  candidate.kind === "tool" &&
+                  candidate.item.toolCall.name === "TodoWrite" &&
+                  !candidate.item.toolResult?.isError,
+              )
+              .map((candidate) => candidate.item);
+            const lastTodo = todoItems[todoItems.length - 1];
+            if (!lastTodo || lastTodo !== block.item) {
+              return null;
+            }
+            return <TodoListBlock key={block.key} items={todoItems} />;
           }
 
           return (
@@ -212,7 +232,13 @@ export const RoundContent = memo(function RoundContent(props: {
             content={block.text}
             className="font-openai-chat"
             renderMode={renderMode ?? (isLive ? "streaming" : "static")}
-            showCaret={Boolean(isLive && isActive)}
+            // Only flash a caret while this exact text block is still the live
+            // tail. Once a tool call (Write/Bash/...) starts after it, keep the
+            // settled text caret-free so a black block doesn't stick between
+            // tools mid-turn.
+            showCaret={Boolean(isLive && isActive && isLastGroupedBlock)}
+            workspaceRoot={workspaceRoot}
+            onOpenWorkspaceFile={onOpenWorkspaceFile}
           />
         );
       })}

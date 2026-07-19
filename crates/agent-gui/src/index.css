@@ -657,9 +657,15 @@
     @apply text-foreground/90;
   }
 
-  /* Hide the retained Streamdown caret without removing its inline slot. */
+  /* Hide the retained Streamdown caret without removing its inline slot.
+     Streamdown attaches the caret via last-child::after with an inline
+     --streamdown-caret content style; force-hide it when showCaret is off
+     (e.g. mid-turn while a tool is running after text). Use !important so
+     Streamdown's utility classes cannot keep a black block caret visible. */
   .chat-markdown--caret-off > *:last-child::after {
-    opacity: 0;
+    content: none !important;
+    opacity: 0 !important;
+    display: none !important;
   }
 
   /* Headings */

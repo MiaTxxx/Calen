@@ -3,7 +3,15 @@ import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { type ComponentProps, memo, useLayoutEffect, useMemo, useRef } from "react";
+import {
+  type ComponentProps,
+  memo,
+  type MouseEvent as ReactMouseEvent,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
 import { createPortal } from "react-dom";
 import remarkBreaks from "remark-breaks";
 import {
@@ -15,7 +23,14 @@ import {
   Streamdown,
   type StreamdownTranslations,
 } from "streamdown";
+import {
+  extractWorkspaceFileRefAt,
+  looksLikeWorkspaceFileRef,
+  normalizeWorkspaceFileRef,
+  resolveWorkspaceFilePath,
+} from "../lib/chat/messages/workspaceFileRefs";
 import { cn } from "../lib/shared/utils";
+import { WorkspaceFileInlineCode } from "./chat/WorkspaceFileInlineCode";
 import { Copy, ExternalLink, X } from "./icons";
 import { Button } from "./ui/button";
 
@@ -33,6 +48,10 @@ type MarkdownProps = {
   // itself stays mounted for the whole life of a streaming-mode block.
   showCaret?: boolean;
   readOnly?: boolean;
+  // When set, inline code that looks like a workspace file path becomes a
+  // one-click opener into the in-app file preview/editor.
+  workspaceRoot?: string;
+  onOpenWorkspaceFile?: (path: string) => void;
   // Extra component overrides merged over the built-in map. Used by the
   // workspace file preview to render images and links against workspace
   // files instead of the chat text fallbacks.
@@ -323,19 +342,75 @@ export const Markdown = memo(function Markdown(props: MarkdownProps) {
     renderMode = "static",
     showCaret = false,
     readOnly = false,
+    workspaceRoot,
+    onOpenWorkspaceFile,
     componentOverrides,
     preserveRelativeUrls = false,
   } = props;
   const streaming = renderMode === "streaming";
   const codeCopyRootRef = useEnabledCodeCopyButtons(!readOnly && showCaret);
   const baseComponents = readOnly ? markdownReadOnlyComponents : markdownComponents;
-  const components = useMemo(
-    () => (componentOverrides ? { ...baseComponents, ...componentOverrides } : baseComponents),
-    [baseComponents, componentOverrides],
+  const components = useMemo(() => {
+    const next: Components = { ...baseComponents };
+    if (!readOnly && workspaceRoot?.trim() && onOpenWorkspaceFile) {
+      next.inlineCode = (codeProps) => (
+        <WorkspaceFileInlineCode
+          {...codeProps}
+          workdir={workspaceRoot}
+          onOpenWorkspaceFile={onOpenWorkspaceFile}
+        />
+      );
+    }
+    return componentOverrides ? { ...next, ...componentOverrides } : next;
+  }, [baseComponents, componentOverrides, onOpenWorkspaceFile, readOnly, workspaceRoot]);
+
+  const handlePlainTextFileDoubleClick = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (readOnly || !workspaceRoot?.trim() || !onOpenWorkspaceFile) return;
+      const target = event.target;
+      if (!(target instanceof Node) || !codeCopyRootRef.current?.contains(target)) return;
+      // Inline-code handler already owns its own double-click.
+      if (target instanceof Element && target.closest("[data-liveagent-workspace-file]")) {
+        return;
+      }
+
+      let candidate: string | null = null;
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const selectedText = normalizeWorkspaceFileRef(selection.toString());
+        if (selectedText && looksLikeWorkspaceFileRef(selectedText)) {
+          // Browser word-select after double-click usually lands here.
+          candidate = selectedText;
+        } else {
+          const range = selection.getRangeAt(0);
+          const node = range.startContainer;
+          if (node.nodeType === Node.TEXT_NODE) {
+            const text = node.textContent ?? "";
+            // Prefer caret/selection start; fall back to a mid-selection probe.
+            candidate =
+              extractWorkspaceFileRefAt(text, range.startOffset) ??
+              (range.collapsed
+                ? null
+                : extractWorkspaceFileRefAt(
+                    text,
+                    Math.min(text.length, Math.floor((range.startOffset + range.endOffset) / 2)),
+                  ));
+          }
+        }
+      }
+      if (!candidate) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      void resolveWorkspaceFilePath(workspaceRoot, candidate).then((resolved) => {
+        if (resolved) onOpenWorkspaceFile(resolved);
+      });
+    },
+    [codeCopyRootRef, onOpenWorkspaceFile, readOnly, workspaceRoot],
   );
 
   return (
-    <div ref={codeCopyRootRef}>
+    <div ref={codeCopyRootRef} onDoubleClick={handlePlainTextFileDoubleClick}>
       <Streamdown
         className={cn(
           "chat-markdown max-w-none break-words",

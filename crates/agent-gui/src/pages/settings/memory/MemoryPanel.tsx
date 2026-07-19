@@ -230,7 +230,9 @@ export function MemoryPanel(props: {
                 {t("settings.memoryTitle")}
               </div>
               <div className="break-all text-xs text-muted-foreground">
-                {pathsInfo?.root ?? "~/.liveagent/memory"}
+                {pathsInfo?.root
+                  ? pathsInfo.root.replaceAll(".liveagent", ".calen")
+                  : "~/.calen/memory"}
               </div>
             </div>
             <div className="settings-memory-summary-actions flex flex-wrap items-center gap-2">

@@ -145,6 +145,7 @@ export type TranscriptListProps = {
   // 消息导航条的挂载点（ChatTranscript 的左缘覆盖层）与跳转前的跟随解除。
   navOverlayEl?: HTMLDivElement | null;
   onDetachFollow?: () => void;
+  onOpenWorkspaceFile?: (path: string) => void;
   onResendFromEdit: (
     messageRef: HistoryMessageRef,
     text: string,
@@ -172,6 +173,7 @@ export const TranscriptList = memo(function TranscriptList(props: TranscriptList
     gitClient,
     navOverlayEl,
     onDetachFollow,
+    onOpenWorkspaceFile,
     onResendFromEdit,
   } = props;
 
@@ -399,6 +401,8 @@ export const TranscriptList = memo(function TranscriptList(props: TranscriptList
                 isAgentMode={isAgentMode}
                 isCompactionRunning={row.live ? isCompactionRunning : false}
                 toolStatus={row.live ? displayedToolStatus : null}
+                workspaceRoot={workspaceRoot}
+                onOpenWorkspaceFile={onOpenWorkspaceFile}
                 onResendFromEdit={onResendFromEdit}
               />
             </div>
