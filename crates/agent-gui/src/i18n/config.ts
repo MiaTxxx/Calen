@@ -1126,7 +1126,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.aboutChecking": "正在检查更新",
     "settings.aboutCheckingDesc": "正在读取 GitHub Release 清单，并按当前通道筛选可用版本。",
     "settings.aboutInstalling": "正在安装更新",
-    "settings.aboutInstallingDesc": "正在下载并校验更新包。",
+    "settings.aboutInstallingDesc":
+      "正在下载并校验更新包（约几十 MB）。网络较慢时可能需要数分钟，请保持应用打开。",
     "settings.aboutInstalled": "更新已安装",
     "settings.aboutInstalledDesc": "更新包已安装，点击重启应用后生效。",
     "settings.aboutRestarting": "正在重启应用",
@@ -1143,7 +1144,9 @@ export const translations: Record<Locale, Record<string, string>> = {
       "Release 构建需要注入 updater 公钥后才能检查和安装更新。",
     "settings.aboutUpdateError": "更新检查失败",
     "settings.aboutUpdateCheckFailed": "检查更新失败。",
-    "settings.aboutUpdateInstallFailed": "安装更新失败。",
+    "settings.aboutUpdateInstallFailed": "安装更新失败",
+    "settings.aboutUpdateInstallFailedDesc":
+      "下载或安装失败。常见原因：网络超时、代理未配置、GitHub 不可达。请检查网络后重试，或打开 Release 页手动安装。",
     "settings.aboutRestartFailed": "重启应用失败。",
     "settings.aboutLatestVersion": "最新版本",
     "settings.aboutReleaseDate": "发布时间",
@@ -3117,7 +3120,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.aboutCheckingDesc":
       "Reading the GitHub Release manifest and filtering by the selected channel.",
     "settings.aboutInstalling": "Installing update",
-    "settings.aboutInstallingDesc": "Downloading and verifying the update package.",
+    "settings.aboutInstallingDesc":
+      "Downloading and verifying the package (tens of MB). Slow networks may take several minutes — keep the app open.",
     "settings.aboutInstalled": "Update installed",
     "settings.aboutInstalledDesc":
       "The update package has been installed. Restart Calen to use it.",
@@ -3136,7 +3140,9 @@ export const translations: Record<Locale, Record<string, string>> = {
       "Release builds must embed the updater public key before updates can be checked and installed.",
     "settings.aboutUpdateError": "Update check failed",
     "settings.aboutUpdateCheckFailed": "Failed to check for updates.",
-    "settings.aboutUpdateInstallFailed": "Failed to install update.",
+    "settings.aboutUpdateInstallFailed": "Update install failed",
+    "settings.aboutUpdateInstallFailedDesc":
+      "Download or install failed. Common causes: network timeout, missing proxy, or GitHub unreachable. Retry after checking the network, or open the Release page for a manual install.",
     "settings.aboutRestartFailed": "Failed to restart app.",
     "settings.aboutLatestVersion": "Latest Version",
     "settings.aboutReleaseDate": "Published",

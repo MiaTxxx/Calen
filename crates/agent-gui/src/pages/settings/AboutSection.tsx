@@ -87,9 +87,19 @@ export function AboutSection(props: AboutSectionProps) {
   const installed = checkState.status === "installed";
   const restarting = checkState.status === "restarting";
   const canInstall = appUpdate.canInstall;
+  const errorLooksLikeInstallFailure =
+    checkState.status === "error" &&
+    Boolean(
+      checkState.result?.available ||
+        /install|download|signature|timeout|timed out|network|proxy|github/i.test(
+          appUpdate.message || "",
+        ),
+    );
   const statusTitle =
     checkState.status === "error"
-      ? t("settings.aboutUpdateError")
+      ? errorLooksLikeInstallFailure
+        ? t("settings.aboutUpdateInstallFailed")
+        : t("settings.aboutUpdateError")
       : checking
         ? t("settings.aboutChecking")
         : installing
@@ -107,7 +117,10 @@ export function AboutSection(props: AboutSectionProps) {
                     : t("settings.aboutUpdaterNotConfigured");
   const statusDescription =
     checkState.status === "error"
-      ? appUpdate.message || t("settings.aboutUpdateError")
+      ? appUpdate.message ||
+        (errorLooksLikeInstallFailure
+          ? t("settings.aboutUpdateInstallFailedDesc")
+          : t("settings.aboutUpdateError"))
       : checking
         ? t("settings.aboutCheckingDesc")
         : installing

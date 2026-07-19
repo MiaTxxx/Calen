@@ -66,6 +66,12 @@ function AppChrome(props: {
 }) {
   const background = props.background;
   const backgroundActive = Boolean(background?.enabled && background.imagePath);
+  const [backgroundImageFailed, setBackgroundImageFailed] = useState(false);
+  // Reset load errors when the source path changes so a new pick can recover.
+  useEffect(() => {
+    setBackgroundImageFailed(false);
+  }, [background?.imagePath]);
+  const showBackgroundImage = backgroundActive && Boolean(background) && !backgroundImageFailed;
   const palette = props.appearance[props.effectiveTheme];
   const fontStack =
     props.appearance.fontFamily === "local" && props.appearance.localFontName
@@ -104,26 +110,35 @@ function AppChrome(props: {
         event.preventDefault();
       }}
     >
-      {backgroundActive && background ? (
-        <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+      {showBackgroundImage && background ? (
+        // Paint the photo as a normal absolute layer (z-0), then put chrome
+        // content above it (z-10). Negative z-index under a transformed /
+        // filtered ancestor is flaky in WebView2 and can "randomly" hide the
+        // image after theme toggles, overlays, or page switches.
+        <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
           <img
             src={convertFileSrc(background.imagePath)}
             alt=""
             draggable={false}
             className="h-full w-full object-cover"
+            onError={() => setBackgroundImageFailed(true)}
           />
           <div
             className="absolute inset-0"
             style={{
+              // "opacity" is the cover strength of the theme wash over the photo
+              // (higher = less of the photo visible), not CSS opacity of the image.
               backgroundColor: `hsl(var(--background) / ${background.opacity})`,
               backdropFilter: background.blur > 0 ? `blur(${background.blur}px)` : undefined,
             }}
           />
         </div>
       ) : null}
-      <WindowsTitleBar appUpdate={props.appUpdate} />
-      <div className="app-chrome-surface relative min-h-0 flex-1 overflow-hidden bg-background">
-        {props.children}
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col">
+        <WindowsTitleBar appUpdate={props.appUpdate} />
+        <div className="app-chrome-surface relative min-h-0 flex-1 overflow-hidden bg-background">
+          {props.children}
+        </div>
       </div>
     </div>
   );

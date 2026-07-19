@@ -12,6 +12,13 @@ use crate::services::network::{AppNetworkManager, UpdaterProxyPolicy};
 
 const DEFAULT_UPDATE_REPOSITORY: &str = "MiaTxxx/Calen";
 const UPDATE_MANIFEST_ASSET: &str = "latest.json";
+/// Manifest / feed checks are small JSON/Atom responses.
+const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(45);
+/// Full installer download (NSIS ~45–60 MiB from GitHub Releases). The plugin
+/// applies this as a single reqwest request timeout covering the entire body
+/// stream, so 60s was far too short on typical residential / proxy links.
+const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const UPDATE_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -474,11 +481,53 @@ async fn select_release_manifest(
     Ok(None)
 }
 
+fn map_updater_error(context: &str, error: impl std::fmt::Display) -> String {
+    let text = error.to_string();
+    let lower = text.to_ascii_lowercase();
+    if lower.contains("timed out")
+        || lower.contains("timeout")
+        || lower.contains("deadline has elapsed")
+    {
+        return format!(
+            "{context}: download timed out. The Windows installer is large; check your network or app proxy settings and retry. Original error: {text}"
+        );
+    }
+    if lower.contains("dns")
+        || lower.contains("name resolution")
+        || lower.contains("failed to lookup")
+        || lower.contains("nodename nor servname")
+        || lower.contains("no such host")
+    {
+        return format!(
+            "{context}: could not resolve GitHub. Check DNS / VPN / proxy, then retry. Original error: {text}"
+        );
+    }
+    if lower.contains("connection")
+        || lower.contains("connect")
+        || lower.contains("network")
+        || lower.contains("tls")
+        || lower.contains("ssl")
+        || lower.contains("eof")
+        || lower.contains("reset")
+    {
+        return format!(
+            "{context}: network error while contacting GitHub Releases. If you use a proxy, set it under Settings → Network, then retry. Original error: {text}"
+        );
+    }
+    if lower.contains("signature") || lower.contains("minisign") || lower.contains("public key") {
+        return format!(
+            "{context}: update package signature verification failed. The release assets or embedded public key may not match. Original error: {text}"
+        );
+    }
+    format!("{context}: {text}")
+}
+
 fn build_updater(
     app: &AppHandle,
     network: &AppNetworkManager,
     manifest_url: &str,
     public_key: String,
+    timeout: Duration,
 ) -> Result<tauri_plugin_updater::Updater, String> {
     let manifest_url = Url::parse(manifest_url)
         .map_err(|error| format!("invalid updater manifest URL: {error}"))?;
@@ -488,7 +537,14 @@ fn build_updater(
         .pubkey(public_key)
         .endpoints(vec![manifest_url])
         .map_err(|error| format!("invalid updater endpoint: {error}"))?
-        .timeout(Duration::from_secs(60));
+        .timeout(timeout)
+        .configure_client(|client| {
+            client
+                .connect_timeout(UPDATE_CONNECT_TIMEOUT)
+                // Prefer HTTP/1.1 for large GitHub asset downloads behind some
+                // corporate proxies that mishandle HTTP/2 streams.
+                .http1_only()
+        });
     let builder = match network.updater_proxy_policy()? {
         UpdaterProxyPolicy::NoProxy => builder.no_proxy(),
         UpdaterProxyPolicy::SystemDefault => builder,
@@ -497,6 +553,31 @@ fn build_updater(
     builder
         .build()
         .map_err(|error| format!("failed to initialize updater: {error}"))
+}
+
+async fn prepare_for_update_install(
+    app: &AppHandle,
+    stock: &crate::commands::stock::StockResearchManager,
+    translation: &crate::services::translation::TranslationManager,
+) {
+    // Best-effort only: a stuck sidecar / translation runtime must not block
+    // installing a newer build that may fix the hang.
+    if let Err(error) = stock.stop().await {
+        eprintln!("app_update_install: stock stop before update failed: {error}");
+    }
+    translation.shutdown_cleanup().await;
+
+    use tauri::Manager;
+    if let Some(registry) =
+        app.try_state::<std::sync::Arc<crate::runtime::managed_process::ManagedProcessRegistry>>()
+    {
+        registry.shutdown_cleanup();
+    }
+    if let Some(power) =
+        app.try_state::<std::sync::Arc<crate::services::power_activity::PowerActivityManager>>()
+    {
+        power.clear_all();
+    }
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -525,6 +606,7 @@ pub async fn app_update_check(
         network.inner().as_ref(),
         &release.manifest_url,
         public_key,
+        UPDATE_CHECK_TIMEOUT,
     )?;
     let update = match updater.check().await {
         Ok(update) => update,
@@ -534,7 +616,7 @@ pub async fn app_update_check(
         ) => {
             return Ok(missing_platform_response(&app, repository, &release, error));
         }
-        Err(error) => return Err(format!("failed to check for updates: {error}")),
+        Err(error) => return Err(map_updater_error("failed to check for updates", error)),
     };
 
     Ok(match update {
@@ -574,11 +656,14 @@ pub async fn app_update_install(
     else {
         return Ok(no_update_response(&app, repository, channel));
     };
+    // Use the long download timeout for the whole install path: check re-reads
+    // the small manifest, then download_and_install streams the full installer.
     let updater = build_updater(
         &app,
         network.inner().as_ref(),
         &release.manifest_url,
         public_key,
+        UPDATE_DOWNLOAD_TIMEOUT,
     )?;
     let update = match updater.check().await {
         Ok(update) => update,
@@ -588,7 +673,7 @@ pub async fn app_update_install(
         ) => {
             return Ok(missing_platform_response(&app, repository, &release, error));
         }
-        Err(error) => return Err(format!("failed to check for updates: {error}")),
+        Err(error) => return Err(map_updater_error("failed to check for updates", error)),
     };
 
     let Some(update) = update else {
@@ -600,12 +685,13 @@ pub async fn app_update_install(
     let version = update.version.clone();
     let date = update.date.map(|date| date.to_string());
     let body = update.body.clone();
-    stock.stop().await?;
-    translation.shutdown_cleanup().await;
+    prepare_for_update_install(&app, stock.inner().as_ref(), translation.inner().as_ref()).await;
+    // On Windows, a successful install launches NSIS/MSI via ShellExecute and
+    // then process::exit(0) — this future therefore does not return on success.
     update
         .download_and_install(|_, _| {}, || {})
         .await
-        .map_err(|error| format!("failed to install update: {error}"))?;
+        .map_err(|error| map_updater_error("failed to install update", error))?;
 
     Ok(response_for_release(
         &app,
@@ -738,6 +824,25 @@ mod tests {
             Some("explicit-key".to_string())
         );
         assert_eq!(first_nonempty([None, Some("\t".to_string())]), None);
+    }
+
+    #[test]
+    fn download_timeout_is_far_larger_than_check_timeout() {
+        assert!(UPDATE_DOWNLOAD_TIMEOUT > UPDATE_CHECK_TIMEOUT);
+        assert!(UPDATE_DOWNLOAD_TIMEOUT.as_secs() >= 10 * 60);
+    }
+
+    #[test]
+    fn map_updater_error_classifies_timeout_and_network() {
+        let timeout = map_updater_error("failed to install update", "operation timed out");
+        assert!(timeout.contains("download timed out"), "{timeout}");
+        assert!(timeout.contains("failed to install update"), "{timeout}");
+
+        let network = map_updater_error("failed to install update", "connection reset by peer");
+        assert!(network.contains("network error"), "{network}");
+
+        let signature = map_updater_error("failed to install update", "invalid signature");
+        assert!(signature.contains("signature verification failed"), "{signature}");
     }
 
     #[test]

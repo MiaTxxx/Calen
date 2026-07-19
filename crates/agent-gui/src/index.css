@@ -51,16 +51,26 @@
   .calen-themed .chat-user-bubble {
     background: var(--calen-user-bubble) !important;
   }
-  /* 自定义背景：把主界面大面积表面透明化，让 AppChrome 的 -z-10 背景图透出。
+  /* 自定义背景：把主界面大面积表面透明化，让 AppChrome 的背景图层透出。
      必须与上面的 .calen-themed 着色处于同一 @layer base，并靠更高特异性
      （多一个 .has-custom-bg）压过它们的 !important；放到无层规则里会被
-     分层的 !important 反向击败，这正是此前失效的原因。 */
+     分层的 !important 反向击败，这正是此前失效的原因。
+     额外覆盖 Settings 根面与 Hub 全屏底色，否则从聊天切到设置/Hub 会
+     突然“背景消失”，表现为间歇不显示。 */
+  .has-custom-bg .calen-themed,
   .has-custom-bg .app-chrome-surface,
-  .has-custom-bg .calen-themed .chat-main-surface {
+  .has-custom-bg .calen-themed .chat-main-surface,
+  .has-custom-bg .settings-page-surface {
     background: transparent !important;
   }
   .has-custom-bg .calen-themed .chat-history-sidebar {
     background: hsl(var(--sidebar-bg) / 0.62) !important;
+  }
+  .has-custom-bg .hub-backdrop-fill {
+    background: hsl(var(--hub-canvas) / 0.42) !important;
+  }
+  .has-custom-bg .settings-sidebar {
+    background: hsl(var(--muted) / 0.45) !important;
   }
   .chat-layout-resize-handle::after {
     content: "";

@@ -18,7 +18,7 @@ export function HubBackdrop(props: { tone?: "amber" | "violet" | "neutral" }) {
         : "bg-[radial-gradient(circle_at_top_left,hsl(0_0%_100%/0.8),transparent_60%)] dark:bg-[radial-gradient(circle_at_top_left,hsl(224_18%_14%/0.5),transparent_60%)]";
   return (
     <>
-      <div className="pointer-events-none absolute inset-0 bg-[hsl(var(--hub-canvas))]" />
+      <div className="hub-backdrop-fill pointer-events-none absolute inset-0 bg-[hsl(var(--hub-canvas))]" />
       <div
         className={cn(
           "pointer-events-none absolute -left-32 -top-24 h-[420px] w-[420px] rounded-full opacity-90 blur-3xl",
