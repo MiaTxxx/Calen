@@ -12,7 +12,9 @@ $runtimeCommit = "86a9c79f866799eb0e7e89c03578ccfbcc5d808e"
 $sourceRepository = "https://github.com/ggml-org/llama.cpp.git"
 $requiredNotices = @(
     "NOTICE.md",
-    "licenses\llama.cpp-MIT.txt"
+    "licenses\llama.cpp-MIT.txt",
+    "licenses\Tencent-HY-Community-License.txt",
+    "licenses\Tencent-HY-NOTICE.txt"
 )
 
 $workspaceRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path

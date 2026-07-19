@@ -220,17 +220,7 @@ async fn send_translation_request(
     request: &TranslationRequest,
     timeout: Duration,
 ) -> Result<reqwest::Response, TranslationError> {
-    let (path, payload) = match profile {
-        TranslationInferenceProfile::HyMt => ("/completion", hy_mt_payload(request)),
-        TranslationInferenceProfile::Qwen3 => (
-            "/v1/chat/completions",
-            chat_translation_payload(request, true),
-        ),
-        TranslationInferenceProfile::Generic => (
-            "/v1/chat/completions",
-            chat_translation_payload(request, false),
-        ),
-    };
+    let (path, payload) = translation_request_parts(profile, request);
     process
         .client
         .post(format!("{}{path}", process.base_url))
@@ -247,14 +237,42 @@ async fn send_translation_request(
         })
 }
 
+fn translation_request_parts(
+    profile: TranslationInferenceProfile,
+    request: &TranslationRequest,
+) -> (&'static str, serde_json::Value) {
+    match profile {
+        TranslationInferenceProfile::HyMt => ("/completion", hy_mt_payload(request)),
+        TranslationInferenceProfile::Qwen3 => (
+            "/v1/chat/completions",
+            chat_translation_payload(request, true),
+        ),
+        TranslationInferenceProfile::Generic => (
+            "/v1/chat/completions",
+            chat_translation_payload(request, false),
+        ),
+    }
+}
+
 async fn parse_translation_response(
     response: reqwest::Response,
     profile: TranslationInferenceProfile,
 ) -> Result<String, TranslationError> {
+    let body = response.bytes().await.map_err(|error| {
+        TranslationError::new(
+            TranslationErrorCode::TranslationFailed,
+            format!("读取离线翻译结果失败：{error}"),
+        )
+    })?;
+    parse_translation_body(&body, profile)
+}
+
+fn parse_translation_body(
+    body: &[u8],
+    profile: TranslationInferenceProfile,
+) -> Result<String, TranslationError> {
     let translated = match profile {
-        TranslationInferenceProfile::HyMt => response
-            .json::<CompletionResponse>()
-            .await
+        TranslationInferenceProfile::HyMt => serde_json::from_slice::<CompletionResponse>(body)
             .map(|completion| completion.content)
             .map_err(|error| {
                 TranslationError::new(
@@ -262,20 +280,20 @@ async fn parse_translation_response(
                     format!("解析 HY-MT 翻译结果失败：{error}"),
                 )
             })?,
-        TranslationInferenceProfile::Qwen3 | TranslationInferenceProfile::Generic => response
-            .json::<ChatCompletionResponse>()
-            .await
-            .map_err(|error| {
-                TranslationError::new(
-                    TranslationErrorCode::TranslationFailed,
-                    format!("解析离线翻译结果失败：{error}"),
-                )
-            })?
-            .choices
-            .into_iter()
-            .next()
-            .map(|choice| choice.message.content)
-            .unwrap_or_default(),
+        TranslationInferenceProfile::Qwen3 | TranslationInferenceProfile::Generic => {
+            serde_json::from_slice::<ChatCompletionResponse>(body)
+                .map_err(|error| {
+                    TranslationError::new(
+                        TranslationErrorCode::TranslationFailed,
+                        format!("解析离线翻译结果失败：{error}"),
+                    )
+                })?
+                .choices
+                .into_iter()
+                .next()
+                .map(|choice| choice.message.content)
+                .unwrap_or_default()
+        }
     };
     let translated = strip_thinking(&translated);
     if translated.is_empty() {
@@ -485,19 +503,20 @@ fn chat_translation_payload(
     request: &TranslationRequest,
     disable_qwen_thinking: bool,
 ) -> serde_json::Value {
-    let source = request
+    let source_line = request
         .source_language
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("自动识别");
+        .map(|source| format!("源语言：{source}\n"))
+        .unwrap_or_default();
     let no_think = if disable_qwen_thinking {
         "\n/no_think"
     } else {
         ""
     };
     let user_prompt = format!(
-        "源语言：{source}\n目标语言：{}\n保留 Markdown、代码、链接、变量名和原有分段。只输出译文。\n\n--- 待翻译内容开始 ---\n{}\n--- 待翻译内容结束 ---{no_think}",
+        "{source_line}目标语言：{}\n保留 Markdown、代码、链接、变量名和原有分段。只输出译文。\n\n--- 待翻译内容开始 ---\n{}\n--- 待翻译内容结束 ---{no_think}",
         request.target_language.trim(),
         request.text
     );
@@ -635,6 +654,72 @@ fn bounded_detail(value: &str) -> String {
     }
     let detail = value.chars().take(500).collect::<String>();
     format!("：{detail}")
+}
+
+#[cfg(test)]
+mod translation_payload_tests {
+    use super::{
+        chat_translation_payload, parse_translation_body, translation_request_parts,
+        TranslationInferenceProfile, TranslationRequest,
+    };
+
+    #[test]
+    fn qwen_prompt_omits_the_auto_detect_placeholder_when_source_is_unknown() {
+        let payload = chat_translation_payload(
+            &TranslationRequest {
+                model_id: "qwen-test".to_string(),
+                text: "Security-first skill vetting for AI agents.".to_string(),
+                source_language: None,
+                target_language: "Simplified Chinese".to_string(),
+                timeout_ms: None,
+            },
+            true,
+        );
+        let prompt = payload["messages"][1]["content"]
+            .as_str()
+            .expect("Qwen user prompt");
+
+        assert!(!prompt.contains("自动识别"));
+        assert!(prompt.contains("目标语言：Simplified Chinese"));
+        assert!(prompt.contains("Security-first skill vetting for AI agents."));
+    }
+
+    #[test]
+    fn hy_mt_profile_uses_the_official_completion_contract() {
+        let request = TranslationRequest {
+            model_id: "hy-mt-test".to_string(),
+            text: "It's on the house.".to_string(),
+            source_language: Some("English".to_string()),
+            target_language: "Simplified Chinese".to_string(),
+            timeout_ms: None,
+        };
+
+        let (path, payload) =
+            translation_request_parts(TranslationInferenceProfile::HyMt, &request);
+
+        assert_eq!(path, "/completion");
+        assert_eq!(
+            payload["prompt"],
+            "将以下文本翻译为Simplified Chinese，注意只需要输出翻译后的结果，不要额外解释：\n\nIt's on the house."
+        );
+        assert_eq!(payload["n_predict"], 4096);
+        assert_eq!(payload["temperature"], 0.7);
+        assert_eq!(payload["top_k"], 20);
+        assert_eq!(payload["top_p"], 0.6);
+        assert_eq!(payload["repeat_penalty"], 1.05);
+        assert_eq!(payload["stream"], false);
+    }
+
+    #[test]
+    fn hy_mt_profile_parses_the_completion_response() {
+        let translated = parse_translation_body(
+            r#"{"content":"这是免费的。"}"#.as_bytes(),
+            TranslationInferenceProfile::HyMt,
+        )
+        .expect("parse HY-MT completion response");
+
+        assert_eq!(translated, "这是免费的。");
+    }
 }
 
 #[cfg(test)]

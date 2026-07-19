@@ -113,6 +113,55 @@ test("offline preferred falls back only for a recoverable local error", async ()
   assert.deepEqual(harness.calls, { offline: 1, remote: 1 });
 });
 
+test("placeholder-only offline output falls back instead of replacing the skill description", async () => {
+  const harness = createHarness({
+    offline: async () => ({
+      text: "自动识别",
+      modelId: "local-model",
+      elapsedMs: 8,
+    }),
+    remoteText: "用于安装前审查技能安全风险。",
+  });
+  harness.settings.customSettings.translation = {
+    mode: "offline-preferred",
+    localModelId: "local-model",
+  };
+  const port = harness.translation.createTranslationPort(harness.settings);
+
+  const result = await port.translate({
+    text: "Security-first skill vetting for AI agents.",
+    targetLocale: "zh-CN",
+    purpose: "skills-store",
+  });
+
+  assert.equal(result.backend, "remote");
+  assert.equal(result.text, "用于安装前审查技能安全风险。");
+  assert.equal(result.warnings.length, 1);
+  assert.deepEqual(harness.calls, { offline: 1, remote: 1 });
+});
+
+test("placeholder-only remote output is rejected as an invalid translation", async () => {
+  const harness = createHarness({
+    offline: async () => ({
+      text: "unused",
+      modelId: "local-model",
+      elapsedMs: 1,
+    }),
+    remoteText: "自动识别",
+  });
+  const port = harness.translation.createTranslationPort(harness.settings);
+
+  await assert.rejects(
+    port.translate({
+      text: "Security-first skill vetting for AI agents.",
+      targetLocale: "zh-CN",
+      purpose: "skills-store",
+    }),
+    (error) => error.code === "translationFailed"
+  );
+  assert.deepEqual(harness.calls, { offline: 0, remote: 1 });
+});
+
 test("invalid input and cancellation never fall back to remote translation", async () => {
   const harness = createHarness({
     offline: async () => ({

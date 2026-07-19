@@ -171,6 +171,16 @@ test("translation runtime validation identifies shallow builds by pinned commit"
   assert.match(ciWorkflow, /test-translation-runtime-identity\.ps1/);
 });
 
+test("translation runtime packaging requires the HY-MT license and notice", () => {
+  for (const fileName of [
+    "Tencent-HY-Community-License.txt",
+    "Tencent-HY-NOTICE.txt",
+  ]) {
+    assert.match(translationRuntimeStaging, new RegExp(fileName));
+    assert.match(windowsInstallerValidation, new RegExp(fileName));
+  }
+});
+
 test("release validation requires explicit updater signing keys", () => {
   const missingPublicKey = runValidation({
     TAURI_SIGNING_PRIVATE_KEY: "private-key",

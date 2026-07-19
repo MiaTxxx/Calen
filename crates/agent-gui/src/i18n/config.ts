@@ -833,7 +833,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.translationModeOfflineOnlyDesc": "文本不会发送到远程模型；本地不可用时直接报错。",
     "settings.translationOfflineModels": "离线翻译模型",
     "settings.translationOfflineModelsHint":
-      "推荐 Qwen3 0.6B Q8（约 639 MB，Apache-2.0）。下载后无需额外 API Key。",
+      "在许可适用地区，推荐 HY-MT1.5 1.8B Q4_K_M（约 1.13 GB）；也可选择高质量 Q8_0（约 1.91 GB）。下载后无需额外 API Key。",
     "settings.translationSelectedLocalModel": "使用的本地模型",
     "settings.translationNotInstalled": "未安装",
     "settings.translationLoadingModels": "正在读取本地模型状态…",
@@ -841,13 +841,51 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.translationBuiltInCatalog": "内置下载渠道",
     "settings.translationUserImport": "用户导入",
     "settings.translationDownload": "下载",
+    "settings.translationReviewLicense": "确认许可",
     "settings.translationCancelDownload": "取消",
     "settings.translationDeleteModel": "删除",
     "settings.translationDownloadFailed": "模型下载失败",
     "settings.translationNoModels": "暂无可用的离线模型。",
     "settings.translationImportGguf": "导入 GGUF",
     "settings.translationImportHint":
-      "HY-MT 暂不进入全球公开下载目录；如你已合法获得 GGUF 文件，可以在此自行导入。",
+      "导入的 GGUF 不走内置下载许可确认流程；请自行确认文件来源、许可证与所在地区的使用资格。",
+    "settings.translationModelDescriptionHyMtQ4":
+      "推荐：约 1.13 GB，在速度与质量之间取得平衡，适合日常 Skills 商店翻译。",
+    "settings.translationModelDescriptionHyMtQ8":
+      "高质量：约 1.91 GB，保留更多精度，适合内存充足的设备。",
+    "settings.translationModelDescriptionQwen":
+      "兼容兜底：约 639 MB，采用 Apache-2.0 许可，可用于现有安装与全球可用场景。",
+    "settings.translationModelDescriptionUserImport":
+      "用户导入的 GGUF 模型；文件来源、授权与适用性由用户自行确认。",
+    "settings.translationModelLicenseHyMt": "Tencent HY Community License Agreement",
+    "settings.translationModelLicenseQwen": "Apache-2.0",
+    "settings.translationModelLicenseUserImport": "许可证由用户自行确认",
+    "settings.translationHyMtConsentTitle": "下载 HY-MT1.5 前请确认许可",
+    "settings.translationHyMtConsentReviewTitle": "启用 HY-MT1.5 前请确认许可",
+    "settings.translationHyMtConsentIntro":
+      "此模型按 Tencent HY Community License Agreement 提供。下载或启用前请先阅读许可全文与以下限制，并确认你将遵守该协议。",
+    "settings.translationHyMtConsentRegionTitle": "地域限制",
+    "settings.translationHyMtConsentRegion":
+      "该许可和内置下载不适用于欧盟、英国和韩国；如果你位于上述地区，请勿下载或使用此模型。",
+    "settings.translationHyMtConsentModelLabel": "模型",
+    "settings.translationHyMtConsentSizeLabel": "下载大小",
+    "settings.translationHyMtConsentLicenseLabel": "许可证",
+    "settings.translationHyMtConsentRevisionLabel": "许可版本（revision）",
+    "settings.translationHyMtConsentSha256Label": "文件 SHA-256",
+    "settings.translationHyMtConsentPublisher": "发布主体：Tioms",
+    "settings.translationHyMtConsentSource": "模型来源：Tencent HY-MT 官方模型仓库",
+    "settings.translationHyMtConsentViewLicense": "查看许可全文",
+    "settings.translationHyMtConsentViewSource": "查看模型来源",
+    "settings.translationHyMtConsentNoAffiliation":
+      "Tencent 与 Tioms/Calen 无关联，且未赞助或背书本应用。模型版权和商标归各自权利人所有。",
+    "settings.translationHyMtConsentCheckbox":
+      "我已阅读并同意 Tencent HY Community License Agreement 及其 Acceptable Use Policy（AUP，可接受使用政策），确认自己不在欧盟、英国或韩国，并理解模型来源、地域限制和发布主体声明。",
+    "settings.translationHyMtConsentCancel": "取消",
+    "settings.translationHyMtConsentConfirm": "同意并下载",
+    "settings.translationHyMtConsentConfirmInstalled": "同意并启用",
+    "settings.translationHyMtConsentStarting": "正在确认…",
+    "settings.translationHyMtConsentMissingRevision": "模型目录缺少许可版本，无法确认许可。",
+    "settings.translationHyMtConsentOpenLinkFailed": "无法打开外部链接：{error}",
     "settings.translationRemoteFallback": "远程翻译模型",
     "settings.translationRemoteFallbackHint":
       "仅远程和本地优先模式会使用。未单独选择时，跟随当前对话模型。",
@@ -2714,7 +2752,7 @@ export const translations: Record<Locale, Record<string, string>> = {
       "Never send text to a remote model; report an error when local translation is unavailable.",
     "settings.translationOfflineModels": "Offline translation models",
     "settings.translationOfflineModelsHint":
-      "Qwen3 0.6B Q8 is recommended (about 639 MB, Apache-2.0). It needs no additional API key after download.",
+      "Where the license is available, HY-MT1.5 1.8B Q4_K_M is recommended (about 1.13 GB); Q8_0 is the higher-quality option (about 1.91 GB). Neither needs an additional API key after download.",
     "settings.translationSelectedLocalModel": "Local model to use",
     "settings.translationNotInstalled": "not installed",
     "settings.translationLoadingModels": "Loading local model status…",
@@ -2722,13 +2760,53 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.translationBuiltInCatalog": "Built-in channel",
     "settings.translationUserImport": "User import",
     "settings.translationDownload": "Download",
+    "settings.translationReviewLicense": "Review license",
     "settings.translationCancelDownload": "Cancel",
     "settings.translationDeleteModel": "Delete",
     "settings.translationDownloadFailed": "Model download failed",
     "settings.translationNoModels": "No offline translation models are available.",
     "settings.translationImportGguf": "Import GGUF",
     "settings.translationImportHint":
-      "HY-MT is not included in the global public download catalog. If you have lawfully obtained a GGUF file, you may import it here.",
+      "Imported GGUF files do not use the built-in download consent flow. You are responsible for verifying the source, license, and territorial eligibility.",
+    "settings.translationModelDescriptionHyMtQ4":
+      "Recommended: about 1.13 GB, balancing speed and quality for everyday Skills Store translation.",
+    "settings.translationModelDescriptionHyMtQ8":
+      "Higher quality: about 1.91 GB, preserving more precision for devices with sufficient memory.",
+    "settings.translationModelDescriptionQwen":
+      "Compatibility fallback: about 639 MB under Apache-2.0, retained for existing installs and worldwide availability.",
+    "settings.translationModelDescriptionUserImport":
+      "User-imported GGUF model; its source, authorization, and suitability are verified by the user.",
+    "settings.translationModelLicenseHyMt": "Tencent HY Community License Agreement",
+    "settings.translationModelLicenseQwen": "Apache-2.0",
+    "settings.translationModelLicenseUserImport": "License verified by the user",
+    "settings.translationHyMtConsentTitle": "Confirm the license before downloading HY-MT1.5",
+    "settings.translationHyMtConsentReviewTitle": "Confirm the license before enabling HY-MT1.5",
+    "settings.translationHyMtConsentIntro":
+      "This model is provided under the Tencent HY Community License Agreement. Before downloading or enabling it, review the full license and restrictions and confirm that you will comply with them.",
+    "settings.translationHyMtConsentRegionTitle": "Territorial restriction",
+    "settings.translationHyMtConsentRegion":
+      "This license grant and built-in download are unavailable in the European Union, the United Kingdom, and South Korea. Do not download or use this model if you are located in any of those territories.",
+    "settings.translationHyMtConsentModelLabel": "Model",
+    "settings.translationHyMtConsentSizeLabel": "Download size",
+    "settings.translationHyMtConsentLicenseLabel": "License",
+    "settings.translationHyMtConsentRevisionLabel": "License revision",
+    "settings.translationHyMtConsentSha256Label": "File SHA-256",
+    "settings.translationHyMtConsentPublisher": "Publisher: Tioms",
+    "settings.translationHyMtConsentSource":
+      "Model source: Tencent HY-MT official model repository",
+    "settings.translationHyMtConsentViewLicense": "View full license",
+    "settings.translationHyMtConsentViewSource": "View model source",
+    "settings.translationHyMtConsentNoAffiliation":
+      "Tencent and Tioms/Calen are not affiliated; Tencent does not sponsor or endorse this application. Model copyrights and trademarks remain with their respective owners.",
+    "settings.translationHyMtConsentCheckbox":
+      "I have read and agree to the Tencent HY Community License Agreement and its Acceptable Use Policy (AUP), confirm that I am not located in the European Union, the United Kingdom, or South Korea, and understand the model source, territorial restriction, and publisher disclosure.",
+    "settings.translationHyMtConsentCancel": "Cancel",
+    "settings.translationHyMtConsentConfirm": "Agree and download",
+    "settings.translationHyMtConsentConfirmInstalled": "Accept and enable",
+    "settings.translationHyMtConsentStarting": "Applying consent…",
+    "settings.translationHyMtConsentMissingRevision":
+      "The model catalog does not include a license revision, so consent cannot be recorded.",
+    "settings.translationHyMtConsentOpenLinkFailed": "Unable to open the external link: {error}",
     "settings.translationRemoteFallback": "Remote translation model",
     "settings.translationRemoteFallbackHint":
       "Used by remote-only and offline-preferred modes. When unset, translation follows the current chat model.",

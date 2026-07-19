@@ -64,7 +64,7 @@ export const ChatTranscript = memo(function ChatTranscript(props: ChatTranscript
   const [scrollViewport, setScrollViewport] = useState<HTMLDivElement | null>(null);
   const [scrollAreaRoot, setScrollAreaRoot] = useState<HTMLDivElement | null>(null);
   // 消息导航条的挂载点：TranscriptList 把导航条 portal 到这里，使其固定在
-  // 聊天区右缘（不随内容滚动、不受虚拟化容器裁剪）。
+  // 聊天区左缘（不随内容滚动、不受虚拟化容器裁剪）。
   const [navOverlayEl, setNavOverlayEl] = useState<HTMLDivElement | null>(null);
   const transcriptRootRef = useRef<HTMLDivElement | null>(null);
   const transcriptContextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -212,10 +212,10 @@ export const ChatTranscript = memo(function ChatTranscript(props: ChatTranscript
           <div style={{ height: transcriptBottomReservePx }} />
         </div>
       </ScrollArea>
-      {/* right-2.5 让开 ScrollArea 的自定义滚动条（w-2.5），避免挡住拖拽。 */}
+      {/* 导航轨道固定在主聊天区左缘；它位于侧栏之后，不会覆盖工作空间列表。 */}
       <div
         ref={setNavOverlayEl}
-        className="pointer-events-none absolute inset-y-0 right-2.5 z-20 flex flex-col items-end justify-center"
+        className="pointer-events-none absolute inset-y-0 left-2.5 z-20 flex flex-col items-start justify-center"
       />
       {!following ? (
         <button

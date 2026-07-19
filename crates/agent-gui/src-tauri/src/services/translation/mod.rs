@@ -10,8 +10,8 @@ pub use commands::create_managed_translation_manager;
 pub use error::TranslationError;
 pub use manager::TranslationManager;
 pub use types::{
-    TranslationCatalog, TranslationDownloadStatus, TranslationModel, TranslationRequest,
-    TranslationResult, TranslationRuntimeStatus, TranslationStatus,
+    TranslationCatalog, TranslationDownloadConsent, TranslationDownloadStatus, TranslationModel,
+    TranslationRequest, TranslationResult, TranslationRuntimeStatus, TranslationStatus,
 };
 
 #[cfg(test)]

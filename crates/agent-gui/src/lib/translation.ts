@@ -54,6 +54,12 @@ export { TRANSLATION_PROMPT_VERSION };
 
 const TRANSLATION_CACHE_LIMIT = 256;
 const translationCache = new Map<string, TranslationResult>();
+const TRANSLATION_PLACEHOLDER_OUTPUTS = new Set([
+  "自动识别",
+  "auto detect",
+  "auto-detect",
+  "automatic detection",
+]);
 
 const TARGET_LANGUAGE_NAMES: Record<Locale, string> = {
   "zh-CN": "Simplified Chinese",
@@ -79,6 +85,22 @@ function translationSystemPrompt(targetLanguage: string, purpose: TranslationPur
 
 function createTranslationError(code: string, message: string) {
   return Object.assign(new Error(message), { code });
+}
+
+function validateTranslationText(value: string, sourceText: string, backendLabel: string) {
+  const text = value.trim();
+  if (!text) throw createTranslationError("translationFailed", `${backendLabel}没有返回内容`);
+  const normalized = text.toLocaleLowerCase();
+  if (
+    TRANSLATION_PLACEHOLDER_OUTPUTS.has(normalized) &&
+    sourceText.trim().toLocaleLowerCase() !== normalized
+  ) {
+    throw createTranslationError(
+      "translationFailed",
+      `${backendLabel}仅返回了源语言识别占位符，未生成有效译文`,
+    );
+  }
+  return text;
 }
 
 function resolveTranslationModel(settings: TranslationSettings) {
@@ -143,8 +165,11 @@ async function translateRemote(request: ConfiguredTranslationRequest): Promise<T
     context,
     signal: request.signal,
   });
-  const translated = assistantMessageToText(assistant).trim();
-  if (!translated) throw new Error("翻译模型没有返回内容");
+  const translated = validateTranslationText(
+    assistantMessageToText(assistant),
+    request.text,
+    "远程翻译模型",
+  );
   return {
     text: translated,
     backend: "remote",
@@ -179,8 +204,7 @@ async function translateOffline(request: ConfiguredTranslationRequest): Promise<
     const result = request.signal
       ? await Promise.race([localRequest, aborted])
       : await localRequest;
-    const text = result.text.trim();
-    if (!text) throw new Error("translationFailed: 离线模型没有返回内容");
+    const text = validateTranslationText(result.text, request.text, "离线模型");
     return {
       text,
       backend: "offline",

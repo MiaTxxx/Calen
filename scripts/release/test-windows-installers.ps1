@@ -190,7 +190,9 @@ function Assert-TranslationRuntime {
         "llama-server.exe",
         "runtime-manifest.json",
         "NOTICE.md",
-        "licenses\llama.cpp-MIT.txt"
+        "licenses\llama.cpp-MIT.txt",
+        "licenses\Tencent-HY-Community-License.txt",
+        "licenses\Tencent-HY-NOTICE.txt"
     )
     foreach ($relativePath in $requiredFiles) {
         $path = Join-Path $runtimeRoot $relativePath

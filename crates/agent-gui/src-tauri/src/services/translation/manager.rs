@@ -1,7 +1,7 @@
 pub use super::download::TranslationHttpClientFactory;
 
 use super::{
-    catalog::{read_imported_manifests, ImportedModelManifest, ModelSpec},
+    catalog::{read_imported_manifests, DownloadConsentPolicy, ImportedModelManifest, ModelSpec},
     download::{
         part_path, replace_file_atomically, run_download, sha256_file, DownloadCancellation,
         DownloadEntry, DownloadRegistry,
@@ -9,11 +9,12 @@ use super::{
     error::{TranslationError, TranslationErrorCode},
     runtime::{self, RuntimeState},
     types::{
-        TranslationCatalog, TranslationDownloadPhase, TranslationDownloadStatus,
-        TranslationInferenceProfile, TranslationModel, TranslationModelSource, TranslationRequest,
-        TranslationResult, TranslationStatus,
+        TranslationCatalog, TranslationDownloadConsent, TranslationDownloadPhase,
+        TranslationDownloadStatus, TranslationInferenceProfile, TranslationModel,
+        TranslationModelSource, TranslationRequest, TranslationResult, TranslationStatus,
     },
 };
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -61,6 +62,13 @@ enum ResolvedModel {
     UserImport(ImportedModelManifest),
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredDownloadConsent {
+    model_id: String,
+    consent: TranslationDownloadConsent,
+}
+
 impl ResolvedModel {
     fn id(&self) -> &str {
         match self {
@@ -90,6 +98,13 @@ impl ResolvedModel {
         }
     }
 
+    fn download_consent_policy(&self) -> Option<&DownloadConsentPolicy> {
+        match self {
+            Self::BuiltIn(spec) => spec.download_consent_policy.as_ref(),
+            Self::UserImport(_) => None,
+        }
+    }
+
     fn sha256(&self) -> &str {
         match self {
             Self::BuiltIn(spec) => &spec.sha256,
@@ -107,7 +122,11 @@ impl TranslationManager {
         Self::with_catalog(
             model_dir,
             runtime_path,
-            vec![ModelSpec::qwen3_builtin()],
+            vec![
+                ModelSpec::hy_mt_q4_builtin(),
+                ModelSpec::hy_mt_q8_builtin(),
+                ModelSpec::qwen3_builtin(),
+            ],
             http_factory,
         )
     }
@@ -151,7 +170,14 @@ impl TranslationManager {
                 .model_file_is_valid(&spec.file_name, spec.size_bytes, &spec.sha256)
                 .await
                 .unwrap_or(false);
-            models.push(spec.as_model(installed));
+            let consent_satisfied = spec
+                .download_consent_policy
+                .as_ref()
+                .map(|policy| {
+                    stored_download_consent_is_valid(&self.inner.model_dir, &spec.id, policy)
+                })
+                .unwrap_or(true);
+            models.push(spec.as_model(installed, consent_satisfied));
         }
         for manifest in read_imported_manifests(&self.inner.model_dir)? {
             let installed = self
@@ -186,6 +212,7 @@ impl TranslationManager {
     pub async fn download_start(
         &self,
         model_id: &str,
+        consent: Option<&TranslationDownloadConsent>,
     ) -> Result<TranslationDownloadStatus, TranslationError> {
         let spec = self
             .inner
@@ -194,6 +221,10 @@ impl TranslationManager {
             .find(|spec| spec.id == model_id)
             .cloned()
             .ok_or_else(|| TranslationError::not_found("未找到可下载的离线翻译模型"))?;
+        if let Some(policy) = spec.download_consent_policy.as_ref() {
+            let consent = validate_download_consent(policy, consent)?;
+            write_download_consent_atomically(&self.inner.model_dir, &spec.id, consent)?;
+        }
         if self
             .model_file_is_valid(&spec.file_name, spec.size_bytes, &spec.sha256)
             .await?
@@ -207,7 +238,6 @@ impl TranslationManager {
                 error: None,
             });
         }
-
         let mut downloads = self.inner.downloads.lock().await;
         if let Some(existing) = downloads.get(model_id) {
             if existing.status.phase.is_active() {
@@ -365,6 +395,13 @@ impl TranslationManager {
                 },
                 "离线翻译模型缺失或完整性校验失败，请重新下载或导入",
             ));
+        }
+        if let Some(policy) = resolved.download_consent_policy() {
+            if !stored_download_consent_is_valid(&self.inner.model_dir, resolved.id(), policy) {
+                return Err(TranslationError::invalid(
+                    "使用该模型前必须重新确认当前许可证、Acceptable Use Policy 和地域资格",
+                ));
+            }
         }
         let mut runtime_state = self.inner.runtime.lock().await;
         runtime::translate(
@@ -559,6 +596,82 @@ fn infer_import_profile(source: &Path, display_name: &str) -> TranslationInferen
 
 fn manifest_path(model_dir: &Path, model_id: &str) -> PathBuf {
     model_dir.join(format!("{model_id}.model.json"))
+}
+
+fn download_consent_path(model_dir: &Path, model_id: &str) -> PathBuf {
+    model_dir.join(format!("{model_id}.license-consent.json"))
+}
+
+fn validate_download_consent<'a>(
+    policy: &DownloadConsentPolicy,
+    consent: Option<&'a TranslationDownloadConsent>,
+) -> Result<&'a TranslationDownloadConsent, TranslationError> {
+    let consent = consent.ok_or_else(|| {
+        TranslationError::invalid(
+            "下载该模型前必须明确接受其许可证、Acceptable Use Policy 和地域限制",
+        )
+    })?;
+    if consent.license_revision.trim() != policy.license_revision {
+        return Err(TranslationError::invalid(
+            "许可确认版本与当前固定模型 revision 不一致，请重新阅读并确认",
+        ));
+    }
+    if !consent.license_accepted {
+        return Err(TranslationError::invalid("必须接受完整模型许可证"));
+    }
+    if !consent.acceptable_use_policy_accepted {
+        return Err(TranslationError::invalid(
+            "必须接受许可证中的 Acceptable Use Policy",
+        ));
+    }
+    if !consent.territory_eligible {
+        return Err(TranslationError::invalid(
+            "该模型不能在欧盟、英国或韩国下载或使用",
+        ));
+    }
+    Ok(consent)
+}
+
+fn stored_download_consent_is_valid(
+    model_dir: &Path,
+    model_id: &str,
+    policy: &DownloadConsentPolicy,
+) -> bool {
+    let Ok(bytes) = std::fs::read(download_consent_path(model_dir, model_id)) else {
+        return false;
+    };
+    let Ok(stored) = serde_json::from_slice::<StoredDownloadConsent>(&bytes) else {
+        return false;
+    };
+    stored.model_id == model_id && validate_download_consent(policy, Some(&stored.consent)).is_ok()
+}
+
+fn write_download_consent_atomically(
+    model_dir: &Path,
+    model_id: &str,
+    consent: &TranslationDownloadConsent,
+) -> Result<(), TranslationError> {
+    std::fs::create_dir_all(model_dir)
+        .map_err(|error| TranslationError::io("创建离线翻译模型目录失败", error))?;
+    let target = download_consent_path(model_dir, model_id);
+    let part = model_dir.join(format!("{model_id}.{}.consent.part", Uuid::new_v4()));
+    let bytes = serde_json::to_vec_pretty(&StoredDownloadConsent {
+        model_id: model_id.to_string(),
+        consent: consent.clone(),
+    })
+    .map_err(|error| {
+        TranslationError::new(
+            TranslationErrorCode::Io,
+            format!("序列化模型许可确认失败：{error}"),
+        )
+    })?;
+    std::fs::write(&part, bytes)
+        .map_err(|error| TranslationError::io("写入模型许可确认失败", error))?;
+    if let Err(error) = replace_file_atomically(&part, &target) {
+        let _ = std::fs::remove_file(&part);
+        return Err(TranslationError::io("安装模型许可确认失败", error));
+    }
+    Ok(())
 }
 
 fn write_manifest_atomically(

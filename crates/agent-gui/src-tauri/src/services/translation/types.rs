@@ -38,6 +38,17 @@ pub struct TranslationModel {
     pub installed: bool,
     pub recommended: bool,
     pub downloadable: bool,
+    pub download_license_acceptance_required: bool,
+    pub download_license_acceptance_satisfied: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranslationDownloadConsent {
+    pub license_revision: String,
+    pub license_accepted: bool,
+    pub acceptable_use_policy_accepted: bool,
+    pub territory_eligible: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

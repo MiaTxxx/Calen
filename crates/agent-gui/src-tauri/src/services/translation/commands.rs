@@ -1,6 +1,7 @@
 use super::{
-    TranslationCatalog, TranslationDownloadStatus, TranslationManager, TranslationModel,
-    TranslationRequest, TranslationResult, TranslationRuntimeStatus, TranslationStatus,
+    TranslationCatalog, TranslationDownloadConsent, TranslationDownloadStatus, TranslationManager,
+    TranslationModel, TranslationRequest, TranslationResult, TranslationRuntimeStatus,
+    TranslationStatus,
 };
 use crate::services::network::AppNetworkManager;
 use std::{path::PathBuf, sync::Arc};
@@ -50,9 +51,10 @@ pub async fn translation_status(
 pub async fn translation_download_start(
     manager: tauri::State<'_, Arc<TranslationManager>>,
     model_id: String,
+    consent: Option<TranslationDownloadConsent>,
 ) -> Result<TranslationDownloadStatus, String> {
     manager
-        .download_start(&model_id)
+        .download_start(&model_id, consent.as_ref())
         .await
         .map_err(command_error)
 }

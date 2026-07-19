@@ -128,7 +128,7 @@ export type TranscriptListProps = {
   usageContextWindow?: number;
   workspaceRoot?: string;
   gitClient?: GitClient | null;
-  // 消息导航条的挂载点（ChatTranscript 的右缘覆盖层）与跳转前的跟随解除。
+  // 消息导航条的挂载点（ChatTranscript 的左缘覆盖层）与跳转前的跟随解除。
   navOverlayEl?: HTMLDivElement | null;
   onDetachFollow?: () => void;
   onResendFromEdit: (

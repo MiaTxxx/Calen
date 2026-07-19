@@ -5,6 +5,7 @@ import {
   File,
   Languages,
   LoaderCircle,
+  Shield,
   Trash2,
   XCircle,
 } from "../../components/icons";
@@ -33,16 +34,17 @@ import {
   startOfflineTranslationDownload,
   stopOfflineTranslationRuntime,
 } from "../../lib/translation/tauri";
+import { HyMtDownloadConsentDialog } from "./HyMtDownloadConsentDialog";
+import {
+  formatTranslationModelSize,
+  requiresTranslationDownloadConsent,
+  translationModelDescriptionKey,
+  translationModelLicenseKey,
+} from "./translationDownloadConsent";
 import type { SettingsSectionProps } from "./types";
 
 const REMOTE_MODEL_FOLLOW_CURRENT = "__translation_follow_current__";
 const ACTIVE_DOWNLOAD_PHASES = new Set(["queued", "downloading", "verifying"]);
-
-function formatBytes(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return "--";
-  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(1)} GB`;
-  return `${Math.round(value / 1024 ** 2)} MB`;
-}
 
 function downloadPercent(download: OfflineTranslationDownload | undefined) {
   if (!download || download.totalBytes <= 0) return 0;
@@ -70,6 +72,9 @@ export function TranslationSettingsForm({ settings, setSettings }: SettingsSecti
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [licenseConsentModel, setLicenseConsentModel] = useState<OfflineTranslationModel | null>(
+    null,
+  );
   const modelOptions = useMemo(() => buildModelOptions(settings), [settings]);
   const localModels = useMemo(() => mergeModels(catalog, status.models), [catalog, status.models]);
   const downloads = useMemo(
@@ -140,17 +145,50 @@ export function TranslationSettingsForm({ settings, setSettings }: SettingsSecti
     );
   }
 
-  async function runAction(id: string, action: () => Promise<unknown>) {
+  async function runAction(id: string, action: () => Promise<unknown>): Promise<boolean> {
     setActionId(id);
     setError(null);
     try {
       await action();
-      await refreshStatus();
+      try {
+        await refreshStatus();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
+      return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+      return false;
     } finally {
       setActionId(null);
     }
+  }
+
+  function requestModelDownload(model: OfflineTranslationModel) {
+    if (requiresTranslationDownloadConsent(model)) {
+      setLicenseConsentModel(model);
+      return;
+    }
+    void runAction(`download:${model.id}`, () =>
+      startOfflineTranslationDownload(model.id, undefined),
+    );
+  }
+
+  async function confirmLicensedModelDownload(model: OfflineTranslationModel) {
+    const licenseRevision = model.revision;
+    if (!licenseRevision) {
+      setError(t("settings.translationHyMtConsentMissingRevision"));
+      return;
+    }
+    const started = await runAction(`download:${model.id}`, () =>
+      startOfflineTranslationDownload(model.id, {
+        licenseRevision,
+        licenseAccepted: true,
+        acceptableUsePolicyAccepted: true,
+        territoryEligible: true,
+      }),
+    );
+    if (started) setLicenseConsentModel(null);
   }
 
   const modeOptions: Array<{ value: TranslationMode; label: string; description: string }> = [
@@ -281,6 +319,9 @@ export function TranslationSettingsForm({ settings, setSettings }: SettingsSecti
               const download = downloads.get(model.id);
               const activeDownload = download && ACTIVE_DOWNLOAD_PHASES.has(download.phase);
               const percent = downloadPercent(download);
+              const requiresConsent = requiresTranslationDownloadConsent(model);
+              const descriptionKey = translationModelDescriptionKey(model.id, model.source);
+              const licenseKey = translationModelLicenseKey(model.id, model.source);
               return (
                 <div key={model.id} className="p-4">
                   <div className="flex items-center justify-between gap-4">
@@ -299,16 +340,17 @@ export function TranslationSettingsForm({ settings, setSettings }: SettingsSecti
                         </span>
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
-                        {formatBytes(download?.totalBytes || model.sizeBytes)} · {model.fileName}
-                        {model.licenseName ? ` · ${model.licenseName}` : ""}
+                        {formatTranslationModelSize(download?.totalBytes || model.sizeBytes)} ·{" "}
+                        {model.fileName}
+                        {licenseKey ? ` · ${t(licenseKey)}` : ""}
                       </div>
-                      {model.description ? (
+                      {descriptionKey ? (
                         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                          {model.description}
+                          {t(descriptionKey)}
                         </p>
                       ) : null}
                     </div>
-                    <div className="shrink-0">
+                    <div className="flex shrink-0 flex-wrap justify-end gap-2">
                       {activeDownload ? (
                         <Button
                           type="button"
@@ -323,45 +365,57 @@ export function TranslationSettingsForm({ settings, setSettings }: SettingsSecti
                           <XCircle className="h-3.5 w-3.5" />
                           {t("settings.translationCancelDownload")}
                         </Button>
-                      ) : model.installed ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          disabled={actionId !== null || status.runtime.modelId === model.id}
-                          onClick={() =>
-                            void runAction(`delete:${model.id}`, async () => {
-                              await deleteOfflineTranslationModel(model.id);
-                              if (
-                                model.source === "userImport" &&
-                                translationSettings.localModelId === model.id
-                              ) {
-                                updateTranslation({
-                                  localModelId: DEFAULT_OFFLINE_TRANSLATION_MODEL_ID,
-                                });
+                      ) : (
+                        <>
+                          {model.installed && requiresConsent ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={actionId !== null}
+                              onClick={() => requestModelDownload(model)}
+                            >
+                              <Shield className="h-3.5 w-3.5" />
+                              {t("settings.translationReviewLicense")}
+                            </Button>
+                          ) : null}
+                          {model.installed ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              disabled={actionId !== null || status.runtime.modelId === model.id}
+                              onClick={() =>
+                                void runAction(`delete:${model.id}`, async () => {
+                                  await deleteOfflineTranslationModel(model.id);
+                                  if (
+                                    model.source === "userImport" &&
+                                    translationSettings.localModelId === model.id
+                                  ) {
+                                    updateTranslation({
+                                      localModelId: DEFAULT_OFFLINE_TRANSLATION_MODEL_ID,
+                                    });
+                                  }
+                                })
                               }
-                            })
-                          }
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          {t("settings.translationDeleteModel")}
-                        </Button>
-                      ) : model.downloadable ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={actionId !== null}
-                          onClick={() =>
-                            void runAction(`download:${model.id}`, () =>
-                              startOfflineTranslationDownload(model.id),
-                            )
-                          }
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                          {t("settings.translationDownload")}
-                        </Button>
-                      ) : null}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              {t("settings.translationDeleteModel")}
+                            </Button>
+                          ) : model.downloadable ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={actionId !== null}
+                              onClick={() => requestModelDownload(model)}
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                              {t("settings.translationDownload")}
+                            </Button>
+                          ) : null}
+                        </>
+                      )}
                     </div>
                   </div>
                   {activeDownload ? (
@@ -460,6 +514,17 @@ export function TranslationSettingsForm({ settings, setSettings }: SettingsSecti
         <div className="rounded-xl border border-destructive/30 bg-destructive/[0.05] px-4 py-3 text-sm text-destructive">
           {error}
         </div>
+      ) : null}
+
+      {licenseConsentModel ? (
+        <HyMtDownloadConsentDialog
+          key={licenseConsentModel.id}
+          model={licenseConsentModel}
+          busy={actionId === `download:${licenseConsentModel.id}`}
+          onCancel={() => setLicenseConsentModel(null)}
+          onConfirm={() => void confirmLicensedModelDownload(licenseConsentModel)}
+          onError={setError}
+        />
       ) : null}
     </div>
   );

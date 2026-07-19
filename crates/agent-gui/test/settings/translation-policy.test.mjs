@@ -9,9 +9,15 @@ const settings = loader.loadModule("src/lib/settings/index.ts");
 const sync = loader.loadModule("src/lib/settings/sync.ts");
 
 test("translation preferences normalize mode and local model without enabling downloads", () => {
+  assert.equal(
+    policy.DEFAULT_OFFLINE_TRANSLATION_MODEL_ID,
+    "hy-mt1.5-1.8b-q4-k-m"
+  );
+  assert.equal(policy.TRANSLATION_MODEL_CATALOG_VERSION, 2);
   assert.deepEqual(policy.normalizeTranslationPreferences(undefined), {
     mode: "remote-only",
     localModelId: policy.DEFAULT_OFFLINE_TRANSLATION_MODEL_ID,
+    catalogVersion: policy.TRANSLATION_MODEL_CATALOG_VERSION,
   });
   assert.deepEqual(
     policy.normalizeTranslationPreferences({
@@ -21,6 +27,7 @@ test("translation preferences normalize mode and local model without enabling do
     {
       mode: "offline-only",
       localModelId: "imported-hy-mt",
+      catalogVersion: policy.TRANSLATION_MODEL_CATALOG_VERSION,
     }
   );
   assert.deepEqual(
@@ -31,6 +38,33 @@ test("translation preferences normalize mode and local model without enabling do
     {
       mode: "remote-only",
       localModelId: policy.DEFAULT_OFFLINE_TRANSLATION_MODEL_ID,
+      catalogVersion: policy.TRANSLATION_MODEL_CATALOG_VERSION,
+    }
+  );
+});
+
+test("the HY-MT catalog migration moves only legacy Qwen defaults once", () => {
+  assert.deepEqual(
+    policy.normalizeTranslationPreferences({
+      mode: "offline-only",
+      localModelId: "qwen3-0.6b-q8-0",
+    }),
+    {
+      mode: "offline-only",
+      localModelId: "hy-mt1.5-1.8b-q4-k-m",
+      catalogVersion: policy.TRANSLATION_MODEL_CATALOG_VERSION,
+    }
+  );
+  assert.deepEqual(
+    policy.normalizeTranslationPreferences({
+      mode: "offline-only",
+      localModelId: "qwen3-0.6b-q8-0",
+      catalogVersion: policy.TRANSLATION_MODEL_CATALOG_VERSION,
+    }),
+    {
+      mode: "offline-only",
+      localModelId: "qwen3-0.6b-q8-0",
+      catalogVersion: policy.TRANSLATION_MODEL_CATALOG_VERSION,
     }
   );
 });
@@ -86,6 +120,7 @@ test("translation routing only falls back for recoverable offline failures", () 
 });
 
 test("translation cache fingerprint covers every routing input and prompt version", () => {
+  assert.equal(policy.TRANSLATION_PROMPT_VERSION, "skills-store-v3");
   const base = {
     purpose: "skills-store",
     targetLocale: "zh-CN",

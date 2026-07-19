@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { useLocale } from "../../../i18n";
 
-// 消息导航条：贴在聊天区右缘的一列刻度，每个可跳转的消息段一格（用户消息、
+// 消息导航条：贴在聊天区左缘的一列刻度，每个可跳转的消息段一格（用户消息、
 // 助手回复段、检查点），当前视口位置高亮。悬停展开完整消息列表快速查看，
 // 点击刻度或列表项跳转到对应位置。数据与跳转实现都由 TranscriptList 注入
 // （它持有虚拟化器）；本组件只做展示与命中计算。
@@ -132,7 +132,7 @@ export const TranscriptNavRail = memo(function TranscriptNavRail(props: Transcri
       onMouseEnter={() => setExpanded(true)}
       onMouseLeave={() => setExpanded(false)}
     >
-      <div className="flex max-h-[60vh] flex-col items-end gap-[5px] py-2 pl-2 pr-1">
+      <div className="flex max-h-[60vh] flex-col items-start gap-[5px] py-2 pl-1 pr-2">
         {tickIndexes.map((entryIndex, tickPosition) => {
           const entry = entries[entryIndex];
           const isActive = tickPosition === activeTickPosition;
@@ -156,7 +156,7 @@ export const TranscriptNavRail = memo(function TranscriptNavRail(props: Transcri
         })}
       </div>
       {expanded ? (
-        <div className="absolute right-full top-1/2 z-30 mr-1 w-72 -translate-y-1/2 overflow-hidden rounded-xl border border-border/70 bg-popover shadow-xl shadow-black/10">
+        <div className="absolute left-full top-1/2 z-30 ml-1 w-72 -translate-y-1/2 overflow-hidden rounded-xl border border-border/70 bg-popover shadow-xl shadow-black/10">
           <div className="max-h-[min(60vh,480px)] overflow-y-auto p-1.5">
             {entries.map((entry, index) => {
               const isActive = index === activeIndex;

@@ -30,6 +30,15 @@ export type OfflineTranslationModel = {
   installed: boolean;
   recommended: boolean;
   downloadable: boolean;
+  downloadLicenseAcceptanceRequired: boolean;
+  downloadLicenseAcceptanceSatisfied: boolean;
+};
+
+export type OfflineTranslationDownloadConsent = {
+  licenseRevision: string;
+  licenseAccepted: boolean;
+  acceptableUsePolicyAccepted: boolean;
+  territoryEligible: boolean;
 };
 
 export type OfflineTranslationDownloadPhase =
@@ -105,8 +114,9 @@ export async function getOfflineTranslationStatus(): Promise<OfflineTranslationS
 
 export function startOfflineTranslationDownload(
   modelId: string,
+  consent: OfflineTranslationDownloadConsent | undefined,
 ): Promise<OfflineTranslationDownload> {
-  return invoke(TRANSLATION_COMMANDS.downloadStart, { modelId });
+  return invoke(TRANSLATION_COMMANDS.downloadStart, { modelId, consent });
 }
 
 export function getOfflineTranslationDownload(

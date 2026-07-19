@@ -1,5 +1,8 @@
-export const DEFAULT_OFFLINE_TRANSLATION_MODEL_ID = "qwen3-0.6b-q8-0";
-export const TRANSLATION_PROMPT_VERSION = "skills-store-v2";
+const LEGACY_DEFAULT_OFFLINE_TRANSLATION_MODEL_ID = "qwen3-0.6b-q8-0";
+
+export const DEFAULT_OFFLINE_TRANSLATION_MODEL_ID = "hy-mt1.5-1.8b-q4-k-m";
+export const TRANSLATION_MODEL_CATALOG_VERSION = 2;
+export const TRANSLATION_PROMPT_VERSION = "skills-store-v3";
 
 export type TranslationMode = "remote-only" | "offline-preferred" | "offline-only";
 export type TranslationBackend = "offline" | "remote";
@@ -7,6 +10,7 @@ export type TranslationBackend = "offline" | "remote";
 export type TranslationPreferences = {
   mode: TranslationMode;
   localModelId: string;
+  catalogVersion: number;
 };
 
 export type TranslationErrorCode =
@@ -65,10 +69,16 @@ export function normalizeTranslationPreferences(input: unknown): TranslationPref
   const mode = TRANSLATION_MODES.has(obj.mode as TranslationMode)
     ? (obj.mode as TranslationMode)
     : "remote-only";
-  const localModelId = typeof obj.localModelId === "string" ? obj.localModelId.trim() : "";
+  const configuredModelId = typeof obj.localModelId === "string" ? obj.localModelId.trim() : "";
+  const localModelId =
+    obj.catalogVersion === undefined &&
+    configuredModelId === LEGACY_DEFAULT_OFFLINE_TRANSLATION_MODEL_ID
+      ? DEFAULT_OFFLINE_TRANSLATION_MODEL_ID
+      : configuredModelId || DEFAULT_OFFLINE_TRANSLATION_MODEL_ID;
   return {
     mode,
-    localModelId: localModelId || DEFAULT_OFFLINE_TRANSLATION_MODEL_ID,
+    localModelId,
+    catalogVersion: TRANSLATION_MODEL_CATALOG_VERSION,
   };
 }
 
