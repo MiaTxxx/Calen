@@ -518,7 +518,7 @@ export default function App() {
         </AppErrorBoundary>
         {visible && (
           <div
-            className={`absolute inset-0 z-50 transition-all duration-300 ease-out ${
+            className={`absolute inset-0 z-50 bg-background transition-all duration-300 ease-out ${
               active ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"
             }`}
             onTransitionEnd={handleTransitionEnd}

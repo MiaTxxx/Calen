@@ -55,12 +55,12 @@
      必须与上面的 .calen-themed 着色处于同一 @layer base，并靠更高特异性
      （多一个 .has-custom-bg）压过它们的 !important；放到无层规则里会被
      分层的 !important 反向击败，这正是此前失效的原因。
-     额外覆盖 Settings 根面与 Hub 全屏底色，否则从聊天切到设置/Hub 会
-     突然“背景消失”，表现为间歇不显示。 */
+     注意：Settings 是叠在 ChatPage 上的全屏浮层，不能做成全透明，否则
+     底下的聊天空状态/消息会透出形成「残影重叠」。Settings 用近不透明
+     毛玻璃盖住聊天，同时仍能隐约透出自定义背景图。 */
   .has-custom-bg .calen-themed,
   .has-custom-bg .app-chrome-surface,
-  .has-custom-bg .calen-themed .chat-main-surface,
-  .has-custom-bg .settings-page-surface {
+  .has-custom-bg .calen-themed .chat-main-surface {
     background: transparent !important;
   }
   .has-custom-bg .calen-themed .chat-history-sidebar {
@@ -69,8 +69,13 @@
   .has-custom-bg .hub-backdrop-fill {
     background: hsl(var(--hub-canvas) / 0.42) !important;
   }
+  .has-custom-bg .settings-page-surface {
+    background: hsl(var(--background) / 0.94) !important;
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  }
   .has-custom-bg .settings-sidebar {
-    background: hsl(var(--muted) / 0.45) !important;
+    background: hsl(var(--muted) / 0.82) !important;
   }
   .chat-layout-resize-handle::after {
     content: "";
