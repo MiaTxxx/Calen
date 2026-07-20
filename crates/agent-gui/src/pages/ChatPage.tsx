@@ -119,6 +119,7 @@ import {
   createWindowsTaskbarActivityController,
   isWindowsTauriRuntime,
 } from "../lib/platform/windowsTaskbarActivity";
+import { selectedModelSupportsVision } from "../lib/providers/capabilities";
 import {
   createModelFromConfig,
   isThinkingAlwaysOnForModel,
@@ -149,6 +150,7 @@ import {
   resolveConversationTitleRoleModel,
   resolveEffectiveTheme,
   resolveMemoryExtractionRoleModel,
+  resolveVisionRoleModelCandidates,
   resolveWorkspaceProjects,
   type SelectedModel,
   type SystemToolId,
@@ -3873,12 +3875,12 @@ export function ChatPage(props: ChatPageProps) {
       return false;
     }
 
-    const { selectedModel, provider, providerId, model } = effectiveSelectedModel;
+    let { selectedModel, provider, providerId, model } = effectiveSelectedModel;
     const runtimeControls =
       gatewayBridgeRequest?.runtimeControlsOverride ??
       overrides?.runtimeControlsOverride ??
       settings.chatRuntimeControls;
-    const providerConfig = buildProviderRuntimeConfig(provider, model, runtimeControls);
+    let providerConfig = buildProviderRuntimeConfig(provider, model, runtimeControls);
     const compactionModelSelection = resolveCompactionModelSelection(
       settings,
       effectiveSelectedModel,
@@ -3923,7 +3925,7 @@ export function ChatPage(props: ChatPageProps) {
       t(`chat.memoryExtraction.${key}`)
         .replace("{accepted}", String(counts.accepted))
         .replace("{rejected}", String(counts.rejected));
-    const runtimeModel = createModelFromConfig(
+    let runtimeModel = createModelFromConfig(
       providerId,
       model,
       provider.baseUrl.trim(),
@@ -3946,6 +3948,50 @@ export function ChatPage(props: ChatPageProps) {
           ).trim()
         : "";
     let uploadedFiles = overrides?.uploadedFilesOverride ?? pendingUploadedFiles;
+
+    // 本轮若带图片且当前主模型不支持 vision，则尝试 visionModel / quickAskModel。
+    const hasImageUpload = uploadedFiles.some((file) => file.kind === "image");
+    if (hasImageUpload) {
+      const chatSupportsVision = selectedModelSupportsVision({
+        selected: selectedModel,
+        provider,
+        modelConfig: providerConfig.modelConfig,
+      });
+      if (!chatSupportsVision) {
+        const candidates = resolveVisionRoleModelCandidates(settings);
+        const visionPick = candidates.find((candidate) =>
+          selectedModelSupportsVision({
+            selected: candidate.selected,
+            provider: candidate.provider,
+            modelConfig: findProviderModelConfig(candidate.provider, candidate.selected.model),
+          }),
+        );
+        if (
+          visionPick &&
+          (visionPick.selected.customProviderId !== selectedModel.customProviderId ||
+            visionPick.selected.model !== model)
+        ) {
+          selectedModel = visionPick.selected;
+          provider = visionPick.provider;
+          providerId = visionPick.provider.type;
+          model = visionPick.selected.model;
+          providerConfig = buildProviderRuntimeConfig(provider, model, runtimeControls);
+          runtimeModel = createModelFromConfig(
+            providerId,
+            model,
+            provider.baseUrl.trim(),
+            provider.requestFormat,
+            providerConfig.modelConfig,
+          );
+          effectiveSelectedModel = {
+            selectedModel,
+            provider,
+            providerId,
+            model,
+          };
+        }
+      }
+    }
 
     if (
       effectiveIsAgentMode &&

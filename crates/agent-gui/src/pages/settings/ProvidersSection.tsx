@@ -114,6 +114,7 @@ const TRANSLATION_MODEL_FOLLOW_CURRENT_VALUE = "__translation_follow_current__";
 const COMPACTION_MODEL_FOLLOW_CURRENT_VALUE = "__compaction_follow_current__";
 const QUICK_ASK_MODEL_FOLLOW_CURRENT_VALUE = "__quick_ask_follow_current__";
 const SUBAGENT_DEFAULT_MODEL_FOLLOW_CURRENT_VALUE = "__subagent_default_follow_current__";
+const VISION_MODEL_FOLLOW_CURRENT_VALUE = "__vision_follow_current__";
 const PROVIDER_LABELS: Record<ProviderId, string> = {
   claude_code: "Anthropic",
   codex: "OpenAI",
@@ -168,6 +169,12 @@ export function ModelSettingsModal({ model, onClose, onSave }: ModelSettingsModa
   const { t } = useLocale();
   const [contextWindow, setContextWindow] = useState(String(model.contextWindow));
   const [maxOutputToken, setMaxOutputToken] = useState(String(model.maxOutputToken));
+  const [supportsVision, setSupportsVision] = useState(
+    model.capabilities?.includes("vision") === true,
+  );
+  const [supportsImageGen, setSupportsImageGen] = useState(
+    model.capabilities?.includes("image_gen") === true,
+  );
 
   const parsedContextWindow = parsePositiveInteger(contextWindow);
   const parsedMaxOutputToken = parsePositiveInteger(maxOutputToken);
@@ -175,10 +182,23 @@ export function ModelSettingsModal({ model, onClose, onSave }: ModelSettingsModa
 
   function handleSave() {
     if (!canSave) return;
+    const capabilities = [
+      ...(supportsVision ? (["vision"] as const) : []),
+      ...(supportsImageGen ? (["image_gen"] as const) : []),
+      "text" as const,
+    ];
+    const uniqueCapabilities = Array.from(new Set(capabilities));
     onSave({
       ...model,
       contextWindow: parsedContextWindow,
       maxOutputToken: parsedMaxOutputToken,
+      // 未勾选任何特殊能力时不写 capabilities，保持启发式推断。
+      capabilities:
+        supportsVision || supportsImageGen
+          ? uniqueCapabilities
+          : model.capabilities
+            ? ["text"]
+            : undefined,
     });
   }
 
@@ -221,6 +241,31 @@ export function ModelSettingsModal({ model, onClose, onSave }: ModelSettingsModa
               value={maxOutputToken}
               onChange={(e) => setMaxOutputToken(e.currentTarget.value)}
             />
+          </div>
+
+          <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+            <div className="text-xs font-medium text-foreground/85">
+              {t("settings.modelCapabilities")}
+            </div>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={supportsVision}
+                onChange={(event) => setSupportsVision(event.currentTarget.checked)}
+              />
+              {t("settings.modelCapabilityVision")}
+            </label>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={supportsImageGen}
+                onChange={(event) => setSupportsImageGen(event.currentTarget.checked)}
+              />
+              {t("settings.modelCapabilityImageGen")}
+            </label>
+            <p className="text-[11px] leading-relaxed text-muted-foreground/80">
+              {t("settings.modelCapabilitiesHint")}
+            </p>
           </div>
 
           {!canSave ? (
@@ -917,6 +962,16 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
       ? `${subagentDefaultSelectedOption.providerName} / ${subagentDefaultSelectedOption.label}`
       : subagentDefaultModel.model
     : t("settings.subagentDefaultModelFollowCurrent");
+  const visionModel = settings.customSettings.visionModel;
+  const visionSelectedValue = visionModel
+    ? toModelValue(visionModel.customProviderId, visionModel.model)
+    : VISION_MODEL_FOLLOW_CURRENT_VALUE;
+  const visionSelectedOption = modelOptions.find((option) => option.value === visionSelectedValue);
+  const visionSelectedLabel = visionModel
+    ? visionSelectedOption
+      ? `${visionSelectedOption.providerName} / ${visionSelectedOption.label}`
+      : visionModel.model
+    : t("settings.visionModelFollowCurrent");
 
   useEffect(
     () => () => {
@@ -984,6 +1039,17 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
       updateCustomSettings(prev, {
         subagentDefaultModel:
           value === SUBAGENT_DEFAULT_MODEL_FOLLOW_CURRENT_VALUE
+            ? undefined
+            : (parseModelValue(value) ?? undefined),
+      }),
+    );
+  }
+
+  function handleVisionModelChange(value: string) {
+    setSettings((prev) =>
+      updateCustomSettings(prev, {
+        visionModel:
+          value === VISION_MODEL_FOLLOW_CURRENT_VALUE
             ? undefined
             : (parseModelValue(value) ?? undefined),
       }),
@@ -1194,6 +1260,32 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
                 </Select>
                 <p className="text-[11.5px] leading-relaxed text-muted-foreground/85">
                   {t("settings.subagentDefaultModelHint")}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-foreground/[0.06] bg-white/60 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-xl dark:border-foreground/[0.08] dark:bg-foreground/[0.03] dark:shadow-none">
+              <div className="space-y-2">
+                <Label className="text-[12.5px] font-medium text-foreground/85">
+                  {t("settings.visionModel")}
+                </Label>
+                <Select value={visionSelectedValue} onValueChange={handleVisionModelChange}>
+                  <SelectTrigger className="h-9 rounded-lg border-foreground/10 bg-white/70 shadow-sm dark:bg-background/40">
+                    <SelectValue>{visionSelectedLabel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    <SelectItem value={VISION_MODEL_FOLLOW_CURRENT_VALUE}>
+                      {t("settings.visionModelFollowCurrent")}
+                    </SelectItem>
+                    {modelOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.providerName} / {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11.5px] leading-relaxed text-muted-foreground/85">
+                  {t("settings.visionModelHint")}
                 </p>
               </div>
             </div>

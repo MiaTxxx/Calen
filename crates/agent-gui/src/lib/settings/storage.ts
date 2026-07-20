@@ -86,6 +86,7 @@ function readLocalUiSettings(): {
       translationModel: normalizeSelectedModel(obj.translationModel),
       compactionModel: normalizeSelectedModel(obj.compactionModel),
       quickAskModel: normalizeSelectedModel(obj.quickAskModel),
+      visionModel: normalizeSelectedModel(obj.visionModel),
       subagentDefaultModel: normalizeSelectedModel(obj.subagentDefaultModel),
       translation: normalizeTranslationPreferences(obj.translation),
       chatSidebar: {

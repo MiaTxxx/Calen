@@ -16,7 +16,8 @@ export type ModelRole =
   | "memoryExtraction"
   | "compaction"
   | "quickAsk"
-  | "subagent";
+  | "subagent"
+  | "vision";
 
 export type ResolvedRoleModel = {
   selectedModel: SelectedModel;
@@ -220,4 +221,45 @@ export function resolveSubagentRoleModel(
     return { ...fromDefault, role: "subagent", source: "role" };
   }
   return { ...parent, role: "subagent", source: "fallback-parent" };
+}
+
+/**
+ * 视觉路由候选：visionModel → quickAskModel → chat（仅当 chat 有 vision）→ null。
+ * 调用方负责用 selectedModelSupportsVision 判断 chat 是否真支持看图。
+ */
+export function resolveVisionRoleModelCandidates(settings: {
+  selectedModel?: SelectedModel;
+  customProviders: CustomProvider[];
+  customSettings: {
+    visionModel?: SelectedModel;
+    quickAskModel?: SelectedModel;
+  };
+}): Array<{
+  selected: SelectedModel;
+  provider: CustomProvider;
+  source: ResolvedRoleModel["source"];
+}> {
+  const out: Array<{
+    selected: SelectedModel;
+    provider: CustomProvider;
+    source: ResolvedRoleModel["source"];
+  }> = [];
+  const push = (selected: SelectedModel | undefined, source: ResolvedRoleModel["source"]) => {
+    const resolved = resolveEnabledSelectedModel(selected, settings.customProviders);
+    if (!resolved) return;
+    if (
+      out.some(
+        (item) =>
+          item.selected.customProviderId === resolved.selectedModel.customProviderId &&
+          item.selected.model === resolved.model,
+      )
+    ) {
+      return;
+    }
+    out.push({ selected: resolved.selectedModel, provider: resolved.provider, source });
+  };
+  push(settings.customSettings.visionModel, "role");
+  push(settings.customSettings.quickAskModel, "role");
+  push(settings.selectedModel, "fallback-chat");
+  return out;
 }

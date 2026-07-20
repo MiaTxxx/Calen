@@ -236,6 +236,16 @@ export function createModelFromConfig(
   const defaults = getProviderModelDefaults(providerId, modelId);
   const contextWindow = modelConfig?.contextWindow ?? defaults.contextWindow;
   const maxTokens = modelConfig?.maxOutputToken ?? defaults.maxOutputToken;
+  const forceVision = modelConfig?.capabilities?.includes("vision") === true;
+  const forceTextOnly =
+    Array.isArray(modelConfig?.capabilities) &&
+    modelConfig.capabilities.length > 0 &&
+    !modelConfig.capabilities.includes("vision");
+  const applyInputOverride = <T extends Model<any>>(model: T): T => {
+    if (forceVision) return { ...model, input: ["text", "image"] };
+    if (forceTextOnly) return { ...model, input: ["text"] };
+    return model;
+  };
 
   if (providerId === "codex") {
     const { baseUrl: normalizedBaseUrl, preferredApi } = normalizeCodexBaseUrl(baseUrl);
@@ -248,18 +258,20 @@ export function createModelFromConfig(
     const api = isDeepSeekCodex ? "openai-completions" : inferCodexApi(requestFormat, preferredApi);
     const known = resolveKnownModel("openai", modelId, normalizedBaseUrl);
     if (known && known.api === api) {
-      return applyDeepSeekModelDefaults(
-        {
-          ...known,
-          contextWindow,
-          maxTokens,
-        },
-        {
-          providerId,
-          baseUrl: normalizedBaseUrl,
-          upstreamBaseUrl,
-          modelId,
-        },
+      return applyInputOverride(
+        applyDeepSeekModelDefaults(
+          {
+            ...known,
+            contextWindow,
+            maxTokens,
+          },
+          {
+            providerId,
+            baseUrl: normalizedBaseUrl,
+            upstreamBaseUrl,
+            modelId,
+          },
+        ),
       );
     }
 
@@ -291,23 +303,25 @@ export function createModelFromConfig(
         }
       }
     }
-    return applyDeepSeekModelDefaults(custom, {
-      providerId,
-      baseUrl: normalizedBaseUrl,
-      upstreamBaseUrl,
-      modelId,
-    });
+    return applyInputOverride(
+      applyDeepSeekModelDefaults(custom, {
+        providerId,
+        baseUrl: normalizedBaseUrl,
+        upstreamBaseUrl,
+        modelId,
+      }),
+    );
   }
 
   if (providerId === "gemini") {
     const normalizedBaseUrl = maybeAppendGeminiApiVersion(baseUrl);
     const known = resolveKnownModel("google", modelId, normalizedBaseUrl);
     if (known && known.api === "google-generative-ai") {
-      return {
+      return applyInputOverride({
         ...known,
         contextWindow,
         maxTokens,
-      };
+      });
     }
 
     const custom: Model<"google-generative-ai"> = {
@@ -322,23 +336,25 @@ export function createModelFromConfig(
       contextWindow,
       maxTokens,
     };
-    return custom;
+    return applyInputOverride(custom);
   }
 
   const known = resolveKnownModel("anthropic", modelId, baseUrl);
   if (known) {
-    return applyDeepSeekModelDefaults(
-      {
-        ...known,
-        contextWindow,
-        maxTokens,
-      },
-      {
-        providerId,
-        baseUrl,
-        upstreamBaseUrl,
-        modelId,
-      },
+    return applyInputOverride(
+      applyDeepSeekModelDefaults(
+        {
+          ...known,
+          contextWindow,
+          maxTokens,
+        },
+        {
+          providerId,
+          baseUrl,
+          upstreamBaseUrl,
+          modelId,
+        },
+      ),
     );
   }
 
@@ -354,12 +370,14 @@ export function createModelFromConfig(
     contextWindow,
     maxTokens,
   };
-  return applyDeepSeekModelDefaults(custom, {
-    providerId,
-    baseUrl,
-    upstreamBaseUrl,
-    modelId,
-  });
+  return applyInputOverride(
+    applyDeepSeekModelDefaults(custom, {
+      providerId,
+      baseUrl,
+      upstreamBaseUrl,
+      modelId,
+    }),
+  );
 }
 
 export function getAvailableThinkingLevelsForModel(

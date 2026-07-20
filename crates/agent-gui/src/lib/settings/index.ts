@@ -231,6 +231,8 @@ export type CustomSettings = {
   compactionModel?: SelectedModel;
   // 截屏即问（Quick Ask）模型，适合 vision；未设置时回退主对话，再回退第一个可用模型。
   quickAskModel?: SelectedModel;
+  // 主对话发图时的视觉模型；未设时可用 quickAskModel，再回退主模型（若支持 vision）。
+  visionModel?: SelectedModel;
   // 子代理默认模型；未设置时跟随父对话 turn 模型。模板 selectedModel 优先于此。
   subagentDefaultModel?: SelectedModel;
   // 翻译路由与本地模型选择只在当前设备生效，不进入 Gateway 同步。
@@ -329,10 +331,14 @@ export type SelectedModel = {
   model: string;
 };
 
+export type ModelCapability = "text" | "vision" | "image_gen";
+
 export type ProviderModelConfig = {
   id: string;
   contextWindow: number;
   maxOutputToken: number;
+  /** 可选显式能力；缺省时由 createModelFromConfig 启发式推断。 */
+  capabilities?: ModelCapability[];
 };
 
 export type ChatRuntimeControls = {
@@ -1162,6 +1168,7 @@ export function getProviderModelDefaults(
 export function createProviderModelConfig(
   providerId: ProviderId,
   modelId: string,
+  capabilities?: ModelCapability[],
 ): ProviderModelConfig {
   const id = modelId.trim();
   const defaults = getProviderModelDefaults(providerId, id);
@@ -1169,7 +1176,23 @@ export function createProviderModelConfig(
     id,
     contextWindow: defaults.contextWindow,
     maxOutputToken: defaults.maxOutputToken,
+    ...(capabilities && capabilities.length > 0 ? { capabilities: [...capabilities] } : {}),
   };
+}
+
+function normalizeModelCapabilities(input: unknown): ModelCapability[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const allowed = new Set<ModelCapability>(["text", "vision", "image_gen"]);
+  const seen = new Set<ModelCapability>();
+  const result: ModelCapability[] = [];
+  for (const item of input) {
+    if (typeof item !== "string") continue;
+    const value = item.trim() as ModelCapability;
+    if (!allowed.has(value) || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result.length > 0 ? result : undefined;
 }
 
 export function normalizeProviderModelConfig(
@@ -1191,6 +1214,7 @@ export function normalizeProviderModelConfig(
   if (!id) return null;
 
   const defaults = getProviderModelDefaults(providerId, id);
+  const capabilities = normalizeModelCapabilities(obj.capabilities);
   return {
     id,
     contextWindow: normalizePositiveInteger(obj.contextWindow, defaults.contextWindow),
@@ -1198,6 +1222,7 @@ export function normalizeProviderModelConfig(
       obj.maxOutputToken ?? obj.maxTokens,
       defaults.maxOutputToken,
     ),
+    ...(capabilities ? { capabilities } : {}),
   };
 }
 
@@ -2119,6 +2144,10 @@ export function normalizeCustomSettings(
       normalizeSelectedModel(obj.quickAskModel),
       customProviders,
     ),
+    visionModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.visionModel),
+      customProviders,
+    ),
     subagentDefaultModel: normalizeSelectedModelForProviders(
       normalizeSelectedModel(obj.subagentDefaultModel),
       customProviders,
@@ -2682,4 +2711,5 @@ export {
   resolveQuickAskRoleModel,
   resolveSubagentRoleModel,
   resolveTranslationRoleModel,
+  resolveVisionRoleModelCandidates,
 } from "./modelRouting";

@@ -1463,6 +1463,15 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.subagentDefaultModelFollowCurrent": "使用当前对话模型",
     "settings.subagentDefaultModelHint":
       "Agent 子代理未在模板中指定模型时使用。可选用更便宜的模型；未选择时跟随当前对话模型。",
+    "settings.visionModel": "视觉模型",
+    "settings.visionModelFollowCurrent": "使用当前对话模型",
+    "settings.visionModelHint":
+      "主对话发图时，若当前模型不支持看图，可切换到该视觉模型。未选择时优先截屏即问模型，再尝试主模型。",
+    "settings.modelCapabilities": "模型能力",
+    "settings.modelCapabilityVision": "支持看图（Vision）",
+    "settings.modelCapabilityImageGen": "支持生图（Image Gen）",
+    "settings.modelCapabilitiesHint":
+      "显式标记会覆盖名称启发式。不勾选特殊能力时仍按模型名称/Provider 默认规则推断。",
     "settings.customSettingsModelEmpty": "当前 Provider 未配置模型。",
 
     /* ── Settings Prompt ── */
@@ -3514,6 +3523,15 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.subagentDefaultModelFollowCurrent": "Use current chat model",
     "settings.subagentDefaultModelHint":
       "Used when an Agent template does not pin a model. A cheaper model can save main-chat quota; when unselected, follows the current chat model.",
+    "settings.visionModel": "Vision model",
+    "settings.visionModelFollowCurrent": "Use current chat model",
+    "settings.visionModelHint":
+      "When the current chat model cannot see images, chat can fall back to this vision model. When unselected, prefers the Quick Ask model, then the chat model.",
+    "settings.modelCapabilities": "Model capabilities",
+    "settings.modelCapabilityVision": "Vision (image understanding)",
+    "settings.modelCapabilityImageGen": "Image generation",
+    "settings.modelCapabilitiesHint":
+      "Explicit marks override name heuristics. Leave special capabilities unchecked to keep provider/model-name inference.",
     "settings.customSettingsModelEmpty":
       "No active models are configured for the current providers.",
 
