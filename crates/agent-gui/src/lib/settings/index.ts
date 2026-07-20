@@ -260,7 +260,20 @@ export type SystemSettings = {
   missingWorkspaceProjectPaths: string[];
   // 仅隐藏侧边栏里的 Default Project 行；兜底工作目录本身不受影响。
   hideDefaultWorkspaceProject: boolean;
+  /**
+   * 截屏即问（Quick Ask）全局快捷键。空字符串表示禁用；
+   * 语法与 tauri-plugin-global-shortcut 一致（如 "CmdOrCtrl+Shift+A"）。
+   */
+  quickAskHotkey: string;
 };
+
+export const DEFAULT_QUICK_ASK_HOTKEY = "CmdOrCtrl+Shift+A";
+
+export function normalizeQuickAskHotkey(input: unknown): string {
+  // 缺失/类型不对 → 默认；显式空字符串 → 保留（禁用）。与 Rust 端归一化保持一致。
+  if (typeof input !== "string") return DEFAULT_QUICK_ASK_HOTKEY;
+  return input.trim();
+}
 
 export type WorkspaceProjectKind = "managed" | "folder" | "history";
 
@@ -1392,6 +1405,7 @@ export function normalizeSystemSettings(input: unknown): SystemSettings {
       obj.missingWorkspaceProjectPaths,
     ),
     hideDefaultWorkspaceProject: obj.hideDefaultWorkspaceProject === true,
+    quickAskHotkey: normalizeQuickAskHotkey(obj.quickAskHotkey),
   };
 }
 
@@ -2085,6 +2099,7 @@ export function getDefaultSettings(): AppSettings {
       hiddenWorkspaceProjectPaths: [],
       missingWorkspaceProjectPaths: [],
       hideDefaultWorkspaceProject: false,
+      quickAskHotkey: DEFAULT_QUICK_ASK_HOTKEY,
     },
     customProviders,
     mcp: {

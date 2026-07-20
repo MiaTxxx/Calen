@@ -20,6 +20,32 @@ mod tests {
     }
 
     #[test]
+    fn quick_ask_hotkey_defaults_when_missing_and_keeps_explicit_empty() {
+        let defaulted = system_value_with_defaults(Some(json!({})), "C:/work");
+        assert_eq!(
+            defaulted.get(SYSTEM_QUICK_ASK_HOTKEY_KEY).and_then(Value::as_str),
+            Some(crate::commands::quick_ask::DEFAULT_QUICK_ASK_HOTKEY),
+        );
+
+        // 显式空字符串代表用户禁用，归一化不能改回默认值。
+        let disabled =
+            system_value_with_defaults(Some(json!({ SYSTEM_QUICK_ASK_HOTKEY_KEY: "" })), "C:/work");
+        assert_eq!(
+            disabled.get(SYSTEM_QUICK_ASK_HOTKEY_KEY).and_then(Value::as_str),
+            Some(""),
+        );
+
+        let trimmed = system_value_with_defaults(
+            Some(json!({ SYSTEM_QUICK_ASK_HOTKEY_KEY: "  Alt+Q  " })),
+            "C:/work",
+        );
+        assert_eq!(
+            trimmed.get(SYSTEM_QUICK_ASK_HOTKEY_KEY).and_then(Value::as_str),
+            Some("Alt+Q"),
+        );
+    }
+
+    #[test]
     fn initialize_schema_creates_all_tables() {
         let conn = open_memory_db();
 

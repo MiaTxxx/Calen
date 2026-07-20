@@ -20,6 +20,7 @@ import {
   APPEARANCE_SURFACES,
   DEFAULT_APPEARANCE_SETTINGS,
   DEFAULT_BACKGROUND_SETTINGS,
+  DEFAULT_QUICK_ASK_HOTKEY,
   DEFAULT_WORKSPACE_PROJECT_ID,
   type DefaultShellPreference,
   type ExecutionMode,
@@ -307,6 +308,42 @@ export function SystemSettingsForm(props: SettingsSectionProps) {
               </button>
             );
           })}
+        </div>
+      </div>
+
+      <div className="border-t" />
+
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <ScanText className="h-4 w-4 text-muted-foreground" />
+          {t("settings.quickAskHotkey")}
+        </div>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {t("settings.quickAskHotkeyDesc")}
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={settings.system.quickAskHotkey}
+            placeholder={t("settings.quickAskHotkeyPlaceholder")}
+            onChange={(event) =>
+              setSettings((prev) => updateSystem(prev, { quickAskHotkey: event.target.value }))
+            }
+            className="w-64 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+          />
+          {settings.system.quickAskHotkey !== DEFAULT_QUICK_ASK_HOTKEY ? (
+            <button
+              type="button"
+              onClick={() =>
+                setSettings((prev) =>
+                  updateSystem(prev, { quickAskHotkey: DEFAULT_QUICK_ASK_HOTKEY }),
+                )
+              }
+              className="rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              {t("settings.quickAskHotkeyReset")}
+            </button>
+          ) : null}
         </div>
       </div>
 

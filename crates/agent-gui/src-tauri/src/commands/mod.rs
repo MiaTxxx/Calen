@@ -16,6 +16,7 @@ pub mod workspace_commands;
 pub use app_commands::app;
 pub use app_commands::custom_tools;
 pub use app_commands::network_proxy;
+pub use app_commands::quick_ask;
 pub use app_commands::system;
 pub use app_commands::update;
 

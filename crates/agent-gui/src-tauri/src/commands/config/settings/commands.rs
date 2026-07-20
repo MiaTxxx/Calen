@@ -30,6 +30,7 @@ pub async fn settings_save_providers(payload: Value) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn settings_save_system(
+    app: tauri::AppHandle,
     payload: Value,
     automation_scheduler: tauri::State<'_, Arc<AutomationScheduler>>,
 ) -> Result<(), String> {
@@ -42,6 +43,16 @@ pub async fn settings_save_system(
     // Bash cron tasks execute in the system workdir; reschedule so the new
     // workdir takes effect without an app restart.
     automation_scheduler.request_reload();
+    // 快捷提问热键跟随系统设置持久化；保存后立即生效，无需重启。
+    match load_quick_ask_hotkey() {
+        Ok(hotkey) => {
+            if let Err(error) = crate::commands::quick_ask::sync_hotkey_registration(&app, &hotkey)
+            {
+                eprintln!("failed to apply quick ask hotkey: {error}");
+            }
+        }
+        Err(error) => eprintln!("failed to load quick ask hotkey: {error}"),
+    }
     Ok(())
 }
 

@@ -304,7 +304,31 @@ fn system_value_with_defaults(raw: Option<Value>, default_workdir: &str) -> Valu
         Value::Bool(hide_default_project),
     );
 
+    // 快捷提问热键：缺失 → 默认；显式空字符串 → 保留（表示禁用）。
+    let quick_ask_hotkey = match system.get(SYSTEM_QUICK_ASK_HOTKEY_KEY) {
+        Some(Value::String(hotkey)) => hotkey.trim().to_string(),
+        Some(_) | None => {
+            crate::commands::quick_ask::DEFAULT_QUICK_ASK_HOTKEY.to_string()
+        }
+    };
+    system.insert(
+        SYSTEM_QUICK_ASK_HOTKEY_KEY.to_string(),
+        Value::String(quick_ask_hotkey),
+    );
+
     Value::Object(system)
+}
+
+/// 供启动/保存时的全局热键注册读取当前配置（含默认值）。
+pub(crate) fn load_quick_ask_hotkey() -> Result<String, String> {
+    let conn = open_db()?;
+    let default_workdir = default_project_workdir()?;
+    let system = load_system_with_defaults(&conn, &default_workdir)?;
+    Ok(system
+        .get(SYSTEM_QUICK_ASK_HOTKEY_KEY)
+        .and_then(Value::as_str)
+        .unwrap_or(crate::commands::quick_ask::DEFAULT_QUICK_ASK_HOTKEY)
+        .to_string())
 }
 
 fn load_system_with_defaults(conn: &Connection, default_workdir: &str) -> Result<Value, String> {
@@ -350,6 +374,7 @@ fn save_system_with_default_workdir(
         SYSTEM_HIDDEN_WORKSPACE_PROJECT_PATHS_KEY,
         SYSTEM_MISSING_WORKSPACE_PROJECT_PATHS_KEY,
         SYSTEM_HIDE_DEFAULT_WORKSPACE_PROJECT_KEY,
+        SYSTEM_QUICK_ASK_HOTKEY_KEY,
     ] {
         let value = system.get(key).cloned().unwrap_or(Value::Null);
         tx.execute(

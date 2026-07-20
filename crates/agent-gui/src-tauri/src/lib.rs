@@ -317,6 +317,15 @@ macro_rules! app_invoke_handler {
             commands::gateway::gateway_tunnel_check,
             commands::gateway::workspace_watch_set,
             services::proxy::proxy_get_server_info,
+            // Quick Ask（截屏即问）
+            commands::quick_ask::quick_ask_overlay_payload,
+            commands::quick_ask::quick_ask_overlay_ready,
+            commands::quick_ask::quick_ask_confirm_selection,
+            commands::quick_ask::quick_ask_cancel_overlay,
+            commands::quick_ask::quick_ask_take_pending,
+            commands::quick_ask::quick_ask_close_window,
+            commands::quick_ask::quick_ask_apply_hotkey,
+            commands::quick_ask::quick_ask_open_main_window,
         ]
     };
 }
@@ -480,6 +489,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_mcp_bridge::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .manage(commands::quick_ask::QuickAskManager::default())
         .manage(Arc::new(commands::mcp::McpRuntimeManager::default()))
         .manage(Arc::new(commands::stock::StockResearchManager::default()))
         .manage(Arc::clone(&memory_store))
@@ -500,6 +511,18 @@ pub fn run() {
             let managed_process_registry = Arc::clone(&managed_process_registry);
             move |app| {
                 commands::history_db::initialize_history_db()?;
+                // 注册截屏即问全局热键（读取持久化设置，缺省 CmdOrCtrl+Shift+A）。
+                match commands::settings::load_quick_ask_hotkey() {
+                    Ok(hotkey) => {
+                        if let Err(error) = commands::quick_ask::sync_hotkey_registration(
+                            &app.handle().clone(),
+                            &hotkey,
+                        ) {
+                            eprintln!("failed to register quick ask hotkey: {error}");
+                        }
+                    }
+                    Err(error) => eprintln!("failed to load quick ask hotkey: {error}"),
+                }
                 configure_system_tray(
                     app,
                     Arc::clone(&allow_exit),
