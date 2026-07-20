@@ -231,6 +231,7 @@ export function AgentsSection(props: SettingsSectionProps) {
 
       {modalOpen ? (
         <AgentPromptTemplateModal
+          settings={settings}
           initialData={editingTemplate ?? undefined}
           onSave={handleSave}
           onClose={closeModal}

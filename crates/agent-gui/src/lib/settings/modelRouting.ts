@@ -15,7 +15,8 @@ export type ModelRole =
   | "memoryOrganizer"
   | "memoryExtraction"
   | "compaction"
-  | "quickAsk";
+  | "quickAsk"
+  | "subagent";
 
 export type ResolvedRoleModel = {
   selectedModel: SelectedModel;
@@ -23,7 +24,7 @@ export type ResolvedRoleModel = {
   providerId: ProviderId;
   model: string;
   role: ModelRole;
-  source: "role" | "fallback-chat" | "fallback-first-available";
+  source: "role" | "fallback-chat" | "fallback-first-available" | "fallback-parent";
 };
 
 export type ChatModelFallback = {
@@ -193,4 +194,30 @@ export function resolveQuickAskRoleModel(settings: {
     return { ...first, role: "quickAsk", source: "fallback-first-available" };
   }
   return null;
+}
+
+/**
+ * 子代理模型：模板 selectedModel → 全局 subagentDefault → 父 turn。
+ * parent 是当前父对话 turn 的有效模型（可含 Gateway override）。
+ */
+export function resolveSubagentRoleModel(
+  settings: {
+    customProviders: CustomProvider[];
+    customSettings: { subagentDefaultModel?: SelectedModel };
+  },
+  parent: ChatModelFallback,
+  templateModel?: SelectedModel,
+): ResolvedRoleModel {
+  const fromTemplate = resolveEnabledSelectedModel(templateModel, settings.customProviders);
+  if (fromTemplate) {
+    return { ...fromTemplate, role: "subagent", source: "role" };
+  }
+  const fromDefault = resolveEnabledSelectedModel(
+    settings.customSettings.subagentDefaultModel,
+    settings.customProviders,
+  );
+  if (fromDefault) {
+    return { ...fromDefault, role: "subagent", source: "role" };
+  }
+  return { ...parent, role: "subagent", source: "fallback-parent" };
 }

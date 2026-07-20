@@ -46,7 +46,8 @@ pub(crate) fn initialize_schema(conn: &Connection) -> Result<(), String> {
             prompt TEXT NOT NULL,
             enabled INTEGER NOT NULL DEFAULT 0,
             sort_index INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
+            updated_at INTEGER NOT NULL,
+            selected_model_json TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS ssh_settings (
             host_id TEXT PRIMARY KEY,
@@ -102,6 +103,11 @@ pub(crate) fn initialize_schema(conn: &Connection) -> Result<(), String> {
         ",
     )
     .map_err(|e| format!("初始化设置表失败：{e}"))?;
+    // 既有安装：为 agent 模板补可选模型列（SQLite 无 IF NOT EXISTS 列语法，失败则忽略已存在）。
+    let _ = conn.execute(
+        "ALTER TABLE agent_prompt_templates ADD COLUMN selected_model_json TEXT NOT NULL DEFAULT ''",
+        [],
+    );
     Ok(())
 }
 

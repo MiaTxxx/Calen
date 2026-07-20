@@ -10,21 +10,28 @@ fn load_agents(conn: &Connection) -> Result<Option<Value>, String> {
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, i64>(4)?,
+                row.get::<_, String>(5).unwrap_or_default(),
             ))
         })
         .map_err(|e| format!("读取 {AGENT_PROMPT_TEMPLATES_TABLE} 失败：{e}"))?;
 
     let mut templates = Vec::new();
     for row in rows {
-        let (template_id, name, description, prompt, enabled) =
+        let (template_id, name, description, prompt, enabled, selected_model_json) =
             row.map_err(|e| format!("读取 {AGENT_PROMPT_TEMPLATES_TABLE} 行失败：{e}"))?;
-        templates.push(Value::Object(Map::from_iter([
+        let mut fields = Map::from_iter([
             ("id".to_string(), Value::String(template_id)),
             ("name".to_string(), Value::String(name)),
             ("description".to_string(), Value::String(description)),
             ("prompt".to_string(), Value::String(prompt)),
             ("enabled".to_string(), Value::Bool(enabled != 0)),
-        ])));
+        ]);
+        if !selected_model_json.trim().is_empty() {
+            if let Ok(parsed) = serde_json::from_str::<Value>(&selected_model_json) {
+                fields.insert("selectedModel".to_string(), parsed);
+            }
+        }
+        templates.push(Value::Object(fields));
     }
 
     if templates.is_empty() {
@@ -74,6 +81,11 @@ fn save_agents(conn: &mut Connection, payload: Value) -> Result<(), String> {
             enabled_template_id = Some(template_id.clone());
         }
 
+        let selected_model_json = match template.get("selectedModel") {
+            Some(Value::Null) | None => String::new(),
+            Some(value) => serde_json::to_string(value).unwrap_or_default(),
+        };
+
         tx.execute(
             AGENT_PROMPT_TEMPLATES_INSERT_SQL,
             params![
@@ -83,7 +95,8 @@ fn save_agents(conn: &mut Connection, payload: Value) -> Result<(), String> {
                 prompt,
                 if enabled { 1_i64 } else { 0_i64 },
                 sort_index as i64,
-                updated_at
+                updated_at,
+                selected_model_json
             ],
         )
         .map_err(|e| format!("写入 {AGENT_PROMPT_TEMPLATES_TABLE} 失败：{e}"))?;

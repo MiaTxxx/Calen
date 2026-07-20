@@ -4629,6 +4629,8 @@ export function ChatPage(props: ChatPageProps) {
               enableManagedSkills(change.names);
             },
             agentTemplates: settings.agents,
+            customProviders: settings.customProviders,
+            subagentDefaultModel: settings.customSettings.subagentDefaultModel,
             selectedSystemToolIds: effectiveSelectedSystemToolIds,
             defaultShell: settings.system.defaultShell,
             getMcpSettings,

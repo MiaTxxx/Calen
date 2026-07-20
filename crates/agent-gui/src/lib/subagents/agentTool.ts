@@ -2,7 +2,12 @@ import type { Tool, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 
 import type { RuntimePlatform } from "../runtimePlatform";
-import type { ProviderId } from "../settings";
+import type { CustomProvider, ProviderId, SelectedModel } from "../settings";
+import {
+  findProviderModelConfig,
+  getChatRuntimeReasoningLevelsForProvider,
+  resolveSubagentRoleModel,
+} from "../settings";
 import {
   type BuiltinToolBundle,
   type BuiltinToolExecutionContext,
@@ -189,7 +194,37 @@ export type SubagentRuntimeConfig = {
   templates: SubagentTemplate[];
   store: SubagentConversationStore;
   scheduler: SubagentScheduler;
+  /** 用于解析模板/默认子代理模型；缺省时全程跟随父 turn。 */
+  customProviders?: CustomProvider[];
+  subagentDefaultModel?: SelectedModel;
+  parentSelectedModel?: SelectedModel;
 };
+
+function buildSubagentProviderRuntime(
+  provider: CustomProvider,
+  model: string,
+  baseRuntime: SubagentProviderRuntime,
+): SubagentProviderRuntime {
+  const modelConfig = findProviderModelConfig(provider, model);
+  const reasoningSupported =
+    getChatRuntimeReasoningLevelsForProvider({
+      providerId: provider.type,
+      requestFormat: provider.requestFormat,
+      modelId: model,
+      baseUrl: provider.baseUrl,
+      modelConfig,
+    }).length > 0;
+  return {
+    baseUrl: provider.baseUrl,
+    apiKey: provider.apiKey,
+    requestFormat: provider.requestFormat,
+    // 子代理默认关闭思考/联网，降低成本与不确定性；缓存跟随父 turn 配置。
+    reasoning: reasoningSupported ? "off" : undefined,
+    promptCachingEnabled: baseRuntime.promptCachingEnabled,
+    nativeWebSearchEnabled: false,
+    modelConfig,
+  };
+}
 
 export function createSubagentTools(params: {
   providerId: ProviderId;
@@ -207,6 +242,9 @@ export function createSubagentTools(params: {
   metadataByName: Map<string, BuiltinToolMetadata>;
   createSubagentToolRegistry?: (workdir: string) => Promise<SubagentToolRegistry>;
   worktreeIpc?: SubagentWorktreeIpc;
+  customProviders?: CustomProvider[];
+  subagentDefaultModel?: SelectedModel;
+  parentSelectedModel?: SelectedModel;
 }): BuiltinToolBundle {
   const store = params.store;
   const templates = params.templates;
@@ -305,40 +343,91 @@ export function createSubagentTools(params: {
     const scheduler = context?.subagentScheduler ?? params.scheduler;
     const startedAt = Date.now();
 
-    const env: SubagentRunEnvironment = {
+    const parentSelection = {
+      selectedModel: params.parentSelectedModel ?? {
+        customProviderId: "",
+        model: params.model,
+      },
+      provider: (params.customProviders ?? []).find(
+        (item) => item.type === params.providerId && item.activeModels.includes(params.model),
+      ) ?? {
+        id: "",
+        name: "",
+        type: params.providerId,
+        baseUrl: params.runtime.baseUrl,
+        apiKey: params.runtime.apiKey,
+        models: [{ id: params.model, contextWindow: 0, maxOutputToken: 0 }],
+        activeModels: [params.model],
+        requestFormat: params.runtime.requestFormat,
+        reasoning: "off" as const,
+        promptCachingEnabled: false,
+        nativeWebSearchEnabled: false,
+      },
       providerId: params.providerId,
       model: params.model,
-      runtime: params.runtime,
-      runtimePlatform: params.runtimePlatform,
-      workdir: params.workdir,
-      sessionId: params.sessionId,
-      messageBusEnabled,
-      store,
-      scheduler,
-      worktree: worktreeIpc,
-      createChildToolRegistry: params.createSubagentToolRegistry,
-      readonlyTools,
-      readonlyExecuteToolCall: params.executeToolCall,
-      withMessageTools: messageBusEnabled
-        ? (agent, tools, execute) => {
-            const bundle = createSendMessageTools({
-              store,
-              senderId: agent.id,
-              senderName: agent.name,
-              currentRunId: agent.runId,
-            });
-            const messageToolNames = new Set(bundle.tools.map((tool) => tool.name));
-            return {
-              tools: [...tools, ...bundle.tools],
-              execute: (childToolCall, childSignal) =>
-                messageToolNames.has(childToolCall.name)
-                  ? bundle.executeToolCall(childToolCall, childSignal)
-                  : execute(childToolCall, childSignal),
-            };
-          }
-        : undefined,
-      enqueueWorktreeApply,
-      onStatus: context?.emitToolStatus,
+    };
+
+    const buildMessageTools = messageBusEnabled
+      ? (
+          agent: { id: string; name: string; runId: string },
+          tools: Tool[],
+          execute: typeof params.executeToolCall,
+        ) => {
+          const bundle = createSendMessageTools({
+            store,
+            senderId: agent.id,
+            senderName: agent.name,
+            currentRunId: agent.runId,
+          });
+          const messageToolNames = new Set(bundle.tools.map((tool) => tool.name));
+          return {
+            tools: [...tools, ...bundle.tools],
+            execute: (childToolCall: ToolCall, childSignal?: AbortSignal) =>
+              messageToolNames.has(childToolCall.name)
+                ? bundle.executeToolCall(childToolCall, childSignal)
+                : execute(childToolCall, childSignal),
+          };
+        }
+      : undefined;
+
+    const resolveAgentEnv = (template?: SubagentTemplate): SubagentRunEnvironment => {
+      let providerId = params.providerId;
+      let model = params.model;
+      let runtime = params.runtime;
+      if (params.customProviders?.length) {
+        const resolved = resolveSubagentRoleModel(
+          {
+            customProviders: params.customProviders,
+            customSettings: { subagentDefaultModel: params.subagentDefaultModel },
+          },
+          parentSelection,
+          template?.selectedModel,
+        );
+        providerId = resolved.providerId;
+        model = resolved.model;
+        runtime =
+          resolved.model === params.model && resolved.providerId === params.providerId
+            ? params.runtime
+            : buildSubagentProviderRuntime(resolved.provider, resolved.model, params.runtime);
+      }
+      return {
+        providerId,
+        model,
+        runtime,
+        runtimePlatform: params.runtimePlatform,
+        workdir: params.workdir,
+        sessionId: params.sessionId,
+        messageBusEnabled,
+        store,
+        scheduler,
+        worktree: worktreeIpc,
+        createChildToolRegistry: params.createSubagentToolRegistry,
+        readonlyTools,
+        readonlyExecuteToolCall: params.executeToolCall,
+        withMessageTools: buildMessageTools,
+        enqueueWorktreeApply,
+        onStatus: context?.emitToolStatus,
+      };
     };
 
     const reports = await runWithConcurrency(
@@ -380,10 +469,11 @@ export function createSubagentTools(params: {
         };
 
         try {
+          const agentEnv = resolveAgentEnv(resolved.template);
           const report = await enqueueAgentRun(resolved.spec.id, () =>
             scheduler.runSubagent(
               () =>
-                executeSubagentRun(env, {
+                executeSubagentRun(agentEnv, {
                   spec: resolved.spec,
                   existingIdentity: resolved.existingIdentity,
                   template: resolved.template,

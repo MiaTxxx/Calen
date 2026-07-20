@@ -231,6 +231,8 @@ export type CustomSettings = {
   compactionModel?: SelectedModel;
   // 截屏即问（Quick Ask）模型，适合 vision；未设置时回退主对话，再回退第一个可用模型。
   quickAskModel?: SelectedModel;
+  // 子代理默认模型；未设置时跟随父对话 turn 模型。模板 selectedModel 优先于此。
+  subagentDefaultModel?: SelectedModel;
   // 翻译路由与本地模型选择只在当前设备生效，不进入 Gateway 同步。
   translation: TranslationPreferences;
   chatSidebar: ChatSidebarSettings;
@@ -352,6 +354,8 @@ export type AgentPromptTemplate = {
   description: string;
   prompt: string;
   enabled: boolean;
+  /** 该模板创建的子代理优先使用的模型；未设则走 subagentDefault → 父 turn。 */
+  selectedModel?: SelectedModel;
 };
 
 export type SshAuthType = "password" | "privateKey" | "keyboardInteractive";
@@ -1272,7 +1276,10 @@ export function normalizeCustomProvider(input: unknown): CustomProvider {
   };
 }
 
-export function normalizeAgentPromptTemplate(input: unknown): AgentPromptTemplate {
+export function normalizeAgentPromptTemplate(
+  input: unknown,
+  customProviders: CustomProvider[] = [],
+): AgentPromptTemplate {
   const obj = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
 
   return {
@@ -1281,6 +1288,10 @@ export function normalizeAgentPromptTemplate(input: unknown): AgentPromptTemplat
     description: normalizeOptionalText(obj.description),
     prompt: normalizeOptionalText(obj.prompt),
     enabled: obj.enabled === true,
+    selectedModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.selectedModel),
+      customProviders,
+    ),
   };
 }
 
@@ -1475,11 +1486,14 @@ export function normalizeMcpSettings(input: unknown): McpSettings {
   };
 }
 
-export function normalizeAgentPromptTemplates(input: unknown): AgentPromptTemplate[] {
+export function normalizeAgentPromptTemplates(
+  input: unknown,
+  customProviders: CustomProvider[] = [],
+): AgentPromptTemplate[] {
   if (!Array.isArray(input)) return [];
   let hasEnabled = false;
   return input.map((template) => {
-    const normalized = normalizeAgentPromptTemplate(template);
+    const normalized = normalizeAgentPromptTemplate(template, customProviders);
     if (!normalized.enabled) return normalized;
     if (hasEnabled) return { ...normalized, enabled: false };
     hasEnabled = true;
@@ -2105,6 +2119,10 @@ export function normalizeCustomSettings(
       normalizeSelectedModel(obj.quickAskModel),
       customProviders,
     ),
+    subagentDefaultModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.subagentDefaultModel),
+      customProviders,
+    ),
     translation: normalizeTranslationPreferences(obj.translation),
     chatSidebar: {
       projectsCollapsed: chatSidebar.projectsCollapsed === true,
@@ -2195,7 +2213,7 @@ export function normalizeSettings(input?: Partial<AppSettings> | null): AppSetti
     system: normalizeSystemSettings(obj.system ?? defaults.system),
     customProviders,
     mcp: normalizeMcpSettings(obj.mcp ?? defaults.mcp),
-    agents: normalizeAgentPromptTemplates(obj.agents ?? defaults.agents),
+    agents: normalizeAgentPromptTemplates(obj.agents ?? defaults.agents, customProviders),
     ssh: normalizeSshSettings(obj.ssh ?? defaults.ssh),
     remote: normalizeRemoteSettings(obj.remote ?? defaults.remote),
     memory: normalizeMemorySettings(obj.memory ?? defaults.memory, customProviders),
@@ -2662,5 +2680,6 @@ export {
   resolveMemoryExtractionRoleModel,
   resolveMemoryOrganizerRoleModel,
   resolveQuickAskRoleModel,
+  resolveSubagentRoleModel,
   resolveTranslationRoleModel,
 } from "./modelRouting";

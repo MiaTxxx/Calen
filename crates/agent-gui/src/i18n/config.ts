@@ -1459,6 +1459,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.quickAskModelFollowCurrent": "使用当前对话模型",
     "settings.quickAskModelHint":
       "用于 Ctrl+Shift+A 截屏提问，建议选支持看图的模型；未选择时跟随主对话模型。",
+    "settings.subagentDefaultModel": "子代理默认模型",
+    "settings.subagentDefaultModelFollowCurrent": "使用当前对话模型",
+    "settings.subagentDefaultModelHint":
+      "Agent 子代理未在模板中指定模型时使用。可选用更便宜的模型；未选择时跟随当前对话模型。",
     "settings.customSettingsModelEmpty": "当前 Provider 未配置模型。",
 
     /* ── Settings Prompt ── */
@@ -1480,6 +1484,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.agentsShowPrompt": "查看 Prompt",
     "settings.agentsReady": "可以保存",
     "settings.agentsRequired": "名称和 Prompt 为必填项",
+    "settings.agentsModel": "子代理模型",
+    "settings.agentsModelFollowDefault": "跟随子代理默认模型",
+    "settings.agentsModelHint":
+      "仅影响通过该模板创建的子代理。未指定时使用「子代理默认模型」，再回退到当前对话模型。",
 
     /* ── Settings SSH ── */
     "settings.sshTitle": "SSH",
@@ -3502,6 +3510,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.quickAskModelFollowCurrent": "Use current chat model",
     "settings.quickAskModelHint":
       "Used for Ctrl+Shift+A screenshot questions. Prefer a vision-capable model; when unselected, follows the main chat model.",
+    "settings.subagentDefaultModel": "Subagent default model",
+    "settings.subagentDefaultModelFollowCurrent": "Use current chat model",
+    "settings.subagentDefaultModelHint":
+      "Used when an Agent template does not pin a model. A cheaper model can save main-chat quota; when unselected, follows the current chat model.",
     "settings.customSettingsModelEmpty":
       "No active models are configured for the current providers.",
 
@@ -3526,6 +3538,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.agentsShowPrompt": "View Prompt",
     "settings.agentsReady": "Ready to save",
     "settings.agentsRequired": "Name and Prompt are required",
+    "settings.agentsModel": "Subagent model",
+    "settings.agentsModelFollowDefault": "Follow subagent default model",
+    "settings.agentsModelHint":
+      "Applies only to subagents created from this template. When unselected, uses the subagent default model, then the current chat model.",
 
     /* ── Settings SSH ── */
     "settings.sshTitle": "SSH",

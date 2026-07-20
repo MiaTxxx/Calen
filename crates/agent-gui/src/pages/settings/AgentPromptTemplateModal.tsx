@@ -1,21 +1,34 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { BookOpen, Check } from "../../components/icons";
 
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { useLocale } from "../../i18n";
-import type { AgentPromptTemplate } from "../../lib/settings";
+import { buildModelOptions } from "../../lib/chat/page/chatPageHelpers";
+import { parseModelValue, toModelValue } from "../../lib/providers/llm";
+import type { AgentPromptTemplate, AppSettings, SelectedModel } from "../../lib/settings";
+
+const TEMPLATE_MODEL_FOLLOW_DEFAULT_VALUE = "__template_model_follow_default__";
 
 type AgentPromptTemplateModalProps = {
+  settings: AppSettings;
   initialData?: AgentPromptTemplate;
   onSave: (data: Omit<AgentPromptTemplate, "id" | "enabled">) => void;
   onClose: () => void;
 };
 
 export function AgentPromptTemplateModal({
+  settings,
   initialData,
   onSave,
   onClose,
@@ -24,8 +37,21 @@ export function AgentPromptTemplateModal({
   const [name, setName] = useState(initialData?.name ?? "");
   const [description, setDescription] = useState(initialData?.description ?? "");
   const [prompt, setPrompt] = useState(initialData?.prompt ?? "");
+  const [selectedModel, setSelectedModel] = useState<SelectedModel | undefined>(
+    initialData?.selectedModel,
+  );
 
   const isEditing = Boolean(initialData);
+  const modelOptions = useMemo(() => buildModelOptions(settings), [settings]);
+  const selectedValue = selectedModel
+    ? toModelValue(selectedModel.customProviderId, selectedModel.model)
+    : TEMPLATE_MODEL_FOLLOW_DEFAULT_VALUE;
+  const selectedOption = modelOptions.find((option) => option.value === selectedValue);
+  const selectedLabel = selectedModel
+    ? selectedOption
+      ? `${selectedOption.providerName} / ${selectedOption.label}`
+      : selectedModel.model
+    : t("settings.agentsModelFollowDefault");
 
   function handleSave() {
     const trimmedName = name.trim();
@@ -36,6 +62,7 @@ export function AgentPromptTemplateModal({
       name: trimmedName,
       description: description.trim(),
       prompt: trimmedPrompt,
+      selectedModel,
     });
   }
 
@@ -91,6 +118,39 @@ export function AgentPromptTemplateModal({
               className="min-h-[80px] resize-y"
               onChange={(e) => setDescription(e.currentTarget.value)}
             />
+          </div>
+
+          <div className="mt-4 space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">
+              {t("settings.agentsModel")}
+            </Label>
+            <Select
+              value={selectedValue}
+              onValueChange={(value) => {
+                setSelectedModel(
+                  value === TEMPLATE_MODEL_FOLLOW_DEFAULT_VALUE
+                    ? undefined
+                    : (parseModelValue(value) ?? undefined),
+                );
+              }}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue>{selectedLabel}</SelectValue>
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                <SelectItem value={TEMPLATE_MODEL_FOLLOW_DEFAULT_VALUE}>
+                  {t("settings.agentsModelFollowDefault")}
+                </SelectItem>
+                {modelOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.providerName} / {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+              {t("settings.agentsModelHint")}
+            </p>
           </div>
 
           <div className="mt-4 space-y-1.5">

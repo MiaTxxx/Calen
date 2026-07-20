@@ -191,6 +191,7 @@ function enabledSubagentTemplates(agentTemplates: AppSettings["agents"]): Subage
       name: template.name,
       description: template.description,
       prompt: template.prompt,
+      selectedModel: template.selectedModel,
     }));
 }
 
@@ -223,6 +224,10 @@ export type RunAgentConversationTurnParams = {
     baseDirs: string[];
   }) => void | Promise<void>;
   agentTemplates: AppSettings["agents"];
+  /** Provider 列表，用于解析子代理默认/模板模型。 */
+  customProviders?: AppSettings["customProviders"];
+  /** 子代理全局默认模型；未设时跟随本 turn 主模型。 */
+  subagentDefaultModel?: AppSettings["customSettings"]["subagentDefaultModel"];
   selectedSystemToolIds: SystemToolId[];
   /** Windows agent shell preference from system settings. */
   defaultShell?: "auto" | "bash" | "powershell";
@@ -294,6 +299,8 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     skillAccessPolicy,
     onManagedSkillsChanged,
     agentTemplates,
+    customProviders,
+    subagentDefaultModel,
     selectedSystemToolIds,
     defaultShell,
     getMcpSettings,
@@ -463,6 +470,9 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
           templates: enabledSubagentTemplates(agentTemplates),
           store: subagentStore,
           scheduler: subagentScheduler,
+          customProviders,
+          subagentDefaultModel,
+          parentSelectedModel: selectedModel,
         }
       : undefined,
   });

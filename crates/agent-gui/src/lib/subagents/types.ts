@@ -44,6 +44,11 @@ export type SubagentTemplate = {
   name: string;
   description: string;
   prompt: string;
+  /** 可选：该模板创建的子代理优先使用的模型。 */
+  selectedModel?: {
+    customProviderId: string;
+    model: string;
+  };
 };
 
 export type SubagentIdentity = {

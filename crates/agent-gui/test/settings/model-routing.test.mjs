@@ -190,6 +190,7 @@ test("normalizeCustomSettings keeps and cleans compaction/quickAsk models", () =
     {
       compactionModel: { customProviderId: "main", model: "gpt-5" },
       quickAskModel: { customProviderId: "vision", model: "gpt-4o" },
+      subagentDefaultModel: { customProviderId: "main", model: "gpt-5" },
     },
     providers
   );
@@ -201,14 +202,75 @@ test("normalizeCustomSettings keeps and cleans compaction/quickAsk models", () =
     customProviderId: "vision",
     model: "gpt-4o",
   });
+  assert.deepEqual(normalized.subagentDefaultModel, {
+    customProviderId: "main",
+    model: "gpt-5",
+  });
 
   const stale = settings.normalizeCustomSettings(
     {
       compactionModel: { customProviderId: "gone", model: "x" },
       quickAskModel: { customProviderId: "vision", model: "missing" },
+      subagentDefaultModel: { customProviderId: "gone", model: "x" },
     },
     providers
   );
   assert.equal(stale.compactionModel, undefined);
   assert.equal(stale.quickAskModel, undefined);
+  assert.equal(stale.subagentDefaultModel, undefined);
+});
+
+test("subagent role resolves template then default then parent", () => {
+  const appSettings = app({
+    customSettings: {
+      subagentDefaultModel: { customProviderId: "cheap", model: "gpt-5-mini" },
+    },
+  });
+  const parent = chatFallback(appSettings);
+
+  const fromTemplate = routing.resolveSubagentRoleModel(appSettings, parent, {
+    customProviderId: "vision",
+    model: "gpt-4o",
+  });
+  assert.equal(fromTemplate.source, "role");
+  assert.equal(fromTemplate.model, "gpt-4o");
+
+  const fromDefault = routing.resolveSubagentRoleModel(appSettings, parent);
+  assert.equal(fromDefault.source, "role");
+  assert.equal(fromDefault.model, "gpt-5-mini");
+
+  const fromParent = routing.resolveSubagentRoleModel(
+    app({ customSettings: {} }),
+    parent
+  );
+  assert.equal(fromParent.source, "fallback-parent");
+  assert.equal(fromParent.model, "gpt-5");
+});
+
+test("agent template selectedModel is normalized against active models", () => {
+  const providers = [
+    provider({ id: "main", models: ["gpt-5"], activeModels: ["gpt-5"] }),
+  ];
+  const kept = settings.normalizeAgentPromptTemplate(
+    {
+      name: "Review",
+      prompt: "review code",
+      selectedModel: { customProviderId: "main", model: "gpt-5" },
+    },
+    providers
+  );
+  assert.deepEqual(kept.selectedModel, {
+    customProviderId: "main",
+    model: "gpt-5",
+  });
+
+  const dropped = settings.normalizeAgentPromptTemplate(
+    {
+      name: "Review",
+      prompt: "review code",
+      selectedModel: { customProviderId: "main", model: "missing" },
+    },
+    providers
+  );
+  assert.equal(dropped.selectedModel, undefined);
 });
