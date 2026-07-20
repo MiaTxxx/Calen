@@ -48,6 +48,11 @@ export const translations: Record<Locale, Record<string, string>> = {
     "chat.visionRouted": "当前模型不支持看图，本轮已切换到视觉模型：{model}",
     "chat.visionUnavailable":
       "当前模型不支持看图，且未配置可用的视觉模型。请在设置 → 自定义设置中指定视觉模型，或更换支持看图的主模型。",
+    "chat.visionRoutingOff":
+      "当前模型不支持看图，且视觉自动路由已关闭。请更换支持看图的主模型，或在设置中开启视觉自动路由并配置视觉模型。",
+    "chat.advisorReview": "顾问复审",
+    "chat.advisorNotConfigured": "尚未配置顾问模型。请在设置 → 自定义设置中选择顾问模型。",
+    "chat.advisorFailed": "顾问复审失败，请稍后重试。",
     "chat.recentConversation": "最近会话",
     "chat.searchConversations": "搜索对话…",
     "chat.searchSearching": "正在搜索…",
@@ -1471,10 +1476,19 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.visionModelFollowCurrent": "使用当前对话模型",
     "settings.visionModelHint":
       "主对话发图时，若当前模型不支持看图，可切换到该视觉模型。未选择时优先截屏即问模型，再尝试主模型。",
+    "settings.visionRoutingMode": "视觉路由",
+    "settings.visionRoutingModeAuto": "自动切换到视觉模型",
+    "settings.visionRoutingModeOff": "不切换（主模型不支持则报错）",
+    "settings.visionRoutingModeHint":
+      "仅影响主对话发图。关闭后不会自动换模型，适合你希望严格使用当前主模型的场景。",
     "settings.imageGenModel": "生图模型",
     "settings.imageGenModelNone": "未配置（禁用 GenerateImage）",
     "settings.imageGenModelHint":
       "配置后，Agent 模式会注册 GenerateImage 工具。当前仅支持 OpenAI 兼容（codex）的 /images/generations。建议在模型设置中勾选「支持生图」。",
+    "settings.advisorModel": "顾问模型",
+    "settings.advisorModelNone": "未配置（禁用顾问复审）",
+    "settings.advisorModelHint":
+      "配置后可用于对主模型回答做二次复审（Advisor）。未配置时顾问入口不可用。",
     "settings.modelCapabilities": "模型能力",
     "settings.modelCapabilityVision": "支持看图（Vision）",
     "settings.modelCapabilityImageGen": "支持生图（Image Gen）",
@@ -2051,6 +2065,12 @@ export const translations: Record<Locale, Record<string, string>> = {
       "Current model cannot see images. This turn was routed to vision model: {model}",
     "chat.visionUnavailable":
       "The current model cannot see images, and no usable vision model is configured. Set a vision model in Settings → Custom Settings, or switch to a vision-capable chat model.",
+    "chat.visionRoutingOff":
+      "The current model cannot see images, and automatic vision routing is off. Switch to a vision-capable chat model, or enable automatic vision routing and configure a vision model.",
+    "chat.advisorReview": "Advisor review",
+    "chat.advisorNotConfigured":
+      "No advisor model configured. Pick one in Settings → Custom Settings.",
+    "chat.advisorFailed": "Advisor review failed. Please try again.",
     "chat.recentConversation": "Conversations",
     "chat.searchConversations": "Search conversations…",
     "chat.searchSearching": "Searching…",
@@ -3539,10 +3559,19 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.visionModelFollowCurrent": "Use current chat model",
     "settings.visionModelHint":
       "When the current chat model cannot see images, chat can fall back to this vision model. When unselected, prefers the Quick Ask model, then the chat model.",
+    "settings.visionRoutingMode": "Vision routing",
+    "settings.visionRoutingModeAuto": "Automatically switch to a vision model",
+    "settings.visionRoutingModeOff": "Do not switch (error if chat model lacks vision)",
+    "settings.visionRoutingModeHint":
+      "Only affects chat turns with images. Turn off when you want to keep the selected chat model strictly.",
     "settings.imageGenModel": "Image generation model",
     "settings.imageGenModelNone": "Not configured (GenerateImage disabled)",
     "settings.imageGenModelHint":
       "When set, Agent mode registers a GenerateImage tool. Currently supports OpenAI-compatible (codex) /images/generations only. Prefer marking the model with Image generation capability.",
+    "settings.advisorModel": "Advisor model",
+    "settings.advisorModelNone": "Not configured (advisor review disabled)",
+    "settings.advisorModelHint":
+      "When set, enables a second-opinion advisor review against the primary answer. Leave empty to disable.",
     "settings.modelCapabilities": "Model capabilities",
     "settings.modelCapabilityVision": "Vision (image understanding)",
     "settings.modelCapabilityImageGen": "Image generation",

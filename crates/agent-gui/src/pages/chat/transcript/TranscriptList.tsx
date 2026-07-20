@@ -151,6 +151,8 @@ export type TranscriptListProps = {
     text: string,
     attachments: PendingUploadedFile[],
   ) => void;
+  onAdvisorReview?: (userText: string, assistantText: string) => void;
+  advisorReviewBusy?: boolean;
 };
 
 // The whole transcript — committed history and the streaming reply — lives in
@@ -175,6 +177,8 @@ export const TranscriptList = memo(function TranscriptList(props: TranscriptList
     onDetachFollow,
     onOpenWorkspaceFile,
     onResendFromEdit,
+    onAdvisorReview,
+    advisorReviewBusy,
   } = props;
 
   const liveState = useSyncExternalStore(
@@ -404,6 +408,8 @@ export const TranscriptList = memo(function TranscriptList(props: TranscriptList
                 workspaceRoot={workspaceRoot}
                 onOpenWorkspaceFile={onOpenWorkspaceFile}
                 onResendFromEdit={onResendFromEdit}
+                onAdvisorReview={onAdvisorReview}
+                advisorReviewBusy={advisorReviewBusy}
               />
             </div>
           );

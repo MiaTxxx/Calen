@@ -233,8 +233,16 @@ export type CustomSettings = {
   quickAskModel?: SelectedModel;
   // 主对话发图时的视觉模型；未设时可用 quickAskModel，再回退主模型（若支持 vision）。
   visionModel?: SelectedModel;
+  /**
+   * 主对话发图视觉路由：
+   * - auto：主模型不支持 vision 时自动切换（默认）
+   * - off：不切换；主模型不支持 vision 时直接报错
+   */
+  visionRoutingMode: "auto" | "off";
   // 生图模型；用于 GenerateImage 工具。需模型标记 image_gen 能力，或 OpenAI 兼容 images API。
   imageGenModel?: SelectedModel;
+  // 顾问复审模型；未设时不可用顾问入口。
+  advisorModel?: SelectedModel;
   // 子代理默认模型；未设置时跟随父对话 turn 模型。模板 selectedModel 优先于此。
   subagentDefaultModel?: SelectedModel;
   // 翻译路由与本地模型选择只在当前设备生效，不进入 Gateway 同步。
@@ -2150,8 +2158,13 @@ export function normalizeCustomSettings(
       normalizeSelectedModel(obj.visionModel),
       customProviders,
     ),
+    visionRoutingMode: obj.visionRoutingMode === "off" ? "off" : "auto",
     imageGenModel: normalizeSelectedModelForProviders(
       normalizeSelectedModel(obj.imageGenModel),
+      customProviders,
+    ),
+    advisorModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.advisorModel),
       customProviders,
     ),
     subagentDefaultModel: normalizeSelectedModelForProviders(
@@ -2707,6 +2720,7 @@ export {
   type ChatModelFallback,
   type ModelRole,
   type ResolvedRoleModel,
+  resolveAdvisorRoleModel,
   resolveCompactionRoleModel,
   resolveConversationTitleRoleModel,
   resolveEnabledSelectedModel,

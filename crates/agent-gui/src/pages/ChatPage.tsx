@@ -42,6 +42,7 @@ import { useLocale } from "../i18n";
 import type { AppUpdateController } from "../lib/appUpdates";
 import { getAutomationState } from "../lib/automation";
 import { createHookRunScope } from "../lib/automation/hookRunner";
+import { runAdvisorReview } from "../lib/chat/advisor/review";
 import type { CompactionStatus } from "../lib/chat/compaction/types";
 import { buildPersistableMessagesFromSnapshot } from "../lib/chat/conversation/chatAbort";
 import {
@@ -648,6 +649,12 @@ export function ChatPage(props: ChatPageProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hookWarning, setHookWarning] = useState<string | null>(null);
   const [notifyItems, setNotifyItems] = useState<NotifyItem[]>([]);
+  const [advisorReviewBusy, setAdvisorReviewBusy] = useState(false);
+  const [advisorReviewResult, setAdvisorReviewResult] = useState<{
+    text: string;
+    model: string;
+    providerName: string;
+  } | null>(null);
   const notifyIdCounter = useRef(0);
   const [hydratingConversationId, setHydratingConversationIdState] = useState<string | null>(null);
   const [hydrationFailedConversationId, setHydrationFailedConversationIdState] = useState<
@@ -1838,6 +1845,31 @@ export function ChatPage(props: ChatPageProps) {
   const dismissNotify = useCallback((id: string) => {
     setNotifyItems((prev) => prev.filter((item) => item.id !== id));
   }, []);
+
+  const handleAdvisorReview = useCallback(
+    async (userText: string, assistantText: string) => {
+      if (advisorReviewBusy) return;
+      setAdvisorReviewBusy(true);
+      try {
+        const result = await runAdvisorReview({
+          settings,
+          locale: settings.locale,
+          userText,
+          assistantText,
+        });
+        if (!result) {
+          addNotify("warning", t("chat.advisorNotConfigured"));
+          return;
+        }
+        setAdvisorReviewResult(result);
+      } catch (error) {
+        addNotify("error", error instanceof Error ? error.message : t("chat.advisorFailed"));
+      } finally {
+        setAdvisorReviewBusy(false);
+      }
+    },
+    [addNotify, advisorReviewBusy, settings, t],
+  );
 
   const {
     isUploadingFiles,
@@ -3949,7 +3981,7 @@ export function ChatPage(props: ChatPageProps) {
         : "";
     let uploadedFiles = overrides?.uploadedFilesOverride ?? pendingUploadedFiles;
 
-    // 本轮若带图片且当前主模型不支持 vision，则尝试 visionModel / quickAskModel。
+    // 本轮若带图片且当前主模型不支持 vision，则按 visionRoutingMode 处理。
     const hasImageUpload = uploadedFiles.some((file) => file.kind === "image");
     if (hasImageUpload) {
       const chatSupportsVision = selectedModelSupportsVision({
@@ -3958,6 +3990,14 @@ export function ChatPage(props: ChatPageProps) {
         modelConfig: providerConfig.modelConfig,
       });
       if (!chatSupportsVision) {
+        const routingMode = settings.customSettings.visionRoutingMode ?? "auto";
+        if (routingMode === "off") {
+          const message = t("chat.visionRoutingOff");
+          addNotify("error", message);
+          setConversationErrorState(message);
+          gatewayBridgeEvents.emitError(message);
+          return false;
+        }
         const candidates = resolveVisionRoleModelCandidates(settings);
         const visionPick = candidates.find((candidate) =>
           selectedModelSupportsVision({
@@ -5656,6 +5696,37 @@ export function ChatPage(props: ChatPageProps) {
           />
         ) : null}
 
+        {advisorReviewResult ? (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <button
+              type="button"
+              className="absolute inset-0 cursor-default bg-black/55 backdrop-blur-sm"
+              aria-label={t("settings.close")}
+              onClick={() => setAdvisorReviewResult(null)}
+            />
+            <div className="relative z-10 flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl">
+              <div className="flex items-start justify-between gap-3 border-b px-5 py-4">
+                <div>
+                  <div className="text-sm font-semibold">{t("chat.advisorReview")}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {advisorReviewResult.providerName} / {advisorReviewResult.model}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+                  onClick={() => setAdvisorReviewResult(null)}
+                >
+                  {t("settings.close")}
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 text-sm leading-relaxed whitespace-pre-wrap">
+                {advisorReviewResult.text}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {confirmDialog}
 
         {/* ---- Main content ----
@@ -5762,6 +5833,10 @@ export function ChatPage(props: ChatPageProps) {
                 bottomReservePx={composerOverlayHeight}
                 onOpenWorkspaceFile={handleOpenWorkspaceFile}
                 onResendFromEdit={handleResendFromEdit}
+                onAdvisorReview={(userText, assistantText) => {
+                  void handleAdvisorReview(userText, assistantText);
+                }}
+                advisorReviewBusy={advisorReviewBusy}
                 onOpenSettings={onOpenSettings}
                 onSuggestionSelect={handleEmptyStateSuggestion}
                 suggestionsDisabled={isSuggestionTyping}

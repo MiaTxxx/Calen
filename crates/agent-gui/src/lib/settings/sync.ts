@@ -910,11 +910,28 @@ export function applyGatewaySettingsSyncPayload(
     memory: memory as AppSettings["memory"],
     customSettings: {
       ...current.customSettings,
-      ...incomingCustomSettings,
+      conversationTitleModel:
+        incomingCustomSettings.conversationTitleModel ??
+        current.customSettings.conversationTitleModel,
       conversationTitleEnabled:
         typeof incomingCustomSettings.conversationTitleEnabled === "boolean"
           ? incomingCustomSettings.conversationTitleEnabled
           : current.customSettings.conversationTitleEnabled,
+      translationModel:
+        incomingCustomSettings.translationModel ?? current.customSettings.translationModel,
+      compactionModel:
+        incomingCustomSettings.compactionModel ?? current.customSettings.compactionModel,
+      quickAskModel: incomingCustomSettings.quickAskModel ?? current.customSettings.quickAskModel,
+      visionModel: incomingCustomSettings.visionModel ?? current.customSettings.visionModel,
+      visionRoutingMode:
+        incomingCustomSettings.visionRoutingMode === "off" ||
+        incomingCustomSettings.visionRoutingMode === "auto"
+          ? incomingCustomSettings.visionRoutingMode
+          : (current.customSettings.visionRoutingMode ?? "auto"),
+      imageGenModel: incomingCustomSettings.imageGenModel ?? current.customSettings.imageGenModel,
+      advisorModel: incomingCustomSettings.advisorModel ?? current.customSettings.advisorModel,
+      subagentDefaultModel:
+        incomingCustomSettings.subagentDefaultModel ?? current.customSettings.subagentDefaultModel,
       rightDock: Object.hasOwn(incomingCustomSettings, "rightDock")
         ? mergeSyncedRightDockSettings(
             current.customSettings.rightDock,

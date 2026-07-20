@@ -17,7 +17,8 @@ export type ModelRole =
   | "compaction"
   | "quickAsk"
   | "subagent"
-  | "vision";
+  | "vision"
+  | "advisor";
 
 export type ResolvedRoleModel = {
   selectedModel: SelectedModel;
@@ -262,4 +263,17 @@ export function resolveVisionRoleModelCandidates(settings: {
   push(settings.customSettings.quickAskModel, "role");
   push(settings.selectedModel, "fallback-chat");
   return out;
+}
+
+/** 顾问模型：仅显式配置且合法时返回。 */
+export function resolveAdvisorRoleModel(settings: {
+  customProviders: CustomProvider[];
+  customSettings: { advisorModel?: SelectedModel };
+}): ResolvedRoleModel | null {
+  const resolved = resolveEnabledSelectedModel(
+    settings.customSettings.advisorModel,
+    settings.customProviders,
+  );
+  if (!resolved) return null;
+  return { ...resolved, role: "advisor", source: "role" };
 }

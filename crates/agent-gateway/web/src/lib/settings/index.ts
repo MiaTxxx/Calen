@@ -206,6 +206,15 @@ export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
 export type CustomSettings = {
   conversationTitleModel?: SelectedModel;
   conversationTitleEnabled: boolean;
+  // 与桌面端字段对齐：任务模型路由（Gateway Web 以同步/展示为主，运行权威仍在桌面）。
+  translationModel?: SelectedModel;
+  compactionModel?: SelectedModel;
+  quickAskModel?: SelectedModel;
+  visionModel?: SelectedModel;
+  visionRoutingMode: "auto" | "off";
+  imageGenModel?: SelectedModel;
+  advisorModel?: SelectedModel;
+  subagentDefaultModel?: SelectedModel;
   chatSidebar: ChatSidebarSettings;
   rightDock: RightDockSettings;
   fontScale: FontScaleSettings;
@@ -249,6 +258,7 @@ export type ProviderModelConfig = {
   id: string;
   contextWindow: number;
   maxOutputToken: number;
+  capabilities?: Array<"text" | "vision" | "image_gen">;
 };
 
 export type ChatRuntimeControls = {
@@ -270,6 +280,7 @@ export type AgentPromptTemplate = {
   description: string;
   prompt: string;
   enabled: boolean;
+  selectedModel?: SelectedModel;
 };
 
 export type SshAuthType = "password" | "privateKey" | "keyboardInteractive";
@@ -1095,6 +1106,7 @@ export function getProviderModelDefaults(
 export function createProviderModelConfig(
   providerId: ProviderId,
   modelId: string,
+  capabilities?: Array<"text" | "vision" | "image_gen">,
 ): ProviderModelConfig {
   const id = modelId.trim();
   const defaults = getProviderModelDefaults(providerId, id);
@@ -1102,7 +1114,25 @@ export function createProviderModelConfig(
     id,
     contextWindow: defaults.contextWindow,
     maxOutputToken: defaults.maxOutputToken,
+    ...(capabilities && capabilities.length > 0 ? { capabilities: [...capabilities] } : {}),
   };
+}
+
+function normalizeModelCapabilities(
+  input: unknown,
+): Array<"text" | "vision" | "image_gen"> | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const allowed = new Set(["text", "vision", "image_gen"]);
+  const seen = new Set<string>();
+  const result: Array<"text" | "vision" | "image_gen"> = [];
+  for (const item of input) {
+    if (typeof item !== "string") continue;
+    const value = item.trim();
+    if (!allowed.has(value) || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value as "text" | "vision" | "image_gen");
+  }
+  return result.length > 0 ? result : undefined;
 }
 
 export function normalizeProviderModelConfig(
@@ -1124,6 +1154,7 @@ export function normalizeProviderModelConfig(
   if (!id) return null;
 
   const defaults = getProviderModelDefaults(providerId, id);
+  const capabilities = normalizeModelCapabilities(obj.capabilities);
   return {
     id,
     contextWindow: normalizePositiveInteger(obj.contextWindow, defaults.contextWindow),
@@ -1131,6 +1162,7 @@ export function normalizeProviderModelConfig(
       obj.maxOutputToken ?? obj.maxTokens,
       defaults.maxOutputToken,
     ),
+    ...(capabilities ? { capabilities } : {}),
   };
 }
 
@@ -1209,7 +1241,10 @@ export function normalizeCustomProvider(input: unknown): CustomProvider {
   };
 }
 
-export function normalizeAgentPromptTemplate(input: unknown): AgentPromptTemplate {
+export function normalizeAgentPromptTemplate(
+  input: unknown,
+  customProviders: CustomProvider[] = [],
+): AgentPromptTemplate {
   const obj = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
 
   return {
@@ -1218,6 +1253,10 @@ export function normalizeAgentPromptTemplate(input: unknown): AgentPromptTemplat
     description: normalizeOptionalText(obj.description),
     prompt: normalizeOptionalText(obj.prompt),
     enabled: obj.enabled === true,
+    selectedModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.selectedModel),
+      customProviders,
+    ),
   };
 }
 
@@ -1410,11 +1449,14 @@ export function normalizeMcpSettings(input: unknown): McpSettings {
   };
 }
 
-export function normalizeAgentPromptTemplates(input: unknown): AgentPromptTemplate[] {
+export function normalizeAgentPromptTemplates(
+  input: unknown,
+  customProviders: CustomProvider[] = [],
+): AgentPromptTemplate[] {
   if (!Array.isArray(input)) return [];
   let hasEnabled = false;
   return input.map((template) => {
-    const normalized = normalizeAgentPromptTemplate(template);
+    const normalized = normalizeAgentPromptTemplate(template, customProviders);
     if (!normalized.enabled) return normalized;
     if (hasEnabled) return { ...normalized, enabled: false };
     hasEnabled = true;
@@ -1993,6 +2035,35 @@ export function normalizeCustomSettings(
       normalizeSelectedModel(obj.conversationTitleModel),
       customProviders,
     ),
+    translationModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.translationModel),
+      customProviders,
+    ),
+    compactionModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.compactionModel),
+      customProviders,
+    ),
+    quickAskModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.quickAskModel),
+      customProviders,
+    ),
+    visionModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.visionModel),
+      customProviders,
+    ),
+    visionRoutingMode: obj.visionRoutingMode === "off" ? "off" : "auto",
+    imageGenModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.imageGenModel),
+      customProviders,
+    ),
+    advisorModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.advisorModel),
+      customProviders,
+    ),
+    subagentDefaultModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.subagentDefaultModel),
+      customProviders,
+    ),
     chatSidebar: {
       projectsCollapsed: chatSidebar.projectsCollapsed === true,
       recentCollapsed: chatSidebar.recentCollapsed === true,
@@ -2071,7 +2142,7 @@ export function normalizeSettings(input?: Partial<AppSettings> | null): AppSetti
     system: normalizeSystemSettings(obj.system ?? defaults.system),
     customProviders,
     mcp: normalizeMcpSettings(obj.mcp ?? defaults.mcp),
-    agents: normalizeAgentPromptTemplates(obj.agents ?? defaults.agents),
+    agents: normalizeAgentPromptTemplates(obj.agents ?? defaults.agents, customProviders),
     ssh: normalizeSshSettings(obj.ssh ?? defaults.ssh),
     remote: normalizeRemoteSettings(obj.remote ?? defaults.remote),
     memory: normalizeMemorySettings(obj.memory ?? defaults.memory, customProviders),

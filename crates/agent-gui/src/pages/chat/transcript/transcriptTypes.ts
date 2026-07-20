@@ -35,6 +35,8 @@ export type ChatTranscriptProps = {
     text: string,
     attachments: PendingUploadedFile[],
   ) => void;
+  onAdvisorReview?: (userText: string, assistantText: string) => void;
+  advisorReviewBusy?: boolean;
   onOpenSettings: (section?: SectionId) => void;
   onSuggestionSelect?: (text: string) => void;
   suggestionsDisabled?: boolean;

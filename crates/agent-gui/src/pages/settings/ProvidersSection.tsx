@@ -116,6 +116,7 @@ const QUICK_ASK_MODEL_FOLLOW_CURRENT_VALUE = "__quick_ask_follow_current__";
 const SUBAGENT_DEFAULT_MODEL_FOLLOW_CURRENT_VALUE = "__subagent_default_follow_current__";
 const VISION_MODEL_FOLLOW_CURRENT_VALUE = "__vision_follow_current__";
 const IMAGE_GEN_MODEL_FOLLOW_NONE_VALUE = "__image_gen_follow_none__";
+const ADVISOR_MODEL_FOLLOW_NONE_VALUE = "__advisor_follow_none__";
 const PROVIDER_LABELS: Record<ProviderId, string> = {
   claude_code: "Anthropic",
   codex: "OpenAI",
@@ -985,6 +986,19 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
       ? `${imageGenSelectedOption.providerName} / ${imageGenSelectedOption.label}`
       : imageGenModel.model
     : t("settings.imageGenModelNone");
+  const advisorModel = settings.customSettings.advisorModel;
+  const advisorSelectedValue = advisorModel
+    ? toModelValue(advisorModel.customProviderId, advisorModel.model)
+    : ADVISOR_MODEL_FOLLOW_NONE_VALUE;
+  const advisorSelectedOption = modelOptions.find(
+    (option) => option.value === advisorSelectedValue,
+  );
+  const advisorSelectedLabel = advisorModel
+    ? advisorSelectedOption
+      ? `${advisorSelectedOption.providerName} / ${advisorSelectedOption.label}`
+      : advisorModel.model
+    : t("settings.advisorModelNone");
+  const visionRoutingMode = settings.customSettings.visionRoutingMode ?? "auto";
 
   useEffect(
     () => () => {
@@ -1076,6 +1090,25 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
           value === IMAGE_GEN_MODEL_FOLLOW_NONE_VALUE
             ? undefined
             : (parseModelValue(value) ?? undefined),
+      }),
+    );
+  }
+
+  function handleAdvisorModelChange(value: string) {
+    setSettings((prev) =>
+      updateCustomSettings(prev, {
+        advisorModel:
+          value === ADVISOR_MODEL_FOLLOW_NONE_VALUE
+            ? undefined
+            : (parseModelValue(value) ?? undefined),
+      }),
+    );
+  }
+
+  function handleVisionRoutingModeChange(value: string) {
+    setSettings((prev) =>
+      updateCustomSettings(prev, {
+        visionRoutingMode: value === "off" ? "off" : "auto",
       }),
     );
   }
@@ -1311,6 +1344,25 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
                 <p className="text-[11.5px] leading-relaxed text-muted-foreground/85">
                   {t("settings.visionModelHint")}
                 </p>
+                <Label className="pt-1 text-[12.5px] font-medium text-foreground/85">
+                  {t("settings.visionRoutingMode")}
+                </Label>
+                <Select value={visionRoutingMode} onValueChange={handleVisionRoutingModeChange}>
+                  <SelectTrigger className="h-9 rounded-lg border-foreground/10 bg-white/70 shadow-sm dark:bg-background/40">
+                    <SelectValue>
+                      {visionRoutingMode === "off"
+                        ? t("settings.visionRoutingModeOff")
+                        : t("settings.visionRoutingModeAuto")}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">{t("settings.visionRoutingModeAuto")}</SelectItem>
+                    <SelectItem value="off">{t("settings.visionRoutingModeOff")}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11.5px] leading-relaxed text-muted-foreground/85">
+                  {t("settings.visionRoutingModeHint")}
+                </p>
               </div>
             </div>
 
@@ -1336,6 +1388,32 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
                 </Select>
                 <p className="text-[11.5px] leading-relaxed text-muted-foreground/85">
                   {t("settings.imageGenModelHint")}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-foreground/[0.06] bg-white/60 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-xl dark:border-foreground/[0.08] dark:bg-foreground/[0.03] dark:shadow-none">
+              <div className="space-y-2">
+                <Label className="text-[12.5px] font-medium text-foreground/85">
+                  {t("settings.advisorModel")}
+                </Label>
+                <Select value={advisorSelectedValue} onValueChange={handleAdvisorModelChange}>
+                  <SelectTrigger className="h-9 rounded-lg border-foreground/10 bg-white/70 shadow-sm dark:bg-background/40">
+                    <SelectValue>{advisorSelectedLabel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    <SelectItem value={ADVISOR_MODEL_FOLLOW_NONE_VALUE}>
+                      {t("settings.advisorModelNone")}
+                    </SelectItem>
+                    {modelOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.providerName} / {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11.5px] leading-relaxed text-muted-foreground/85">
+                  {t("settings.advisorModelHint")}
                 </p>
               </div>
             </div>

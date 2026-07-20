@@ -1,6 +1,6 @@
 import { memo } from "react";
 
-import { Check, Copy, RefreshCw } from "../../../components/icons";
+import { Check, Copy, RefreshCw, Sparkles } from "../../../components/icons";
 import { ConfirmActionPopover } from "../../../components/ui/confirm-action-popover";
 import { useLocale } from "../../../i18n";
 import type { HistoryMessageRef } from "../../../lib/chat/conversation/conversationState";
@@ -34,6 +34,9 @@ export type AssistantRowProps = {
     text: string,
     attachments: PendingUploadedFile[],
   ) => void;
+  /** 顾问复审：传入用户问题与助手回答。 */
+  onAdvisorReview?: (userText: string, assistantText: string) => void;
+  advisorReviewBusy?: boolean;
 };
 
 // One body for the streaming reply and the settled reply. The live row and
@@ -52,6 +55,8 @@ export const AssistantRow = memo(function AssistantRow(props: AssistantRowProps)
     workspaceRoot,
     onOpenWorkspaceFile,
     onResendFromEdit,
+    onAdvisorReview,
+    advisorReviewBusy = false,
   } = props;
   const { t } = useLocale();
   const { copied, markCopied } = useCopiedFlag();
@@ -60,6 +65,8 @@ export const AssistantRow = memo(function AssistantRow(props: AssistantRowProps)
   const retryMessageRef = retryTarget?.messageRef;
   const retryDisabled = isSending || !retryMessageRef;
   const retryTitle = retryMessageRef ? t("chat.retry") : "旧历史缺少稳定消息标识，无法重试";
+  const canAdvisor =
+    Boolean(onAdvisorReview) && Boolean(row.replyText?.trim()) && Boolean(retryTarget?.text);
 
   return (
     <div className={`group/assistant w-full max-w-full ${row.compacted ? "opacity-70" : ""}`}>
@@ -114,6 +121,20 @@ export const AssistantRow = memo(function AssistantRow(props: AssistantRowProps)
             >
               {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
             </button>
+            {canAdvisor ? (
+              <button
+                type="button"
+                className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                title={t("chat.advisorReview")}
+                disabled={isSending || advisorReviewBusy}
+                onClick={() => {
+                  if (!retryTarget || !onAdvisorReview) return;
+                  onAdvisorReview(retryTarget.text, row.replyText);
+                }}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
             <ConfirmActionPopover
               title={t("chat.retryConfirmTitle")}
               description={t("chat.retryConfirmDescription")}
