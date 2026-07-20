@@ -7,7 +7,9 @@
 //!    provider 流式管线，Rust 不参与对话。
 
 use std::io::Cursor;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use base64::Engine;
 use image::RgbaImage;
@@ -22,9 +24,16 @@ pub const QUICK_ASK_WINDOW_LABEL: &str = "quick-ask";
 pub const DEFAULT_QUICK_ASK_HOTKEY: &str = "CmdOrCtrl+Shift+A";
 /// 已有小窗打开时，新截图通过该事件通知前端重新拉取 pending。
 const QUICK_ASK_NEW_SHOT_EVENT: &str = "quick-ask:new-shot";
+/// 失败/冲突时通知主窗口（前端 toast）。
+const QUICK_ASK_ERROR_EVENT: &str = "quick-ask:error";
+/// 遮罩前端未在时限内 ready 时强制显示，避免“按了没反应”。
+const OVERLAY_FORCE_SHOW_DELAY_MS: u64 = 1800;
 
 const QUICK_ASK_WINDOW_WIDTH: f64 = 440.0;
 const QUICK_ASK_WINDOW_HEIGHT: f64 = 580.0;
+
+/// 遮罩创建代数：用于取消过期的 force-show 任务，避免旧任务误显示已销毁窗口。
+static OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 struct CaptureSession {
     image: RgbaImage,
@@ -114,10 +123,47 @@ fn capture_monitor_at_cursor(app: &AppHandle) -> Result<CaptureSession, String> 
     })
 }
 
-fn open_overlay_window(app: &AppHandle, session: &CaptureSession) -> Result<(), String> {
+fn emit_quick_ask_error(app: &AppHandle, message: impl Into<String>) {
+    let message = message.into();
+    eprintln!("[quick-ask] {message}");
+    // 主窗口可能还没打开；忽略发送失败。
+    let _ = app.emit(QUICK_ASK_ERROR_EVENT, message);
+}
+
+fn destroy_overlay_window(app: &AppHandle) {
     if let Some(existing) = app.get_webview_window(OVERLAY_WINDOW_LABEL) {
         let _ = existing.destroy();
     }
+}
+
+fn schedule_overlay_force_show(app: &AppHandle, generation: u64) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(OVERLAY_FORCE_SHOW_DELAY_MS)).await;
+        if OVERLAY_GENERATION.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let main = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if OVERLAY_GENERATION.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            if let Some(overlay) = main.get_webview_window(OVERLAY_WINDOW_LABEL) {
+                let visible = overlay.is_visible().unwrap_or(false);
+                if !visible {
+                    // 前端 onLoad 握手超时：强制显示，至少让用户能框选/Esc。
+                    if let Err(error) = overlay.show().and_then(|_| overlay.set_focus()) {
+                        eprintln!("[quick-ask] force-show overlay failed: {error}");
+                    }
+                }
+            }
+        });
+    });
+}
+
+fn open_overlay_window(app: &AppHandle, session: &CaptureSession) -> Result<(), String> {
+    destroy_overlay_window(app);
+    let generation = OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let window = WebviewWindowBuilder::new(
         app,
         OVERLAY_WINDOW_LABEL,
@@ -140,6 +186,7 @@ fn open_overlay_window(app: &AppHandle, session: &CaptureSession) -> Result<(), 
         .set_position(PhysicalPosition::new(session.monitor_x, session.monitor_y))
         .and_then(|_| window.set_size(PhysicalSize::new(session.width, session.height)))
         .map_err(|e| format!("布置截屏遮罩窗失败：{e}"))?;
+    schedule_overlay_force_show(app, generation);
     Ok(())
 }
 
@@ -197,28 +244,79 @@ pub fn trigger_quick_ask(app: &AppHandle) {
     let app = app.clone();
     let run = move || {
         if let Some(overlay) = app.get_webview_window(OVERLAY_WINDOW_LABEL) {
-            // 已在框选中：再次按下快捷键视为取消（销毁在本轮事件循环稍后完成，
-            // 同一回合内用相同 label 重建会失败，所以这里只取消不重建）。
+            let was_visible = overlay.is_visible().unwrap_or(false);
+            // 已在框选中：再次按下快捷键视为取消。
+            // 但若遮罩仍不可见（前端 handshake 卡死），应销毁后重建，否则用户会感觉
+            // “按了没反应 / 第二次才取消、第三次才出”。
             let manager = app.state::<QuickAskManager>();
             *manager.capture.lock().unwrap() = None;
+            OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst);
             let _ = overlay.destroy();
-            return;
+            if was_visible {
+                return;
+            }
+            // fall through → 重新截屏开遮罩
         }
         let manager = app.state::<QuickAskManager>();
         match capture_monitor_at_cursor(&app) {
             Ok(session) => {
                 if let Err(error) = open_overlay_window(&app, &session) {
-                    eprintln!("quick ask overlay error: {error}");
+                    emit_quick_ask_error(&app, format!("打开截屏遮罩失败：{error}"));
                     return;
                 }
                 *manager.capture.lock().unwrap() = Some(session);
             }
-            Err(error) => eprintln!("quick ask capture error: {error}"),
+            Err(error) => emit_quick_ask_error(&app, format!("截屏失败：{error}")),
         }
     };
     if let Err(error) = handle.run_on_main_thread(run) {
-        eprintln!("quick ask trigger error: {error}");
+        emit_quick_ask_error(&handle, format!("调度截屏失败：{error}"));
     }
+}
+
+/// 归一化用户输入的热键字符串，提升注册成功率。
+/// - 空白裁剪
+/// - Control → Ctrl、Command → Cmd
+/// - 主键大写（A、B…）
+fn normalize_hotkey_string(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let parts: Vec<String> = trimmed
+        .split('+')
+        .map(|part| {
+            let p = part.trim();
+            if p.eq_ignore_ascii_case("control") || p.eq_ignore_ascii_case("ctrl") {
+                "Ctrl".to_string()
+            } else if p.eq_ignore_ascii_case("command") || p.eq_ignore_ascii_case("cmd") {
+                "Cmd".to_string()
+            } else if p.eq_ignore_ascii_case("cmdorctrl")
+                || p.eq_ignore_ascii_case("commandorcontrol")
+            {
+                "CmdOrCtrl".to_string()
+            } else if p.eq_ignore_ascii_case("shift") {
+                "Shift".to_string()
+            } else if p.eq_ignore_ascii_case("alt") || p.eq_ignore_ascii_case("option") {
+                "Alt".to_string()
+            } else if p.eq_ignore_ascii_case("super") || p.eq_ignore_ascii_case("meta") {
+                "Super".to_string()
+            } else if p.len() == 1 {
+                p.to_uppercase()
+            } else {
+                // F1、Space 等：保持原样（首字母大写友好）
+                let mut chars = p.chars();
+                match chars.next() {
+                    Some(first) => {
+                        first.to_uppercase().collect::<String>() + chars.as_str()
+                    }
+                    None => String::new(),
+                }
+            }
+        })
+        .filter(|p| !p.is_empty())
+        .collect();
+    parts.join("+")
 }
 
 /// 按设置里的快捷键（重新）注册全局热键；空字符串表示禁用。
@@ -226,22 +324,36 @@ pub fn sync_hotkey_registration(app: &AppHandle, hotkey: &str) -> Result<(), Str
     let manager = app.state::<QuickAskManager>();
     let mut registered = manager.registered_hotkey.lock().unwrap();
     if let Some(previous) = registered.take() {
+        let _ = app.global_shortcut().unregister(previous.clone());
+        // 某些平台 unregister 后立刻 re-register 会失败，稍等一帧由调用方处理；
+        // 这里再尝试全局清理一次同名字符串。
         let _ = app.global_shortcut().unregister(previous);
     }
-    let hotkey = hotkey.trim();
+    let hotkey = normalize_hotkey_string(hotkey);
     if hotkey.is_empty() {
         return Ok(());
     }
     let shortcut: Shortcut = hotkey
         .parse()
         .map_err(|e| format!("快捷键格式无效（{hotkey}）：{e}"))?;
+
+    // 若系统里已被其他应用占用，register 会失败；给出可读错误。
+    if app.global_shortcut().is_registered(shortcut) {
+        // 可能是我们自己上次残留：先卸再挂。
+        let _ = app.global_shortcut().unregister(shortcut);
+    }
+
     app.global_shortcut()
         .on_shortcut(shortcut, |app, _shortcut, event| {
             if event.state() == ShortcutState::Pressed {
                 trigger_quick_ask(app);
             }
         })
-        .map_err(|e| format!("注册全局快捷键失败（{hotkey}）：{e}"))?;
+        .map_err(|e| {
+            format!(
+                "注册全局快捷键失败（{hotkey}）：{e}。可能与系统或其他软件冲突，请在设置中更换。"
+            )
+        })?;
     *registered = Some(shortcut);
     Ok(())
 }
@@ -329,9 +441,8 @@ pub async fn quick_ask_cancel_overlay(
     manager: tauri::State<'_, QuickAskManager>,
 ) -> Result<(), String> {
     *manager.capture.lock().unwrap() = None;
-    if let Some(overlay) = app.get_webview_window(OVERLAY_WINDOW_LABEL) {
-        let _ = overlay.destroy();
-    }
+    OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst);
+    destroy_overlay_window(&app);
     Ok(())
 }
 
@@ -357,7 +468,40 @@ pub async fn quick_ask_close_window(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn quick_ask_apply_hotkey(app: AppHandle, hotkey: String) -> Result<(), String> {
-    sync_hotkey_registration(&app, &hotkey)
+    // 卸注册后稍等，降低 Windows 上立刻 re-register 失败概率。
+    let normalized = normalize_hotkey_string(&hotkey);
+    let result = sync_hotkey_registration(&app, &normalized);
+    if let Err(error) = &result {
+        emit_quick_ask_error(&app, error.clone());
+    }
+    result
+}
+
+/// 查询当前全局热键是否已成功注册（供设置页诊断）。
+#[tauri::command]
+pub fn quick_ask_hotkey_status(app: AppHandle) -> Result<QuickAskHotkeyStatus, String> {
+    let manager = app.state::<QuickAskManager>();
+    let registered = manager.registered_hotkey.lock().unwrap();
+    match registered.as_ref() {
+        Some(shortcut) => {
+            let is_registered = app.global_shortcut().is_registered(*shortcut);
+            Ok(QuickAskHotkeyStatus {
+                hotkey: format!("{shortcut}"),
+                is_registered,
+            })
+        }
+        None => Ok(QuickAskHotkeyStatus {
+            hotkey: String::new(),
+            is_registered: false,
+        }),
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickAskHotkeyStatus {
+    pub hotkey: String,
+    pub is_registered: bool,
 }
 
 #[tauri::command]

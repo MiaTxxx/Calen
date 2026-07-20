@@ -48,10 +48,11 @@ pub async fn settings_save_system(
         Ok(hotkey) => {
             if let Err(error) = crate::commands::quick_ask::sync_hotkey_registration(&app, &hotkey)
             {
-                eprintln!("failed to apply quick ask hotkey: {error}");
+                // 冒泡给前端，设置保存时能提示“注册失败/冲突”。
+                return Err(error);
             }
         }
-        Err(error) => eprintln!("failed to load quick ask hotkey: {error}"),
+        Err(error) => return Err(format!("读取截屏即问快捷键失败：{error}")),
     }
     Ok(())
 }

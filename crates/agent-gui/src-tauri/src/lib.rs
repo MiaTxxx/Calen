@@ -325,6 +325,7 @@ macro_rules! app_invoke_handler {
             commands::quick_ask::quick_ask_take_pending,
             commands::quick_ask::quick_ask_close_window,
             commands::quick_ask::quick_ask_apply_hotkey,
+            commands::quick_ask::quick_ask_hotkey_status,
             commands::quick_ask::quick_ask_open_main_window,
         ]
     };

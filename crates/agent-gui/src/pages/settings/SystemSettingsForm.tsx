@@ -1,5 +1,5 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CheckCircle2,
   Cpu,
@@ -50,6 +50,25 @@ export function SystemSettingsForm(props: SettingsSectionProps) {
     DEFAULT_QUICK_ASK_HOTKEY,
     runtimePlatform,
   );
+  const [hotkeyRegistered, setHotkeyRegistered] = useState<boolean | null>(null);
+  const [hotkeyStatusText, setHotkeyStatusText] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void invoke<{ hotkey: string; isRegistered: boolean }>("quick_ask_hotkey_status")
+      .then((status) => {
+        if (cancelled) return;
+        setHotkeyRegistered(status.isRegistered);
+        setHotkeyStatusText(status.hotkey || "");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setHotkeyRegistered(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [settings.system.quickAskHotkey]);
 
   const executionMode = settings.system.executionMode;
   const isClassicAgentMode = executionMode === "tools";
@@ -365,6 +384,28 @@ export function SystemSettingsForm(props: SettingsSectionProps) {
             </button>
           ) : null}
         </div>
+        {settings.system.quickAskHotkey.trim() ? (
+          <p
+            className={`text-xs ${
+              hotkeyRegistered === false
+                ? "text-destructive"
+                : hotkeyRegistered === true
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-muted-foreground"
+            }`}
+          >
+            {hotkeyRegistered === false
+              ? t("settings.quickAskHotkeyNotRegistered")
+              : hotkeyRegistered === true
+                ? t("settings.quickAskHotkeyRegistered").replace(
+                    "{hotkey}",
+                    hotkeyStatusText || quickAskHotkeyDisplay,
+                  )
+                : t("settings.quickAskHotkeyStatusUnknown")}
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">{t("settings.quickAskHotkeyDisabled")}</p>
+        )}
       </div>
 
       <div className="border-t" />

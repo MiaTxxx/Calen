@@ -1254,6 +1254,11 @@ export const translations: Record<Locale, Record<string, string>> = {
       "全局快捷键：在任意应用里按下即可框选屏幕区域（公式、报错、图表……），在置顶小窗直接向 AI 提问，无需切到主窗口。清空表示禁用，保存后立即生效。",
     "settings.quickAskHotkeyPlaceholder": "例如 {hotkey}",
     "settings.quickAskHotkeyReset": "恢复默认",
+    "settings.quickAskHotkeyRegistered": "已注册：{hotkey}",
+    "settings.quickAskHotkeyNotRegistered":
+      "当前快捷键未成功注册，可能与系统或其他软件冲突。请更换组合键后保存。",
+    "settings.quickAskHotkeyStatusUnknown": "正在检查快捷键注册状态…",
+    "settings.quickAskHotkeyDisabled": "快捷键已清空，截屏即问已禁用。",
     "quickAsk.title": "快捷提问",
     "quickAsk.placeholder": "针对截图提问…",
     "quickAsk.emptyHint": "已截取所选区域。直接输入问题，Enter 发送。",
@@ -3330,6 +3335,11 @@ export const translations: Record<Locale, Record<string, string>> = {
       "Global hotkey: press it in any app to select a screen region (a formula, an error, a chart…) and ask the AI in a small always-on-top window, without switching to the main window. Leave empty to disable; changes apply immediately after saving.",
     "settings.quickAskHotkeyPlaceholder": "e.g. {hotkey}",
     "settings.quickAskHotkeyReset": "Reset to default",
+    "settings.quickAskHotkeyRegistered": "Registered: {hotkey}",
+    "settings.quickAskHotkeyNotRegistered":
+      "Hotkey is not registered. It may conflict with the system or another app. Change it and save again.",
+    "settings.quickAskHotkeyStatusUnknown": "Checking hotkey registration…",
+    "settings.quickAskHotkeyDisabled": "Hotkey cleared — Quick Ask is disabled.",
     "quickAsk.title": "Quick Ask",
     "quickAsk.placeholder": "Ask about the screenshot…",
     "quickAsk.emptyHint": "Region captured. Type a question and press Enter to send.",

@@ -440,6 +440,25 @@ export default function App() {
     });
   }, [settingsReady]);
 
+  // 截屏即问失败（截屏失败、热键冲突、遮罩创建失败）推到主窗口。
+  useEffect(() => {
+    if (!settingsReady) return;
+    let cancelled = false;
+    const unlistenPromise = listen<string>("quick-ask:error", (event) => {
+      if (cancelled) return;
+      const message = String(event.payload ?? "").trim() || "截屏即问失败";
+      console.warn("[quick-ask]", message);
+      setSettingsSaveState({
+        status: "error",
+        message: `截屏即问：${message}`,
+      });
+    });
+    return () => {
+      cancelled = true;
+      void unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, [settingsReady]);
+
   useEffect(() => {
     if (!settingsReady) {
       return;
