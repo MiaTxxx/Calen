@@ -228,6 +228,8 @@ export type RunAgentConversationTurnParams = {
   customProviders?: AppSettings["customProviders"];
   /** 子代理全局默认模型；未设时跟随本 turn 主模型。 */
   subagentDefaultModel?: AppSettings["customSettings"]["subagentDefaultModel"];
+  /** 生图工具设置快照。 */
+  imageGenSettings?: Pick<AppSettings, "selectedModel" | "customProviders" | "customSettings">;
   selectedSystemToolIds: SystemToolId[];
   /** Windows agent shell preference from system settings. */
   defaultShell?: "auto" | "bash" | "powershell";
@@ -301,6 +303,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     agentTemplates,
     customProviders,
     subagentDefaultModel,
+    imageGenSettings,
     selectedSystemToolIds,
     defaultShell,
     getMcpSettings,
@@ -456,6 +459,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     onTunnelsChanged,
     requestOrigin: stockPortfolioRequestOrigin,
     portfolioReadAuthorized,
+    imageGenSettings,
     onMcpLoadError: (message) => {
       const warning = `MCP 工具加载失败，已跳过并继续对话：${message || "未知错误"}`;
       console.warn(warning);

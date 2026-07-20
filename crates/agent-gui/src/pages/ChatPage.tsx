@@ -3989,6 +3989,10 @@ export function ChatPage(props: ChatPageProps) {
             providerId,
             model,
           };
+          addNotify(
+            "info",
+            t("chat.visionRouted").replace("{model}", `${provider.name} / ${model}`),
+          );
         }
       }
     }
@@ -4677,6 +4681,11 @@ export function ChatPage(props: ChatPageProps) {
             agentTemplates: settings.agents,
             customProviders: settings.customProviders,
             subagentDefaultModel: settings.customSettings.subagentDefaultModel,
+            imageGenSettings: {
+              selectedModel: settings.selectedModel,
+              customProviders: settings.customProviders,
+              customSettings: settings.customSettings,
+            },
             selectedSystemToolIds: effectiveSelectedSystemToolIds,
             defaultShell: settings.system.defaultShell,
             getMcpSettings,

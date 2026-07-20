@@ -115,6 +115,7 @@ const COMPACTION_MODEL_FOLLOW_CURRENT_VALUE = "__compaction_follow_current__";
 const QUICK_ASK_MODEL_FOLLOW_CURRENT_VALUE = "__quick_ask_follow_current__";
 const SUBAGENT_DEFAULT_MODEL_FOLLOW_CURRENT_VALUE = "__subagent_default_follow_current__";
 const VISION_MODEL_FOLLOW_CURRENT_VALUE = "__vision_follow_current__";
+const IMAGE_GEN_MODEL_FOLLOW_NONE_VALUE = "__image_gen_follow_none__";
 const PROVIDER_LABELS: Record<ProviderId, string> = {
   claude_code: "Anthropic",
   codex: "OpenAI",
@@ -972,6 +973,18 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
       ? `${visionSelectedOption.providerName} / ${visionSelectedOption.label}`
       : visionModel.model
     : t("settings.visionModelFollowCurrent");
+  const imageGenModel = settings.customSettings.imageGenModel;
+  const imageGenSelectedValue = imageGenModel
+    ? toModelValue(imageGenModel.customProviderId, imageGenModel.model)
+    : IMAGE_GEN_MODEL_FOLLOW_NONE_VALUE;
+  const imageGenSelectedOption = modelOptions.find(
+    (option) => option.value === imageGenSelectedValue,
+  );
+  const imageGenSelectedLabel = imageGenModel
+    ? imageGenSelectedOption
+      ? `${imageGenSelectedOption.providerName} / ${imageGenSelectedOption.label}`
+      : imageGenModel.model
+    : t("settings.imageGenModelNone");
 
   useEffect(
     () => () => {
@@ -1050,6 +1063,17 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
       updateCustomSettings(prev, {
         visionModel:
           value === VISION_MODEL_FOLLOW_CURRENT_VALUE
+            ? undefined
+            : (parseModelValue(value) ?? undefined),
+      }),
+    );
+  }
+
+  function handleImageGenModelChange(value: string) {
+    setSettings((prev) =>
+      updateCustomSettings(prev, {
+        imageGenModel:
+          value === IMAGE_GEN_MODEL_FOLLOW_NONE_VALUE
             ? undefined
             : (parseModelValue(value) ?? undefined),
       }),
@@ -1286,6 +1310,32 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
                 </Select>
                 <p className="text-[11.5px] leading-relaxed text-muted-foreground/85">
                   {t("settings.visionModelHint")}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-foreground/[0.06] bg-white/60 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-xl dark:border-foreground/[0.08] dark:bg-foreground/[0.03] dark:shadow-none">
+              <div className="space-y-2">
+                <Label className="text-[12.5px] font-medium text-foreground/85">
+                  {t("settings.imageGenModel")}
+                </Label>
+                <Select value={imageGenSelectedValue} onValueChange={handleImageGenModelChange}>
+                  <SelectTrigger className="h-9 rounded-lg border-foreground/10 bg-white/70 shadow-sm dark:bg-background/40">
+                    <SelectValue>{imageGenSelectedLabel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    <SelectItem value={IMAGE_GEN_MODEL_FOLLOW_NONE_VALUE}>
+                      {t("settings.imageGenModelNone")}
+                    </SelectItem>
+                    {modelOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.providerName} / {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11.5px] leading-relaxed text-muted-foreground/85">
+                  {t("settings.imageGenModelHint")}
                 </p>
               </div>
             </div>

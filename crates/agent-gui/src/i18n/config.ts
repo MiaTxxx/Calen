@@ -45,6 +45,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     "chat.memoryExtraction.done": "记忆整理完成。",
     "chat.memoryExtraction.noop": "本轮无需更新记忆。",
     "chat.memoryExtraction.partial": "记忆部分更新（{accepted} 条已应用，{rejected} 条被拒）。",
+    "chat.visionRouted": "当前模型不支持看图，本轮已切换到视觉模型：{model}",
     "chat.recentConversation": "最近会话",
     "chat.searchConversations": "搜索对话…",
     "chat.searchSearching": "正在搜索…",
@@ -1467,6 +1468,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.visionModelFollowCurrent": "使用当前对话模型",
     "settings.visionModelHint":
       "主对话发图时，若当前模型不支持看图，可切换到该视觉模型。未选择时优先截屏即问模型，再尝试主模型。",
+    "settings.imageGenModel": "生图模型",
+    "settings.imageGenModelNone": "未配置（禁用 GenerateImage）",
+    "settings.imageGenModelHint":
+      "配置后，Agent 模式会注册 GenerateImage 工具。当前仅支持 OpenAI 兼容（codex）的 /images/generations。建议在模型设置中勾选「支持生图」。",
     "settings.modelCapabilities": "模型能力",
     "settings.modelCapabilityVision": "支持看图（Vision）",
     "settings.modelCapabilityImageGen": "支持生图（Image Gen）",
@@ -2039,6 +2044,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     "chat.memoryExtraction.noop": "No memory updates needed this turn.",
     "chat.memoryExtraction.partial":
       "Memory partially updated ({accepted} applied, {rejected} rejected).",
+    "chat.visionRouted":
+      "Current model cannot see images. This turn was routed to vision model: {model}",
     "chat.recentConversation": "Conversations",
     "chat.searchConversations": "Search conversations…",
     "chat.searchSearching": "Searching…",
@@ -3527,6 +3534,10 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.visionModelFollowCurrent": "Use current chat model",
     "settings.visionModelHint":
       "When the current chat model cannot see images, chat can fall back to this vision model. When unselected, prefers the Quick Ask model, then the chat model.",
+    "settings.imageGenModel": "Image generation model",
+    "settings.imageGenModelNone": "Not configured (GenerateImage disabled)",
+    "settings.imageGenModelHint":
+      "When set, Agent mode registers a GenerateImage tool. Currently supports OpenAI-compatible (codex) /images/generations only. Prefer marking the model with Image generation capability.",
     "settings.modelCapabilities": "Model capabilities",
     "settings.modelCapabilityVision": "Vision (image understanding)",
     "settings.modelCapabilityImageGen": "Image generation",

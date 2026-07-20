@@ -15,7 +15,8 @@ export type BuiltinToolGroupId =
   | "mcp"
   | "subagent"
   | "memory"
-  | "stock";
+  | "stock"
+  | "image_gen";
 
 export type BuiltinToolDisplayCategory =
   | "file"

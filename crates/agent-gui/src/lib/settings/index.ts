@@ -233,6 +233,8 @@ export type CustomSettings = {
   quickAskModel?: SelectedModel;
   // 主对话发图时的视觉模型；未设时可用 quickAskModel，再回退主模型（若支持 vision）。
   visionModel?: SelectedModel;
+  // 生图模型；用于 GenerateImage 工具。需模型标记 image_gen 能力，或 OpenAI 兼容 images API。
+  imageGenModel?: SelectedModel;
   // 子代理默认模型；未设置时跟随父对话 turn 模型。模板 selectedModel 优先于此。
   subagentDefaultModel?: SelectedModel;
   // 翻译路由与本地模型选择只在当前设备生效，不进入 Gateway 同步。
@@ -2146,6 +2148,10 @@ export function normalizeCustomSettings(
     ),
     visionModel: normalizeSelectedModelForProviders(
       normalizeSelectedModel(obj.visionModel),
+      customProviders,
+    ),
+    imageGenModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.imageGenModel),
       customProviders,
     ),
     subagentDefaultModel: normalizeSelectedModelForProviders(

@@ -23,6 +23,11 @@ import { createCronTools } from "./cronTools";
 import { createCustomSystemTools } from "./customSystemTools";
 import { createFileToolState, type FileToolState } from "./fileToolState";
 import { createFsTools } from "./fsTools";
+import {
+  createImageGenTools,
+  type ImageGenToolSettings,
+  shouldEnableImageGenTools,
+} from "./imageGenTools";
 import { createMcpManagerTools } from "./mcpManagerTools";
 import { createMcpTools } from "./mcpTools";
 import { createMemoryTools } from "./memoryTools";
@@ -162,6 +167,8 @@ type BuildBuiltinBaseToolRegistryParams = {
   /** Gateway turns must not receive tools that can inspect or mutate the desktop host. */
   requestOrigin: BuiltinToolRequestOrigin;
   portfolioReadAuthorized?: boolean;
+  /** 生图工具配置（仅 chat 且本地 turn 启用）。 */
+  imageGenSettings?: ImageGenToolSettings;
 };
 
 const resolveHomeDir = () => homeDir();
@@ -284,12 +291,24 @@ export async function buildBuiltinToolRegistry(
         params.requestOrigin !== "gateway" && params.portfolioReadAuthorized === true,
     }),
   ];
+  const imageGenBundles =
+    params.runtimeScope === "chat" &&
+    params.requestOrigin !== "gateway" &&
+    params.imageGenSettings &&
+    shouldEnableImageGenTools(params.imageGenSettings)
+      ? [createImageGenTools({ settings: params.imageGenSettings })]
+      : [];
 
   // Subagents would otherwise become a second path back into the local host
   // tool registry, so they are not registered for remotely initiated turns.
   const subagentRuntime = params.requestOrigin === "gateway" ? undefined : params.subagentRuntime;
   if (!subagentRuntime) {
-    return createBuiltinToolRegistry([...baseBundles, ...stockBundles, ...todoBundles]);
+    return createBuiltinToolRegistry([
+      ...baseBundles,
+      ...stockBundles,
+      ...imageGenBundles,
+      ...todoBundles,
+    ]);
   }
 
   const baseRegistry = createBuiltinToolRegistry(baseBundles);
@@ -309,8 +328,8 @@ export async function buildBuiltinToolRegistry(
       })
     : null;
   const parentBundles = parentMessageBundle
-    ? [...baseBundles, ...stockBundles, parentMessageBundle]
-    : [...baseBundles, ...stockBundles];
+    ? [...baseBundles, ...stockBundles, ...imageGenBundles, parentMessageBundle]
+    : [...baseBundles, ...stockBundles, ...imageGenBundles];
   return createBuiltinToolRegistry([
     ...parentBundles,
     ...todoBundles,
