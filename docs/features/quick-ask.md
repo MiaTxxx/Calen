@@ -28,6 +28,7 @@
 - **快捷键持久化**：`quickAskHotkey` 存在 system settings（SQLite），Rust 启动时读取注册；`settings_save_system` 保存后立即重注册。缺失 → 默认值；显式空字符串 → 禁用（前后端归一化语义一致）。注册失败会返回错误给设置页，并通过 `quick-ask:error` 事件通知主窗口。
 - **遮罩就绪兜底**：遮罩默认 `visible(false)`，前端截图 `onLoad` 后 `quick_ask_overlay_ready` 再显示；若约 1.8s 内未握手成功则强制显示，避免“按了没反应”。
 - **二次快捷键语义**：遮罩已可见时再按快捷键 = 取消；若遮罩存在但不可见（卡死），再按会销毁并重建，而不是只取消。
+- **看图能力判定**：截图以 image 内容块发送。pi-ai 会在 `model.input` 不含 `image` 时把图片替换成“不支持图像”占位文本。Calen 对常见多模态模型名（`kimi`/`moonshot`/`qwen-vl`/…）启发式放行，并在快捷提问有截图时 `forceImageInput`，避免漏判。
 - **思考/缓存关闭**：快捷提问固定 `reasoning: off`、不启用 prompt caching 与联网搜索，追求响应速度。
 - **多显示器**：按光标位置定位显示器，仅截取该屏；选区坐标按「视口 CSS px → 截图物理 px」比例换算，不直接信任 scaleFactor。
 

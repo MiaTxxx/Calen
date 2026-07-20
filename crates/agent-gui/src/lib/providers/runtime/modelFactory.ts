@@ -80,6 +80,16 @@ function maybeAppendCodexApiVersion(baseUrl: string) {
 function supportsOpenAICompletionsImageInputModel(modelId: string) {
   const normalizedModelId = modelId.trim().toLowerCase();
   if (normalizedModelId.includes("search-preview")) return false;
+  // 纯文本 / 非视觉变体优先排除，避免误放行。
+  if (
+    normalizedModelId.includes("text-only") ||
+    normalizedModelId.includes("tts") ||
+    normalizedModelId.includes("whisper") ||
+    normalizedModelId.includes("embedding") ||
+    normalizedModelId.includes("rerank")
+  ) {
+    return false;
+  }
   return (
     normalizedModelId.startsWith("gpt-5") ||
     normalizedModelId.startsWith("chat-latest") ||
@@ -91,12 +101,27 @@ function supportsOpenAICompletionsImageInputModel(modelId: string) {
     normalizedModelId.startsWith("o3") ||
     normalizedModelId.startsWith("o4") ||
     normalizedModelId.includes("vision") ||
+    // 常见多模态 / VL 模型（OpenAI 兼容网关常见命名）
+    normalizedModelId.includes("kimi") ||
+    normalizedModelId.includes("moonshot") ||
+    normalizedModelId.includes("claude") ||
+    normalizedModelId.includes("gemini") ||
     normalizedModelId.includes("qwen-vl") ||
     normalizedModelId.includes("qwen2-vl") ||
     normalizedModelId.includes("qwen2.5-vl") ||
     normalizedModelId.includes("qwen3-vl") ||
+    // Qwen2.5-VL 有时写成 qwen2.5-72b-vl / qwenvl
+    /(^|[^a-z])qwen[^a-z0-9]*vl([^a-z0-9]|$)/.test(normalizedModelId) ||
+    normalizedModelId.includes("vl-") ||
+    normalizedModelId.endsWith("-vl") ||
     normalizedModelId.includes("llava") ||
-    normalizedModelId.includes("pixtral")
+    normalizedModelId.includes("pixtral") ||
+    normalizedModelId.includes("glm-4v") ||
+    normalizedModelId.includes("glm4v") ||
+    normalizedModelId.includes("internvl") ||
+    normalizedModelId.includes("minicpm-v") ||
+    normalizedModelId.includes("phi-4-multimodal") ||
+    normalizedModelId.includes("multimodal")
   );
 }
 

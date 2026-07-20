@@ -40,6 +40,15 @@ type DisplayTurn = {
   error?: string;
 };
 
+function historyHasImage(messages: Message[]): boolean {
+  return messages.some((message) => {
+    if (message.role !== "user" || !Array.isArray(message.content)) return false;
+    return message.content.some(
+      (block) => block && typeof block === "object" && block.type === "image",
+    );
+  });
+}
+
 /**
  * 快捷提问小窗（label: quick-ask）：展示截图 + 输入问题 + 流式回答。
  * 模型调用完全复用主应用的 provider 流式管线（本地代理、凭据、模型选择），
@@ -184,6 +193,9 @@ export function QuickAskApp() {
         signal: controller.signal,
         cacheRetention: "none",
         nativeWebSearch: false,
+        // 截图即问始终带 image 内容块；强制 vision input，避免网关模型名
+        // （如 kimi-k2.6）被启发式判成纯文本后图片被 pi-ai 剥离。
+        forceImageInput: Boolean(shotForThisTurn) || historyHasImage(historyRef.current),
         onTextDelta: appendDelta,
       });
       historyRef.current = [...historyRef.current, assistant];

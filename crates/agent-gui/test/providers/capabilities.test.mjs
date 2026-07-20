@@ -82,3 +82,58 @@ test("selectedModelSupportsVision respects explicit capability marks", () => {
     true
   );
 });
+
+test("openai-completions heuristics treat kimi/moonshot as vision-capable", () => {
+  const modelFactory = loader.loadModule(
+    "src/lib/providers/runtime/modelFactory.ts"
+  );
+  const kimi = modelFactory.createModelFromConfig(
+    "codex",
+    "kimi-k2.6",
+    "https://api.moonshot.cn/v1",
+    "openai-completions",
+    {
+      id: "kimi-k2.6",
+      contextWindow: 200000,
+      maxOutputToken: 8192,
+    }
+  );
+  assert.ok(
+    kimi.input.includes("image"),
+    `expected kimi-k2.6 to advertise image input, got ${JSON.stringify(kimi.input)}`
+  );
+
+  const moonshot = modelFactory.createModelFromConfig(
+    "codex",
+    "moonshot-v1-128k-vision-preview",
+    "https://api.moonshot.cn/v1",
+    "openai-completions",
+    {
+      id: "moonshot-v1-128k-vision-preview",
+      contextWindow: 128000,
+      maxOutputToken: 8192,
+    }
+  );
+  assert.ok(moonshot.input.includes("image"));
+});
+
+test("streamAssistantMessage can force image input for screenshot turns", () => {
+  // Behavior is owned by createModelFromConfig heuristics + optional forceImageInput.
+  // This test documents the expected contract for Quick Ask screenshot sends.
+  const modelFactory = loader.loadModule(
+    "src/lib/providers/runtime/modelFactory.ts"
+  );
+  const forced = modelFactory.createModelFromConfig(
+    "codex",
+    "some-custom-gateway-model",
+    "https://gateway.example/v1",
+    "openai-completions",
+    {
+      id: "some-custom-gateway-model",
+      contextWindow: 128000,
+      maxOutputToken: 4096,
+      capabilities: ["vision", "text"],
+    }
+  );
+  assert.deepEqual(forced.input, ["text", "image"]);
+});

@@ -6,7 +6,7 @@ import {
   mergeHostedSearchBlocks,
 } from "../../chat/messages/hostedSearch";
 import { buildStreamRequestDebugPayload, type StreamDebugLogger } from "../../debug/agentDebug";
-import type { ProviderId } from "../../settings";
+import type { ModelCapability, ProviderId, ProviderModelConfig } from "../../settings";
 import { withPowerActivity } from "../../system/powerActivity";
 import {
   createHostedSearchEventAggregator,
@@ -130,6 +130,11 @@ export async function streamAssistantMessage(params: {
   allowJsonOutput?: boolean;
   nativeWebSearch?: boolean;
   onHostedSearch?: (block: HostedSearchBlock) => void;
+  /**
+   * 截屏/看图场景：即使启发式未识别出 vision，也强制 model.input 含 image，
+   * 避免 pi-ai 把 image 内容块替换成「不支持图像」占位文本。
+   */
+  forceImageInput?: boolean;
 }) {
   const modelId = params.model.trim();
   if (!modelId) throw new Error("No model selected");
@@ -142,12 +147,30 @@ export async function streamAssistantMessage(params: {
     buildProviderAuthHeaders(params.providerId, params.runtime.apiKey),
   );
 
+  const modelConfig: ProviderModelConfig | undefined = params.forceImageInput
+    ? {
+        ...(params.runtime.modelConfig ?? {
+          id: modelId,
+          contextWindow: 128000,
+          maxOutputToken: 8192,
+        }),
+        // 强制 vision 能力，覆盖名称启发式漏判（如 kimi-k2.6 走 openai-completions）。
+        capabilities: Array.from(
+          new Set<ModelCapability>([
+            ...((params.runtime.modelConfig?.capabilities ?? []) as ModelCapability[]),
+            "vision",
+            "text",
+          ]),
+        ),
+      }
+    : params.runtime.modelConfig;
+
   const m = createModelFromConfig(
     params.providerId,
     modelId,
     proxyRequest.baseUrl,
     params.runtime.requestFormat,
-    params.runtime.modelConfig,
+    modelConfig,
     params.runtime.baseUrl.trim(),
   );
 
