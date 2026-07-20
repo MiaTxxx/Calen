@@ -76,6 +76,7 @@ export function SnipOverlayApp() {
   );
 
   const rect = drag ? normalizeSelectionRect(drag) : null;
+  const handleSize = 7;
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: 全屏截屏遮罩本质是一块画布，仅支持鼠标框选。
@@ -87,7 +88,7 @@ export function SnipOverlayApp() {
           cancel();
           return;
         }
-        if (event.button !== 0 || !payload) return;
+        if (event.button !== 0 || !payload || confirmingRef.current) return;
         setDrag({
           startX: event.clientX,
           startY: event.clientY,
@@ -120,27 +121,56 @@ export function SnipOverlayApp() {
           className="pointer-events-none absolute inset-0 h-full w-full"
         />
       ) : null}
-      {/* 未框选时轻微压暗提示可框选；框选后由选区阴影负责压暗外部区域 */}
+
+      {/* 未框选时轻微压暗；框选后由选区阴影负责压暗外部区域 */}
       {rect ? (
         <div
-          className="pointer-events-none absolute border border-sky-400"
+          className="pointer-events-none absolute"
           style={{
             left: rect.x,
             top: rect.y,
             width: rect.width,
             height: rect.height,
-            boxShadow: "0 0 0 100000px rgba(0, 0, 0, 0.45)",
+            boxShadow: "0 0 0 100000px rgba(0, 0, 0, 0.5)",
           }}
         >
-          <div className="absolute -top-7 left-0 whitespace-nowrap rounded bg-black/70 px-2 py-0.5 text-xs text-white">
+          {/* 选区描边 + 内发光 */}
+          <div className="absolute inset-0 rounded-[1px] border border-sky-300/95 shadow-[inset_0_0_0_1px_rgba(56,189,248,0.35),0_0_0_1px_rgba(14,165,233,0.35)]" />
+          {/* 四角手柄 */}
+          {(
+            [
+              { left: -handleSize / 2, top: -handleSize / 2 },
+              { right: -handleSize / 2, top: -handleSize / 2 },
+              { left: -handleSize / 2, bottom: -handleSize / 2 },
+              { right: -handleSize / 2, bottom: -handleSize / 2 },
+            ] as const
+          ).map((pos, index) => (
+            <div
+              // biome-ignore lint/suspicious/noArrayIndexKey: 固定四个角点。
+              key={index}
+              className="absolute rounded-[1px] border border-sky-200 bg-sky-400 shadow-sm"
+              style={{
+                width: handleSize,
+                height: handleSize,
+                ...pos,
+              }}
+            />
+          ))}
+          {/* 尺寸徽标 */}
+          <div className="absolute -top-8 left-0 whitespace-nowrap rounded-md border border-white/10 bg-black/75 px-2 py-0.5 text-[11px] font-medium tabular-nums tracking-wide text-white shadow-lg backdrop-blur-sm">
             {Math.round(rect.width)} × {Math.round(rect.height)}
           </div>
         </div>
       ) : (
-        <div className="pointer-events-none absolute inset-0 bg-black/35" />
+        <div className="pointer-events-none absolute inset-0 bg-black/40" />
       )}
-      <div className="pointer-events-none absolute left-1/2 top-6 -translate-x-1/2 rounded-full bg-black/70 px-4 py-1.5 text-sm text-white shadow">
-        {t("quickAsk.overlayHint", locale)}
+
+      {/* 顶部引导胶囊 */}
+      <div className="pointer-events-none absolute left-1/2 top-7 z-10 -translate-x-1/2">
+        <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/72 px-4 py-1.5 text-[13px] text-white shadow-[0_10px_30px_-12px_rgba(0,0,0,0.8)] backdrop-blur-md">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-sky-400 shadow-[0_0_0_3px_rgba(56,189,248,0.25)]" />
+          <span>{t("quickAsk.overlayHint", locale)}</span>
+        </div>
       </div>
     </div>
   );

@@ -385,6 +385,67 @@ test("custom settings conversation title model only keeps enabled provider model
   assert.equal(cleared.customSettings.conversationTitleModel, undefined);
 });
 
+test("custom settings normalize compaction and quickAsk role models", () => {
+  const customProviders = [
+    {
+      id: "provider-1",
+      name: "Provider 1",
+      type: "codex",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "key",
+      models: ["gpt-5", "gpt-5-mini"],
+      activeModels: ["gpt-5-mini"],
+    },
+    {
+      id: "vision",
+      name: "Vision",
+      type: "codex",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "key",
+      models: ["gpt-4o"],
+      activeModels: ["gpt-4o"],
+    },
+  ];
+
+  const normalized = settings.normalizeSettings({
+    customProviders,
+    customSettings: {
+      compactionModel: {
+        customProviderId: "provider-1",
+        model: "gpt-5-mini",
+      },
+      quickAskModel: {
+        customProviderId: "vision",
+        model: "gpt-4o",
+      },
+    },
+  });
+  assert.deepEqual(normalized.customSettings.compactionModel, {
+    customProviderId: "provider-1",
+    model: "gpt-5-mini",
+  });
+  assert.deepEqual(normalized.customSettings.quickAskModel, {
+    customProviderId: "vision",
+    model: "gpt-4o",
+  });
+
+  const stale = settings.normalizeSettings({
+    customProviders,
+    customSettings: {
+      compactionModel: {
+        customProviderId: "provider-1",
+        model: "gpt-5",
+      },
+      quickAskModel: {
+        customProviderId: "vision",
+        model: "missing",
+      },
+    },
+  });
+  assert.equal(stale.customSettings.compactionModel, undefined);
+  assert.equal(stale.customSettings.quickAskModel, undefined);
+});
+
 test("chat runtime controls default and follow provider model reasoning support", () => {
   const defaults = settings.getDefaultSettings();
   assert.deepEqual(defaults.chatRuntimeControls, {

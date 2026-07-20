@@ -9,7 +9,7 @@ import {
   type AppSettings,
   findProviderModelConfig,
   getChatRuntimeReasoningLevelsForProvider,
-  type SelectedModel,
+  resolveTranslationRoleModel,
 } from "./settings";
 import {
   createTranslationFingerprint,
@@ -104,22 +104,14 @@ function validateTranslationText(value: string, sourceText: string, backendLabel
 }
 
 function resolveTranslationModel(settings: TranslationSettings) {
-  const candidates: Array<SelectedModel | undefined> = [
-    settings.customSettings.translationModel,
-    settings.selectedModel,
-  ];
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    const provider = settings.customProviders.find(
-      (item) => item.id === candidate.customProviderId,
+  const resolved = resolveTranslationRoleModel(settings);
+  if (!resolved) {
+    throw createTranslationError(
+      "notFound",
+      "没有可用的远程翻译模型：请先在主对话中选择模型，或在设置中指定远程翻译模型。",
     );
-    if (!provider?.activeModels.includes(candidate.model)) continue;
-    return { selected: candidate, provider };
   }
-  throw createTranslationError(
-    "notFound",
-    "没有可用的远程翻译模型：请先在主对话中选择模型，或在设置中指定远程翻译模型。",
-  );
+  return { selected: resolved.selectedModel, provider: resolved.provider };
 }
 
 function resolveRemoteTranslationModelKey(settings: TranslationSettings): string {

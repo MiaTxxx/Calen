@@ -111,6 +111,8 @@ type CcsProvidersResponse = {
 const PROVIDER_TABS: ProviderId[] = ["claude_code", "codex", "gemini"];
 const TITLE_MODEL_FOLLOW_CURRENT_VALUE = "__conversation_title_follow_current__";
 const TRANSLATION_MODEL_FOLLOW_CURRENT_VALUE = "__translation_follow_current__";
+const COMPACTION_MODEL_FOLLOW_CURRENT_VALUE = "__compaction_follow_current__";
+const QUICK_ASK_MODEL_FOLLOW_CURRENT_VALUE = "__quick_ask_follow_current__";
 const PROVIDER_LABELS: Record<ProviderId, string> = {
   claude_code: "Anthropic",
   codex: "OpenAI",
@@ -878,6 +880,30 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
       ? `${translationSelectedOption.providerName} / ${translationSelectedOption.label}`
       : translationModel.model
     : t("settings.translationModelFollowCurrent");
+  const compactionModel = settings.customSettings.compactionModel;
+  const compactionSelectedValue = compactionModel
+    ? toModelValue(compactionModel.customProviderId, compactionModel.model)
+    : COMPACTION_MODEL_FOLLOW_CURRENT_VALUE;
+  const compactionSelectedOption = modelOptions.find(
+    (option) => option.value === compactionSelectedValue,
+  );
+  const compactionSelectedLabel = compactionModel
+    ? compactionSelectedOption
+      ? `${compactionSelectedOption.providerName} / ${compactionSelectedOption.label}`
+      : compactionModel.model
+    : t("settings.compactionModelFollowCurrent");
+  const quickAskModel = settings.customSettings.quickAskModel;
+  const quickAskSelectedValue = quickAskModel
+    ? toModelValue(quickAskModel.customProviderId, quickAskModel.model)
+    : QUICK_ASK_MODEL_FOLLOW_CURRENT_VALUE;
+  const quickAskSelectedOption = modelOptions.find(
+    (option) => option.value === quickAskSelectedValue,
+  );
+  const quickAskSelectedLabel = quickAskModel
+    ? quickAskSelectedOption
+      ? `${quickAskSelectedOption.providerName} / ${quickAskSelectedOption.label}`
+      : quickAskModel.model
+    : t("settings.quickAskModelFollowCurrent");
 
   useEffect(
     () => () => {
@@ -912,6 +938,28 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
       updateCustomSettings(prev, {
         translationModel:
           value === TRANSLATION_MODEL_FOLLOW_CURRENT_VALUE
+            ? undefined
+            : (parseModelValue(value) ?? undefined),
+      }),
+    );
+  }
+
+  function handleCompactionModelChange(value: string) {
+    setSettings((prev) =>
+      updateCustomSettings(prev, {
+        compactionModel:
+          value === COMPACTION_MODEL_FOLLOW_CURRENT_VALUE
+            ? undefined
+            : (parseModelValue(value) ?? undefined),
+      }),
+    );
+  }
+
+  function handleQuickAskModelChange(value: string) {
+    setSettings((prev) =>
+      updateCustomSettings(prev, {
+        quickAskModel:
+          value === QUICK_ASK_MODEL_FOLLOW_CURRENT_VALUE
             ? undefined
             : (parseModelValue(value) ?? undefined),
       }),
@@ -953,7 +1001,7 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
               {t("settings.customSettings")}
             </div>
             <div className="mt-1 text-[12px] leading-relaxed text-muted-foreground/90">
-              {t("settings.conversationTitleModelHint")}
+              {t("settings.taskModelsHint")}
             </div>
           </div>
           <button
@@ -1041,6 +1089,58 @@ function CustomSettingsDrawer(props: SettingsSectionProps & { onClose: () => voi
                 </Select>
                 <p className="text-[11.5px] leading-relaxed text-muted-foreground/85">
                   {t("settings.translationModelHint")}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-foreground/[0.06] bg-white/60 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-xl dark:border-foreground/[0.08] dark:bg-foreground/[0.03] dark:shadow-none">
+              <div className="space-y-2">
+                <Label className="text-[12.5px] font-medium text-foreground/85">
+                  {t("settings.compactionModel")}
+                </Label>
+                <Select value={compactionSelectedValue} onValueChange={handleCompactionModelChange}>
+                  <SelectTrigger className="h-9 rounded-lg border-foreground/10 bg-white/70 shadow-sm dark:bg-background/40">
+                    <SelectValue>{compactionSelectedLabel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    <SelectItem value={COMPACTION_MODEL_FOLLOW_CURRENT_VALUE}>
+                      {t("settings.compactionModelFollowCurrent")}
+                    </SelectItem>
+                    {modelOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.providerName} / {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11.5px] leading-relaxed text-muted-foreground/85">
+                  {t("settings.compactionModelHint")}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-foreground/[0.06] bg-white/60 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-xl dark:border-foreground/[0.08] dark:bg-foreground/[0.03] dark:shadow-none">
+              <div className="space-y-2">
+                <Label className="text-[12.5px] font-medium text-foreground/85">
+                  {t("settings.quickAskModel")}
+                </Label>
+                <Select value={quickAskSelectedValue} onValueChange={handleQuickAskModelChange}>
+                  <SelectTrigger className="h-9 rounded-lg border-foreground/10 bg-white/70 shadow-sm dark:bg-background/40">
+                    <SelectValue>{quickAskSelectedLabel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    <SelectItem value={QUICK_ASK_MODEL_FOLLOW_CURRENT_VALUE}>
+                      {t("settings.quickAskModelFollowCurrent")}
+                    </SelectItem>
+                    {modelOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.providerName} / {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11.5px] leading-relaxed text-muted-foreground/85">
+                  {t("settings.quickAskModelHint")}
                 </p>
               </div>
             </div>

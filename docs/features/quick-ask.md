@@ -4,14 +4,14 @@
 
 ## 交互流程
 
-| 步骤 | 说明                                                                           | 关键模块                                             |
-| ---: | ------------------------------------------------------------------------------ | ---------------------------------------------------- |
-|    1 | 全局快捷键触发（默认 `CmdOrCtrl+Shift+A`，可在 系统设置 中改键或清空禁用）。   | `tauri-plugin-global-shortcut`、`quick_ask.rs`       |
-|    2 | Rust 用 `xcap` 截取光标所在显示器整屏（先截图再开窗，避免遮罩把自己截进去）。  | `quick_ask.rs::capture_monitor_at_cursor`            |
-|    3 | 弹出全屏无边框置顶遮罩窗 `snip-overlay`，前端展示冻结画面并拖拽框选。          | `SnipOverlayApp.tsx`、`lib/quick-ask/selection.ts`   |
-|    4 | 确认选区后 Rust 裁剪出 PNG，关闭遮罩，弹出置顶小窗 `quick-ask`（靠近光标）。   | `quick_ask_confirm_selection`                        |
-|    5 | 小窗取走截图，输入问题后走前端既有 provider 流式管线（本地代理、凭据、模型）。 | `QuickAskApp.tsx`、`lib/quick-ask/model.ts`          |
-|    6 | 截图以 provider 原生 image 内容块随首条用户消息发送；支持多轮追问、Esc 中断。  | `buildQuickAskUserMessage`、`streamAssistantMessage` |
+| 步骤 | 说明                                                                                                                                           | 关键模块                                             |
+| ---: | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+|    1 | 全局快捷键触发（默认 Windows/Linux 显示 `Ctrl+Shift+A`，macOS 显示 `⌘+Shift+A`；内部存 `CmdOrCtrl+Shift+A`。可在 系统设置 中改键或清空禁用）。 | `tauri-plugin-global-shortcut`、`quick_ask.rs`       |
+|    2 | Rust 用 `xcap` 截取光标所在显示器整屏（先截图再开窗，避免遮罩把自己截进去）。                                                                  | `quick_ask.rs::capture_monitor_at_cursor`            |
+|    3 | 弹出全屏无边框置顶遮罩窗 `snip-overlay`，前端展示冻结画面并拖拽框选。                                                                          | `SnipOverlayApp.tsx`、`lib/quick-ask/selection.ts`   |
+|    4 | 确认选区后 Rust 裁剪出 PNG，关闭遮罩，弹出置顶小窗 `quick-ask`（靠近光标）。                                                                   | `quick_ask_confirm_selection`                        |
+|    5 | 小窗取走截图，输入问题后走前端既有 provider 流式管线（本地代理、凭据、模型）。                                                                 | `QuickAskApp.tsx`、`lib/quick-ask/model.ts`          |
+|    6 | 截图以 provider 原生 image 内容块随首条用户消息发送；支持多轮追问、Esc 中断。                                                                  | `buildQuickAskUserMessage`、`streamAssistantMessage` |
 
 ## 实现约束（踩坑记录）
 

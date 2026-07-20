@@ -6,6 +6,7 @@ import {
   type CustomProvider,
   findProviderModelConfig,
   getChatRuntimeReasoningLevelsForProvider,
+  resolveQuickAskRoleModel,
   type SelectedModel,
 } from "../settings";
 
@@ -17,28 +18,22 @@ export type QuickAskModelResolution = {
 
 export class QuickAskModelError extends Error {}
 
-type QuickAskModelSettings = Pick<AppSettings, "selectedModel" | "customProviders">;
+type QuickAskModelSettings = Pick<
+  AppSettings,
+  "selectedModel" | "customProviders" | "customSettings"
+>;
 
 /**
- * 快捷提问直接复用主对话当前选中的模型；没有可用模型时回退到
- * 第一个配置了 API Key 且有可用模型的 provider（例如用户从未打开过主窗口的场景）。
+ * 快捷提问优先使用专用 quickAskModel（适合 vision）；
+ * 否则主对话模型；再否则第一个配置了 API Key 且有可用模型的 provider。
  */
 export function resolveQuickAskModel(settings: QuickAskModelSettings): QuickAskModelResolution {
-  let selected = settings.selectedModel;
-  let provider = selected
-    ? settings.customProviders.find((item) => item.id === selected?.customProviderId)
-    : undefined;
-  if (!selected || !provider?.activeModels.includes(selected.model)) {
-    provider = settings.customProviders.find(
-      (item) => item.apiKey.trim() && item.activeModels.length > 0,
-    );
-    const fallbackModel = provider?.activeModels[0];
-    if (!provider || !fallbackModel) {
-      throw new QuickAskModelError("no-model");
-    }
-    selected = { customProviderId: provider.id, model: fallbackModel };
+  const resolved = resolveQuickAskRoleModel(settings);
+  if (!resolved) {
+    throw new QuickAskModelError("no-model");
   }
 
+  const { selectedModel: selected, provider } = resolved;
   const modelConfig = findProviderModelConfig(provider, selected.model);
   const reasoningSupported =
     getChatRuntimeReasoningLevelsForProvider({

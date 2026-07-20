@@ -16,6 +16,7 @@ import {
 } from "../../components/icons";
 
 import { SUPPORTED_LOCALES, useLocale } from "../../i18n";
+import { inferRuntimePlatform } from "../../lib/runtimePlatform";
 import {
   APPEARANCE_SURFACES,
   DEFAULT_APPEARANCE_SETTINGS,
@@ -25,6 +26,8 @@ import {
   type DefaultShellPreference,
   type ExecutionMode,
   type FontScaleSettings,
+  formatQuickAskHotkeyForDisplay,
+  normalizeQuickAskHotkeyInput,
   parseAppearanceSettingsJson,
   THEME_OPTIONS,
   type Theme,
@@ -38,6 +41,15 @@ import type { SettingsSectionProps } from "./types";
 export function SystemSettingsForm(props: SettingsSectionProps) {
   const { settings, setSettings } = props;
   const { t } = useLocale();
+  const runtimePlatform = inferRuntimePlatform();
+  const quickAskHotkeyDisplay = formatQuickAskHotkeyForDisplay(
+    settings.system.quickAskHotkey,
+    runtimePlatform,
+  );
+  const quickAskHotkeyDefaultDisplay = formatQuickAskHotkeyForDisplay(
+    DEFAULT_QUICK_ASK_HOTKEY,
+    runtimePlatform,
+  );
 
   const executionMode = settings.system.executionMode;
   const isClassicAgentMode = executionMode === "tools";
@@ -324,14 +336,22 @@ export function SystemSettingsForm(props: SettingsSectionProps) {
         <div className="flex items-center gap-2">
           <input
             type="text"
-            value={settings.system.quickAskHotkey}
-            placeholder={t("settings.quickAskHotkeyPlaceholder")}
+            value={quickAskHotkeyDisplay}
+            placeholder={t("settings.quickAskHotkeyPlaceholder").replace(
+              "{hotkey}",
+              quickAskHotkeyDefaultDisplay,
+            )}
             onChange={(event) =>
-              setSettings((prev) => updateSystem(prev, { quickAskHotkey: event.target.value }))
+              setSettings((prev) =>
+                updateSystem(prev, {
+                  // 展示层把 CmdOrCtrl 译成 Ctrl/⌘；写回时再归一成 Tauri 可解析写法。
+                  quickAskHotkey: normalizeQuickAskHotkeyInput(event.target.value),
+                }),
+              )
             }
             className="w-64 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
           />
-          {settings.system.quickAskHotkey !== DEFAULT_QUICK_ASK_HOTKEY ? (
+          {quickAskHotkeyDisplay !== quickAskHotkeyDefaultDisplay ? (
             <button
               type="button"
               onClick={() =>

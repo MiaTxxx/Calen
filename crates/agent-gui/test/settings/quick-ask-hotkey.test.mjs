@@ -25,3 +25,34 @@ test("quickAskHotkey defaults when missing and preserves explicit empty (disable
     settings.DEFAULT_QUICK_ASK_HOTKEY
   );
 });
+
+test("formatQuickAskHotkeyForDisplay localizes CmdOrCtrl for each platform", () => {
+  assert.equal(
+    settings.formatQuickAskHotkeyForDisplay("CmdOrCtrl+Shift+A", "windows"),
+    "Ctrl+Shift+A"
+  );
+  assert.equal(
+    settings.formatQuickAskHotkeyForDisplay("CmdOrCtrl+Shift+A", "linux"),
+    "Ctrl+Shift+A"
+  );
+  assert.equal(
+    settings.formatQuickAskHotkeyForDisplay("CmdOrCtrl+Shift+A", "macos"),
+    "⌘+Shift+A"
+  );
+  assert.equal(
+    settings.formatQuickAskHotkeyForDisplay("Control+Alt+Q", "windows"),
+    "Ctrl+Alt+Q"
+  );
+});
+
+test("normalizeQuickAskHotkeyInput maps display symbols back to parseable modifiers", () => {
+  assert.equal(
+    settings.normalizeQuickAskHotkeyInput("  ⌘+Shift+A  "),
+    "Cmd+Shift+A"
+  );
+  assert.equal(
+    settings.normalizeQuickAskHotkeyInput("Control+Shift+A"),
+    "Ctrl+Shift+A"
+  );
+  assert.equal(settings.normalizeQuickAskHotkeyInput(""), "");
+});

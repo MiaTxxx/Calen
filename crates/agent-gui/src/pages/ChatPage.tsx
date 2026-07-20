@@ -145,7 +145,10 @@ import {
   type RightDockFileTreeStatePatch,
   type RightDockProjectState,
   removeRightDockProjectState,
+  resolveCompactionRoleModel,
+  resolveConversationTitleRoleModel,
   resolveEffectiveTheme,
+  resolveMemoryExtractionRoleModel,
   resolveWorkspaceProjects,
   type SelectedModel,
   type SystemToolId,
@@ -519,23 +522,13 @@ async function importPastedTextsAsFiles(workdir: string, pastes: MentionComposer
 function resolveMemorySummaryModelSelection(
   settings: AppSettings,
 ): EffectiveChatModelSelection | null {
-  const summaryModel = settings.memory.summaryModel;
-  if (!summaryModel) {
-    return null;
-  }
-
-  const provider = settings.customProviders.find(
-    (item) => item.id === summaryModel.customProviderId,
-  );
-  if (!provider || !provider.activeModels.includes(summaryModel.model)) {
-    return null;
-  }
-
+  const resolved = resolveMemoryExtractionRoleModel(settings);
+  if (!resolved) return null;
   return {
-    selectedModel: summaryModel,
-    provider,
-    providerId: provider.type,
-    model: summaryModel.model,
+    selectedModel: resolved.selectedModel,
+    provider: resolved.provider,
+    providerId: resolved.providerId,
+    model: resolved.model,
   };
 }
 
@@ -543,21 +536,25 @@ function resolveConversationTitleModelSelection(
   settings: AppSettings,
   fallback: EffectiveChatModelSelection,
 ): EffectiveChatModelSelection {
-  const titleModel = settings.customSettings.conversationTitleModel;
-  if (!titleModel) {
-    return fallback;
-  }
-
-  const provider = settings.customProviders.find((item) => item.id === titleModel.customProviderId);
-  if (!provider || !provider.activeModels.includes(titleModel.model)) {
-    return fallback;
-  }
-
+  const resolved = resolveConversationTitleRoleModel(settings, fallback);
   return {
-    selectedModel: titleModel,
-    provider,
-    providerId: provider.type,
-    model: titleModel.model,
+    selectedModel: resolved.selectedModel,
+    provider: resolved.provider,
+    providerId: resolved.providerId,
+    model: resolved.model,
+  };
+}
+
+function resolveCompactionModelSelection(
+  settings: AppSettings,
+  fallback: EffectiveChatModelSelection,
+): EffectiveChatModelSelection {
+  const resolved = resolveCompactionRoleModel(settings, fallback);
+  return {
+    selectedModel: resolved.selectedModel,
+    provider: resolved.provider,
+    providerId: resolved.providerId,
+    model: resolved.model,
   };
 }
 
@@ -3882,6 +3879,19 @@ export function ChatPage(props: ChatPageProps) {
       overrides?.runtimeControlsOverride ??
       settings.chatRuntimeControls;
     const providerConfig = buildProviderRuntimeConfig(provider, model, runtimeControls);
+    const compactionModelSelection = resolveCompactionModelSelection(
+      settings,
+      effectiveSelectedModel,
+    );
+    const compactionProviderConfig =
+      compactionModelSelection.selectedModel.customProviderId === selectedModel.customProviderId &&
+      compactionModelSelection.model === model
+        ? providerConfig
+        : buildProviderRuntimeConfig(
+            compactionModelSelection.provider,
+            compactionModelSelection.model,
+            runtimeControls,
+          );
     const memorySummaryModelSelection = resolveMemorySummaryModelSelection(settings);
     const memoryExtractionModel = memorySummaryModelSelection
       ? {
@@ -4355,16 +4365,16 @@ export function ChatPage(props: ChatPageProps) {
     }
 
     compaction.bindTurn({
-      providerId,
-      model,
+      providerId: compactionModelSelection.providerId,
+      model: compactionModelSelection.model,
       runtime: {
-        baseUrl: providerConfig.baseUrl,
-        apiKey: providerConfig.apiKey,
-        requestFormat: providerConfig.requestFormat,
-        reasoning: providerConfig.reasoning,
-        promptCachingEnabled: providerConfig.promptCachingEnabled,
-        nativeWebSearchEnabled: providerConfig.nativeWebSearchEnabled,
-        modelConfig: providerConfig.modelConfig,
+        baseUrl: compactionProviderConfig.baseUrl,
+        apiKey: compactionProviderConfig.apiKey,
+        requestFormat: compactionProviderConfig.requestFormat,
+        reasoning: compactionProviderConfig.reasoning,
+        promptCachingEnabled: compactionProviderConfig.promptCachingEnabled,
+        nativeWebSearchEnabled: compactionProviderConfig.nativeWebSearchEnabled,
+        modelConfig: compactionProviderConfig.modelConfig,
       },
       cancellation,
       debugLogger: compactionDebugLogger,

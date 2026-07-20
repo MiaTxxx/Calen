@@ -84,6 +84,8 @@ function readLocalUiSettings(): {
       conversationTitleEnabled: obj.conversationTitleEnabled !== false,
       conversationTitleModel: normalizeSelectedModel(obj.conversationTitleModel),
       translationModel: normalizeSelectedModel(obj.translationModel),
+      compactionModel: normalizeSelectedModel(obj.compactionModel),
+      quickAskModel: normalizeSelectedModel(obj.quickAskModel),
       translation: normalizeTranslationPreferences(obj.translation),
       chatSidebar: {
         projectsCollapsed: chatSidebar.projectsCollapsed === true,

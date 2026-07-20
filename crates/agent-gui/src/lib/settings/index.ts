@@ -227,6 +227,10 @@ export type CustomSettings = {
   conversationTitleEnabled: boolean;
   // 技能商店等处的描述翻译模型；未设置时回退到当前对话模型。
   translationModel?: SelectedModel;
+  // 上下文压缩模型；未设置时回退到当前对话模型。
+  compactionModel?: SelectedModel;
+  // 截屏即问（Quick Ask）模型，适合 vision；未设置时回退主对话，再回退第一个可用模型。
+  quickAskModel?: SelectedModel;
   // 翻译路由与本地模型选择只在当前设备生效，不进入 Gateway 同步。
   translation: TranslationPreferences;
   chatSidebar: ChatSidebarSettings;
@@ -273,6 +277,35 @@ export function normalizeQuickAskHotkey(input: unknown): string {
   // 缺失/类型不对 → 默认；显式空字符串 → 保留（禁用）。与 Rust 端归一化保持一致。
   if (typeof input !== "string") return DEFAULT_QUICK_ASK_HOTKEY;
   return input.trim();
+}
+
+/**
+ * 把 Tauri 全局快捷键内部写法（CmdOrCtrl 等）转成面向用户的展示文本。
+ * Windows/Linux 显示 Ctrl，macOS 显示 ⌘；存储值本身不改。
+ */
+export function formatQuickAskHotkeyForDisplay(
+  hotkey: string,
+  platform: "windows" | "macos" | "linux" = "windows",
+): string {
+  const primary = platform === "macos" ? "⌘" : "Ctrl";
+  return hotkey
+    .replace(/\bCmdOrCtrl\b/gi, primary)
+    .replace(/\bCommandOrControl\b/gi, primary)
+    .replace(/\bControl\b/gi, "Ctrl")
+    .replace(/\bCommand\b/gi, platform === "macos" ? "⌘" : "Cmd")
+    .replace(/\bOption\b/gi, platform === "macos" ? "⌥" : "Alt")
+    .replace(/⇧/g, "Shift");
+}
+
+/** 用户在设置页输入时，把展示用符号归一成 Tauri 可解析的修饰键写法。 */
+export function normalizeQuickAskHotkeyInput(input: string): string {
+  return input
+    .trim()
+    .replace(/⌘/g, "Cmd")
+    .replace(/⌥/g, "Alt")
+    .replace(/⇧/g, "Shift")
+    .replace(/\bcontrol\b/gi, "Ctrl")
+    .replace(/\bcommand\b/gi, "Cmd");
 }
 
 export type WorkspaceProjectKind = "managed" | "folder" | "history";
@@ -2064,6 +2097,14 @@ export function normalizeCustomSettings(
       normalizeSelectedModel(obj.translationModel),
       customProviders,
     ),
+    compactionModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.compactionModel),
+      customProviders,
+    ),
+    quickAskModel: normalizeSelectedModelForProviders(
+      normalizeSelectedModel(obj.quickAskModel),
+      customProviders,
+    ),
     translation: normalizeTranslationPreferences(obj.translation),
     chatSidebar: {
       projectsCollapsed: chatSidebar.projectsCollapsed === true,
@@ -2608,3 +2649,18 @@ export {
   type McpSettingsOp,
   selectEnabledMcpServers,
 } from "./mcpOps";
+
+export {
+  type ChatModelFallback,
+  type ModelRole,
+  type ResolvedRoleModel,
+  resolveCompactionRoleModel,
+  resolveConversationTitleRoleModel,
+  resolveEnabledSelectedModel,
+  resolveFirstAvailableModel,
+  resolveFollowCurrentRoleModel,
+  resolveMemoryExtractionRoleModel,
+  resolveMemoryOrganizerRoleModel,
+  resolveQuickAskRoleModel,
+  resolveTranslationRoleModel,
+} from "./modelRouting";

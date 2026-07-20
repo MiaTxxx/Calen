@@ -23,8 +23,8 @@ pub const DEFAULT_QUICK_ASK_HOTKEY: &str = "CmdOrCtrl+Shift+A";
 /// 已有小窗打开时，新截图通过该事件通知前端重新拉取 pending。
 const QUICK_ASK_NEW_SHOT_EVENT: &str = "quick-ask:new-shot";
 
-const QUICK_ASK_WINDOW_WIDTH: f64 = 420.0;
-const QUICK_ASK_WINDOW_HEIGHT: f64 = 560.0;
+const QUICK_ASK_WINDOW_WIDTH: f64 = 440.0;
+const QUICK_ASK_WINDOW_HEIGHT: f64 = 580.0;
 
 struct CaptureSession {
     image: RgbaImage,

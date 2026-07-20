@@ -25,6 +25,7 @@ test("resolveQuickAskModel uses the chat-selected model when valid", () => {
   const resolved = model.resolveQuickAskModel({
     selectedModel: { customProviderId: "p1", model: "claude-sonnet-5" },
     customProviders: [provider()],
+    customSettings: {},
   });
   assert.equal(resolved.selected.model, "claude-sonnet-5");
   assert.equal(resolved.provider.id, "p1");
@@ -34,6 +35,21 @@ test("resolveQuickAskModel uses the chat-selected model when valid", () => {
   assert.equal(resolved.runtime.nativeWebSearchEnabled, false);
 });
 
+test("resolveQuickAskModel prefers dedicated quickAskModel over chat model", () => {
+  const resolved = model.resolveQuickAskModel({
+    selectedModel: { customProviderId: "p1", model: "claude-sonnet-5" },
+    customProviders: [
+      provider(),
+      provider({ id: "vision", activeModels: ["gpt-4o"] }),
+    ],
+    customSettings: {
+      quickAskModel: { customProviderId: "vision", model: "gpt-4o" },
+    },
+  });
+  assert.equal(resolved.provider.id, "vision");
+  assert.equal(resolved.selected.model, "gpt-4o");
+});
+
 test("resolveQuickAskModel falls back to the first usable provider", () => {
   const resolved = model.resolveQuickAskModel({
     selectedModel: { customProviderId: "gone", model: "missing" },
@@ -41,6 +57,7 @@ test("resolveQuickAskModel falls back to the first usable provider", () => {
       provider({ id: "empty", apiKey: "", activeModels: [] }),
       provider({ id: "p2", activeModels: ["gpt-6"] }),
     ],
+    customSettings: {},
   });
   assert.equal(resolved.provider.id, "p2");
   assert.equal(resolved.selected.model, "gpt-6");
@@ -52,6 +69,7 @@ test("resolveQuickAskModel throws QuickAskModelError when nothing is usable", ()
       model.resolveQuickAskModel({
         selectedModel: undefined,
         customProviders: [provider({ apiKey: "  ", activeModels: [] })],
+        customSettings: {},
       }),
     model.QuickAskModelError
   );

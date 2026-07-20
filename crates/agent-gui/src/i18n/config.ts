@@ -1244,11 +1244,11 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.quickAskHotkey": "截屏即问快捷键",
     "settings.quickAskHotkeyDesc":
       "全局快捷键：在任意应用里按下即可框选屏幕区域（公式、报错、图表……），在置顶小窗直接向 AI 提问，无需切到主窗口。清空表示禁用，保存后立即生效。",
-    "settings.quickAskHotkeyPlaceholder": "例如 CmdOrCtrl+Shift+A",
+    "settings.quickAskHotkeyPlaceholder": "例如 {hotkey}",
     "settings.quickAskHotkeyReset": "恢复默认",
     "quickAsk.title": "快捷提问",
-    "quickAsk.placeholder": "针对截图提问，Enter 发送，Shift+Enter 换行",
-    "quickAsk.emptyHint": "已截取所选区域，输入问题即可提问。",
+    "quickAsk.placeholder": "针对截图提问…",
+    "quickAsk.emptyHint": "已截取所选区域。直接输入问题，Enter 发送。",
     "quickAsk.noShot": "暂无截图。按全局快捷键框选屏幕后即可提问。",
     "quickAsk.noModel": "尚未配置可用模型。请先在主窗口配置 Provider 并选择模型。",
     "quickAsk.openMain": "打开主窗口",
@@ -1257,6 +1257,13 @@ export const translations: Record<Locale, Record<string, string>> = {
     "quickAsk.stop": "停止",
     "quickAsk.requestFailed": "请求失败",
     "quickAsk.overlayHint": "拖拽框选要提问的区域 · Esc 取消",
+    "quickAsk.capturedRegion": "截取区域",
+    "quickAsk.expandShot": "点击展开截图",
+    "quickAsk.collapseShot": "点击收起截图",
+    "quickAsk.thinking": "正在思考…",
+    "quickAsk.copy": "复制",
+    "quickAsk.copied": "已复制",
+    "quickAsk.footerHint": "Enter 发送 · Shift+Enter 换行 · Esc 关闭",
     "settings.workdir": "项目文件夹",
     "settings.workdirRequired": "必填",
     "settings.workdirDesc": "Agent 模式下文件工具使用当前项目文件夹作为根目录。",
@@ -1443,6 +1450,15 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.translationModel": "翻译模型",
     "settings.translationModelFollowCurrent": "使用当前对话模型",
     "settings.translationModelHint": "用于技能商店等处的描述翻译；未选择时使用当前对话模型。",
+    "settings.taskModelsHint": "为压缩、截屏即问等系统任务指定专用模型；未选择时跟随当前对话模型。",
+    "settings.compactionModel": "上下文压缩模型",
+    "settings.compactionModelFollowCurrent": "使用当前对话模型",
+    "settings.compactionModelHint":
+      "用于长对话上下文压缩。可用更便宜的模型以节省主模型额度；未选择时跟随当前对话模型。",
+    "settings.quickAskModel": "截屏即问模型",
+    "settings.quickAskModelFollowCurrent": "使用当前对话模型",
+    "settings.quickAskModelHint":
+      "用于 Ctrl+Shift+A 截屏提问，建议选支持看图的模型；未选择时跟随主对话模型。",
     "settings.customSettingsModelEmpty": "当前 Provider 未配置模型。",
 
     /* ── Settings Prompt ── */
@@ -3263,11 +3279,11 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.quickAskHotkey": "Quick Ask Hotkey",
     "settings.quickAskHotkeyDesc":
       "Global hotkey: press it in any app to select a screen region (a formula, an error, a chart…) and ask the AI in a small always-on-top window, without switching to the main window. Leave empty to disable; changes apply immediately after saving.",
-    "settings.quickAskHotkeyPlaceholder": "e.g. CmdOrCtrl+Shift+A",
+    "settings.quickAskHotkeyPlaceholder": "e.g. {hotkey}",
     "settings.quickAskHotkeyReset": "Reset to default",
     "quickAsk.title": "Quick Ask",
-    "quickAsk.placeholder": "Ask about the screenshot. Enter to send, Shift+Enter for a new line",
-    "quickAsk.emptyHint": "Region captured. Type a question to ask about it.",
+    "quickAsk.placeholder": "Ask about the screenshot…",
+    "quickAsk.emptyHint": "Region captured. Type a question and press Enter to send.",
     "quickAsk.noShot": "No screenshot yet. Press the global hotkey to capture a region first.",
     "quickAsk.noModel":
       "No usable model configured. Open the main window to set up a provider and pick a model.",
@@ -3277,6 +3293,13 @@ export const translations: Record<Locale, Record<string, string>> = {
     "quickAsk.stop": "Stop",
     "quickAsk.requestFailed": "Request failed",
     "quickAsk.overlayHint": "Drag to select the region you want to ask about · Esc to cancel",
+    "quickAsk.capturedRegion": "Captured region",
+    "quickAsk.expandShot": "Click to expand screenshot",
+    "quickAsk.collapseShot": "Click to collapse screenshot",
+    "quickAsk.thinking": "Thinking…",
+    "quickAsk.copy": "Copy",
+    "quickAsk.copied": "Copied",
+    "quickAsk.footerHint": "Enter to send · Shift+Enter for a new line · Esc to close",
     "settings.workdir": "Project Folder",
     "settings.workdirRequired": "Required",
     "settings.workdirDesc":
@@ -3469,6 +3492,16 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.translationModelFollowCurrent": "Use current chat model",
     "settings.translationModelHint":
       "Used to translate descriptions in places like the skills store; falls back to the current chat model when unselected.",
+    "settings.taskModelsHint":
+      "Assign dedicated models for system tasks like compaction and Quick Ask; when unselected, they follow the current chat model.",
+    "settings.compactionModel": "Context compaction model",
+    "settings.compactionModelFollowCurrent": "Use current chat model",
+    "settings.compactionModelHint":
+      "Used for long-conversation context compaction. A cheaper model can save main-model quota; when unselected, follows the current chat model.",
+    "settings.quickAskModel": "Quick Ask model",
+    "settings.quickAskModelFollowCurrent": "Use current chat model",
+    "settings.quickAskModelHint":
+      "Used for Ctrl+Shift+A screenshot questions. Prefer a vision-capable model; when unselected, follows the main chat model.",
     "settings.customSettingsModelEmpty":
       "No active models are configured for the current providers.",
 
