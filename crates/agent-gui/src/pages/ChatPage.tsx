@@ -3993,6 +3993,13 @@ export function ChatPage(props: ChatPageProps) {
             "info",
             t("chat.visionRouted").replace("{model}", `${provider.name} / ${model}`),
           );
+        } else {
+          // 没有可用视觉模型：阻断发送，避免附件静默丢失。
+          const message = t("chat.visionUnavailable");
+          addNotify("error", message);
+          setConversationErrorState(message);
+          gatewayBridgeEvents.emitError(message);
+          return false;
         }
       }
     }

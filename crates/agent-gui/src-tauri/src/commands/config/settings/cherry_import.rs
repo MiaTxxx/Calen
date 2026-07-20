@@ -802,6 +802,8 @@ fn cherry_v2_model_is_chat_compatible(
 
 fn cherry_model_id_looks_non_chat(model_id: &str) -> bool {
     let lower = model_id.to_ascii_lowercase();
+    // 注意：不要用裸 "image" 子串，否则会误杀 qwen-vl / xxx-image-preview 等视觉理解模型。
+    // 生图模型用更具体的名字；纯 embedding/音频/视频生成继续排除。
     [
         "embedding",
         "rerank",
@@ -809,14 +811,19 @@ fn cherry_model_id_looks_non_chat(model_id: &str) -> bool {
         "realtime",
         "audio-preview",
         "audio-realtime",
-        "image",
-        "video",
-        "banana",
-        "dall-e",
-        "imagen",
+        "video-generation",
         "sora-",
         "veo-",
         "tts-",
+        "dall-e",
+        "imagen",
+        "gpt-image",
+        "image-1",
+        "midjourney",
+        "stable-diffusion",
+        "sdxl",
+        "flux-",
+        "banana",
     ]
     .iter()
     .any(|needle| lower.contains(needle))

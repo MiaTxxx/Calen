@@ -669,6 +669,59 @@ export function ToolResultDisplay({
     );
   }
 
+  if (kind === "image_generation") {
+    const details = (result.details ?? {}) as {
+      model?: string;
+      providerId?: string;
+      prompt?: string;
+      size?: string;
+      revisedPrompt?: string;
+      url?: string;
+    };
+    return (
+      <div className="space-y-2">
+        <ToolSurface className="border-violet-500/15 bg-violet-500/[0.035] dark:bg-violet-400/[0.04]">
+          <div className="mb-2 text-[calc(12px*var(--zone-font-scale,1))] font-semibold text-foreground/85">
+            GenerateImage
+          </div>
+          <MetaTags
+            tags={[
+              ...(details.providerId ? [{ label: "provider", value: details.providerId }] : []),
+              ...(details.model ? [{ label: "model", value: details.model }] : []),
+              ...(details.size ? [{ label: "size", value: details.size }] : []),
+              ...(details.url ? [{ label: "url", value: details.url }] : []),
+            ]}
+          />
+          {details.prompt ? (
+            <div className="mt-2 rounded-[8px] border border-black/[0.05] bg-white/[0.45] px-2.5 py-2 text-[calc(11.5px*var(--zone-font-scale,1))] leading-[1.55] text-foreground/80 dark:border-white/[0.07] dark:bg-white/[0.03]">
+              <div className="mb-1 text-[calc(10px*var(--zone-font-scale,1))] font-semibold uppercase tracking-[0.14em] text-muted-foreground/55">
+                prompt
+              </div>
+              <div className="whitespace-pre-wrap break-words">{details.prompt}</div>
+            </div>
+          ) : null}
+          {details.revisedPrompt ? (
+            <div className="mt-2 text-[calc(11px*var(--zone-font-scale,1))] leading-[1.5] text-muted-foreground/75">
+              revised: {details.revisedPrompt}
+            </div>
+          ) : null}
+        </ToolSurface>
+        {images.length > 0 ? (
+          <div className="overflow-hidden rounded-[10px] border border-black/[0.06] bg-white/[0.55] p-2 dark:border-white/[0.08] dark:bg-white/[0.04]">
+            {images.map((image, index) => (
+              <ToolResultImagePreview
+                key={`${item.toolCall.id}-gen-${index}`}
+                id={`${item.toolCall.id}-gen-${index}`}
+                image={image}
+                alt={details.prompt || item.toolCall.name}
+              />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   if (kind === "read_pdf") {
     const details = result.details as ReadPdfResultDetails;
     return (

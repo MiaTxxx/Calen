@@ -4,14 +4,14 @@
 
 ## 交互流程
 
-| 步骤 | 说明                                                                                                                                           | 关键模块                                             |
-| ---: | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-|    1 | 全局快捷键触发（默认 Windows/Linux 显示 `Ctrl+Shift+A`，macOS 显示 `⌘+Shift+A`；内部存 `CmdOrCtrl+Shift+A`。可在 系统设置 中改键或清空禁用）。 | `tauri-plugin-global-shortcut`、`quick_ask.rs`       |
-|    2 | Rust 用 `xcap` 截取光标所在显示器整屏（先截图再开窗，避免遮罩把自己截进去）。                                                                  | `quick_ask.rs::capture_monitor_at_cursor`            |
-|    3 | 弹出全屏无边框置顶遮罩窗 `snip-overlay`，前端展示冻结画面并拖拽框选。                                                                          | `SnipOverlayApp.tsx`、`lib/quick-ask/selection.ts`   |
-|    4 | 确认选区后 Rust 裁剪出 PNG，关闭遮罩，弹出置顶小窗 `quick-ask`（靠近光标）。                                                                   | `quick_ask_confirm_selection`                        |
-|    5 | 小窗取走截图，输入问题后走前端既有 provider 流式管线（本地代理、凭据、模型）。                                                                 | `QuickAskApp.tsx`、`lib/quick-ask/model.ts`          |
-|    6 | 截图以 provider 原生 image 内容块随首条用户消息发送；支持多轮追问、Esc 中断。                                                                  | `buildQuickAskUserMessage`、`streamAssistantMessage` |
+| 步骤 | 说明                                                                                                                                           | 关键模块                                                       |
+| ---: | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+|    1 | 全局快捷键触发（默认 Windows/Linux 显示 `Ctrl+Shift+A`，macOS 显示 `⌘+Shift+A`；内部存 `CmdOrCtrl+Shift+A`。可在 系统设置 中改键或清空禁用）。 | `tauri-plugin-global-shortcut`、`quick_ask.rs`                 |
+|    2 | Rust 用 `xcap` 截取光标所在显示器整屏（先截图再开窗，避免遮罩把自己截进去）。                                                                  | `quick_ask.rs::capture_monitor_at_cursor`                      |
+|    3 | 弹出全屏无边框置顶遮罩窗 `snip-overlay`，前端展示冻结画面并拖拽框选。                                                                          | `SnipOverlayApp.tsx`、`lib/quick-ask/selection.ts`             |
+|    4 | 确认选区后 Rust 裁剪出 PNG，关闭遮罩，弹出置顶小窗 `quick-ask`（靠近光标）。                                                                   | `quick_ask_confirm_selection`                                  |
+|    5 | 小窗取走截图，输入问题后走前端既有 provider 流式管线（本地代理、凭据、模型；可配 `quickAskModel`，适合 vision）。                              | `QuickAskApp.tsx`、`lib/quick-ask/model.ts`、`modelRouting.ts` |
+|    6 | 截图以 provider 原生 image 内容块随首条用户消息发送；支持多轮追问、Esc 中断。                                                                  | `buildQuickAskUserMessage`、`streamAssistantMessage`           |
 
 ## 实现约束（踩坑记录）
 
@@ -23,7 +23,7 @@
 ## 设计要点
 
 - **三窗一入口**：`snip-overlay` / `quick-ask` 与主窗口共用同一个前端 bundle，`main.tsx` 按 Tauri 窗口 label 分流；两个新 label 已加入 `capabilities/default.json`。
-- **模型选择**：复用主对话当前选中的模型（localStorage 同源共享）；不可用时回退到第一个配置了 API Key 且有可用模型的 provider；都没有则提示去主窗口配置。
+- **模型选择**：优先 `customSettings.quickAskModel`；否则复用主对话当前选中的模型（localStorage 同源共享）；再回退到第一个配置了 API Key 且有可用模型的 provider；都没有则提示去主窗口配置。详见 `docs/features/model-routing.md`。
 - **对话不落盘**：小窗对话只存内存，不写聊天历史；关闭窗口即丢弃。再次截图会通过 `quick-ask:new-shot` 事件重置小窗对话。
 - **快捷键持久化**：`quickAskHotkey` 存在 system settings（SQLite），Rust 启动时读取注册；`settings_save_system` 保存后立即重注册。缺失 → 默认值；显式空字符串 → 禁用（前后端归一化语义一致）。
 - **思考/缓存关闭**：快捷提问固定 `reasoning: off`、不启用 prompt caching 与联网搜索，追求响应速度。

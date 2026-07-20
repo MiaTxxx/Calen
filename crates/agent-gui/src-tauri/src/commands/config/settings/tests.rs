@@ -1231,6 +1231,14 @@ mod tests {
             &json!({"type": ["image_generation"]}),
             "nano-banana"
         ));
+        // VL / vision 理解模型不应被 id 子串误杀；纯生图模型继续排除。
+        assert!(cherry_model_is_chat_compatible(
+            &json!({"type": ["text", "vision"]}),
+            "qwen2.5-vl-72b"
+        ));
+        assert!(!cherry_model_id_looks_non_chat("qwen2.5-vl-72b"));
+        assert!(cherry_model_id_looks_non_chat("dall-e-3"));
+        assert!(cherry_model_id_looks_non_chat("gpt-image-1"));
         assert!(imported.iter().any(|item| {
             item.provider_type == "codex" && item.request_format == "openai-completions"
         }));

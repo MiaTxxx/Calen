@@ -46,6 +46,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     "chat.memoryExtraction.noop": "本轮无需更新记忆。",
     "chat.memoryExtraction.partial": "记忆部分更新（{accepted} 条已应用，{rejected} 条被拒）。",
     "chat.visionRouted": "当前模型不支持看图，本轮已切换到视觉模型：{model}",
+    "chat.visionUnavailable":
+      "当前模型不支持看图，且未配置可用的视觉模型。请在设置 → 自定义设置中指定视觉模型，或更换支持看图的主模型。",
     "chat.recentConversation": "最近会话",
     "chat.searchConversations": "搜索对话…",
     "chat.searchSearching": "正在搜索…",
@@ -1451,7 +1453,8 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.translationModel": "翻译模型",
     "settings.translationModelFollowCurrent": "使用当前对话模型",
     "settings.translationModelHint": "用于技能商店等处的描述翻译；未选择时使用当前对话模型。",
-    "settings.taskModelsHint": "为压缩、截屏即问等系统任务指定专用模型；未选择时跟随当前对话模型。",
+    "settings.taskModelsHint":
+      "为压缩、截屏即问、子代理、视觉与生图等系统任务指定专用模型；未选择时跟随当前对话模型（生图需单独配置才启用工具）。",
     "settings.compactionModel": "上下文压缩模型",
     "settings.compactionModelFollowCurrent": "使用当前对话模型",
     "settings.compactionModelHint":
@@ -2046,6 +2049,8 @@ export const translations: Record<Locale, Record<string, string>> = {
       "Memory partially updated ({accepted} applied, {rejected} rejected).",
     "chat.visionRouted":
       "Current model cannot see images. This turn was routed to vision model: {model}",
+    "chat.visionUnavailable":
+      "The current model cannot see images, and no usable vision model is configured. Set a vision model in Settings → Custom Settings, or switch to a vision-capable chat model.",
     "chat.recentConversation": "Conversations",
     "chat.searchConversations": "Search conversations…",
     "chat.searchSearching": "Searching…",
@@ -3517,7 +3522,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     "settings.translationModelHint":
       "Used to translate descriptions in places like the skills store; falls back to the current chat model when unselected.",
     "settings.taskModelsHint":
-      "Assign dedicated models for system tasks like compaction and Quick Ask; when unselected, they follow the current chat model.",
+      "Assign dedicated models for system tasks like compaction, Quick Ask, subagents, vision, and image generation; when unselected, they follow the current chat model (image generation stays off until configured).",
     "settings.compactionModel": "Context compaction model",
     "settings.compactionModelFollowCurrent": "Use current chat model",
     "settings.compactionModelHint":
