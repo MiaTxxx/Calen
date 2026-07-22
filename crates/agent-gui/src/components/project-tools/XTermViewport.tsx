@@ -172,38 +172,83 @@ export function XTermViewport({
       theme: terminalTheme(themeRef.current),
     });
     termRef.current = term;
-    // xterm 不内置复制/粘贴快捷键：Ctrl+C 要保留给 SIGINT，所以按终端惯例
-    // 用 Ctrl+Shift+C 复制选中内容、Ctrl+Shift+V 粘贴，由宿主实现。
+    // xterm 不内置复制/粘贴快捷键。宿主实现：
+    // - Ctrl+Shift+C / Ctrl+Insert：复制选区
+    // - Ctrl+C：有选区时复制（Windows Terminal 惯例），无选区放行给 SIGINT
+    // - Ctrl+Shift+V / Shift+Insert：粘贴
+    // 剪贴板写入优先同步 execCommand 回退：Tauri/WebView2 上 async clipboard
+    // 常在 keydown 里失败，且原先 .catch(() => undefined) 会静默吞掉。
     term.attachCustomKeyEventHandler((event) => {
-      if (
-        event.type !== "keydown" ||
-        !event.ctrlKey ||
-        !event.shiftKey ||
-        event.altKey ||
-        event.metaKey
-      ) {
+      if (event.type !== "keydown" || event.altKey || event.metaKey) {
         return true;
       }
-      if (event.code === "KeyC") {
+
+      const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
+      const isKeyC = event.code === "KeyC" || key === "c";
+      const isKeyV = event.code === "KeyV" || key === "v";
+      const isInsert = event.code === "Insert" || key === "insert";
+
+      // Ctrl+C with an active selection copies instead of sending SIGINT.
+      if (event.ctrlKey && !event.shiftKey && isKeyC) {
         const selection = term.getSelection();
         if (selection) {
-          void navigator.clipboard?.writeText(selection).catch(() => undefined);
+          writeTerminalClipboardText(selection);
+          // execCommand path focuses a temporary textarea; restore terminal focus.
+          window.setTimeout(() => {
+            if (!disposed) term.focus();
+          }, 0);
+          event.preventDefault();
+          return false;
+        }
+        return true;
+      }
+
+      if (event.ctrlKey && event.shiftKey && isKeyC) {
+        const selection = term.getSelection();
+        if (selection) {
+          writeTerminalClipboardText(selection);
+          window.setTimeout(() => {
+            if (!disposed) term.focus();
+          }, 0);
         }
         event.preventDefault();
         return false;
       }
-      if (event.code === "KeyV") {
-        void navigator.clipboard
-          ?.readText()
-          .then((text) => {
-            if (text) {
-              term.paste(text);
-            }
-          })
-          .catch(() => undefined);
+
+      // Ctrl+Insert → copy (classic Windows terminal binding)
+      if (event.ctrlKey && !event.shiftKey && isInsert) {
+        const selection = term.getSelection();
+        if (selection) {
+          writeTerminalClipboardText(selection);
+          window.setTimeout(() => {
+            if (!disposed) term.focus();
+          }, 0);
+        }
         event.preventDefault();
         return false;
       }
+
+      if (event.ctrlKey && event.shiftKey && isKeyV) {
+        void readTerminalClipboardText().then((text) => {
+          if (text && !disposed) {
+            term.paste(text);
+          }
+        });
+        event.preventDefault();
+        return false;
+      }
+
+      // Shift+Insert → paste
+      if (!event.ctrlKey && event.shiftKey && isInsert) {
+        void readTerminalClipboardText().then((text) => {
+          if (text && !disposed) {
+            term.paste(text);
+          }
+        });
+        event.preventDefault();
+        return false;
+      }
+
       return true;
     });
     const fit = new FitAddon();
@@ -541,6 +586,60 @@ export function XTermViewport({
       className={cn("project-terminal-viewport h-full min-h-0 w-full overflow-hidden", className)}
     />
   );
+}
+
+/**
+ * Write text to the system clipboard from a terminal key handler.
+ * Prefer a synchronous execCommand path first: async clipboard.writeText often
+ * fails or loses user-activation in Tauri WebView2, and a silent catch made
+ * Ctrl+Shift+C look broken.
+ */
+function writeTerminalClipboardText(text: string) {
+  if (!text) return;
+  if (fallbackWriteTextToClipboard(text)) return;
+  if (navigator.clipboard?.writeText) {
+    void navigator.clipboard.writeText(text).catch(() => undefined);
+  }
+}
+
+function fallbackWriteTextToClipboard(text: string): boolean {
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    // Keep it in-viewport but invisible so execCommand('copy') is allowed.
+    textarea.style.position = "fixed";
+    textarea.style.left = "0";
+    textarea.style.top = "0";
+    textarea.style.width = "1px";
+    textarea.style.height = "1px";
+    textarea.style.padding = "0";
+    textarea.style.border = "none";
+    textarea.style.outline = "none";
+    textarea.style.boxShadow = "none";
+    textarea.style.background = "transparent";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, text.length);
+    const copied = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    return copied;
+  } catch {
+    return false;
+  }
+}
+
+async function readTerminalClipboardText(): Promise<string> {
+  try {
+    if (navigator.clipboard?.readText) {
+      return (await navigator.clipboard.readText()) ?? "";
+    }
+  } catch {
+    // Permission or insecure-context failures fall through to empty.
+  }
+  return "";
 }
 
 function terminalInputPausedMessage(state: TerminalStreamInputState) {

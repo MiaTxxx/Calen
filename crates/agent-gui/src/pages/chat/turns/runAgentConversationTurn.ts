@@ -38,6 +38,13 @@ import {
   upsertToolCallToRound,
 } from "../../../lib/chat/messages/uiMessages";
 import { getUserMessageDisplayText } from "../../../lib/chat/messages/uploadedFiles";
+import {
+  buildPlanModeToolDeniedResult,
+  isPlanModeToolAllowed,
+  PLAN_MODE_PROMPT_MARKER,
+  PLAN_MODE_SYSTEM_PROMPT,
+  selectPlanModeTools,
+} from "../../../lib/chat/planMode";
 import { runAssistantWithTools } from "../../../lib/chat/runner/agentRunner";
 import type { StreamDebugLogger } from "../../../lib/debug/agentDebug";
 import { assistantMessageToText } from "../../../lib/providers/llm";
@@ -215,6 +222,8 @@ export type RunAgentConversationTurnParams = {
   };
   effectiveWorkdir: string;
   effectiveSkillsEnabled: boolean;
+  /** Session-level Plan Mode: read-only tools + plan system prompt. */
+  planModeEnabled?: boolean;
   showSilentMemoryExtraction: boolean;
   skillsRootDir?: string;
   skillAccessPolicy?: SkillAccessPolicy;
@@ -296,6 +305,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     selectedModel,
     effectiveWorkdir,
     effectiveSkillsEnabled,
+    planModeEnabled = false,
     showSilentMemoryExtraction,
     skillsRootDir,
     skillAccessPolicy,
@@ -484,14 +494,40 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     toolCount: builtinRegistry.tools.length,
     enabledMcpServerCount: selectEnabledMcpServers(getMcpSettings()).length,
   });
-  const combinedTools = builtinRegistry.tools;
+  // Plan mode hard-gates the tool surface after registry construction so the
+  // model never sees write/shell handles. TodoWrite stays for planning lists.
+  const planModeToolSelection = planModeEnabled
+    ? selectPlanModeTools({
+        tools: builtinRegistry.tools,
+        metadataByName: builtinRegistry.metadataByName,
+      })
+    : null;
+  const combinedTools = planModeToolSelection?.tools ?? builtinRegistry.tools;
+  const planModeAllowedToolNames = planModeToolSelection?.allowedNames ?? null;
+
+  const withPlanModeContext = (context: Context): Context => {
+    if (!planModeEnabled) return context;
+    // Compaction / mid-stream re-entry may already carry the plan section.
+    if ((context.systemPrompt || "").includes(PLAN_MODE_PROMPT_MARKER)) {
+      return context;
+    }
+    const systemPrompt = appendSystemPrompt(context.systemPrompt, PLAN_MODE_SYSTEM_PROMPT);
+    return systemPrompt !== context.systemPrompt
+      ? {
+          ...context,
+          systemPrompt,
+        }
+      : context;
+  };
 
   const preCompactionStartedAt = perfNowMs();
   await compaction.maybeCompactPreSend({
-    budgetContext: withSubagentRuntimeContext(
-      buildPreparedContext(getNextConversationState(), combinedTools, {
-        includeUploadedFilesMetadata: true,
-      }),
+    budgetContext: withPlanModeContext(
+      withSubagentRuntimeContext(
+        buildPreparedContext(getNextConversationState(), combinedTools, {
+          includeUploadedFilesMetadata: true,
+        }),
+      ),
     ),
     tools: combinedTools,
     includeUploadedFilesMetadata: true,
@@ -502,6 +538,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     preCompactionStartedAt,
     {
       toolCount: combinedTools.length,
+      planModeEnabled,
     },
   );
 
@@ -509,8 +546,20 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     toolCall: ToolCall,
     signal?: AbortSignal,
     context?: BuiltinToolExecutionContext,
-  ) => Promise<Message> = (tc, signal, context) =>
-    builtinRegistry.executeToolCall(tc, signal, context);
+  ) => Promise<Message> = (tc, signal, context) => {
+    if (planModeAllowedToolNames && !isPlanModeToolAllowed(tc.name, planModeAllowedToolNames)) {
+      return Promise.resolve({
+        role: "toolResult",
+        toolCallId: tc.id,
+        toolName: tc.name,
+        content: [{ type: "text", text: buildPlanModeToolDeniedResult(tc.name) }],
+        details: { planModeDenied: true },
+        isError: true,
+        timestamp: Date.now(),
+      });
+    }
+    return builtinRegistry.executeToolCall(tc, signal, context);
+  };
 
   hookLifecycle.startAgent();
   let result: Awaited<ReturnType<typeof runAssistantWithTools>> | null = null;
@@ -650,11 +699,13 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
     let midStreamCompactionRequested = false;
     let sawToolCallInRound = false;
     const nativeWebSearchEnabled = runtime.nativeWebSearchEnabled !== false;
-    const agentContext = withSubagentRuntimeContext(
-      pendingAgentContext ??
-        buildPreparedContext(getNextConversationState(), combinedTools, {
-          includeUploadedFilesMetadata: true,
-        }),
+    const agentContext = withPlanModeContext(
+      withSubagentRuntimeContext(
+        pendingAgentContext ??
+          buildPreparedContext(getNextConversationState(), combinedTools, {
+            includeUploadedFilesMetadata: true,
+          }),
+      ),
     );
     pendingAgentContext = null;
     // 主请求跑在派生 scope 上：mid-stream 压缩只 abort 该 scope，用户停止
@@ -852,10 +903,12 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
             getNextConversationState(),
             emittedMessages,
           );
-          const tempContext = withSubagentRuntimeContext(
-            buildPreparedContext(tempState, combinedTools, {
-              includeUploadedFilesMetadata: true,
-            }),
+          const tempContext = withPlanModeContext(
+            withSubagentRuntimeContext(
+              buildPreparedContext(tempState, combinedTools, {
+                includeUploadedFilesMetadata: true,
+              }),
+            ),
           );
           const compactedContext = await compaction.compactDuringRun({
             trigger: "post-tool",
@@ -874,7 +927,7 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
           }
           latestAgentEmittedMessages = [];
           return {
-            context: withSubagentRuntimeContext(compactedContext),
+            context: withPlanModeContext(withSubagentRuntimeContext(compactedContext)),
             emittedMessages: [],
           };
         },
@@ -916,11 +969,13 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
       const compactedContext = await compaction.compactDuringRun({
         trigger: "mid-stream",
         state: tempState,
-        budgetContext: withSubagentRuntimeContext(
-          buildPreparedContext(tempState, combinedTools, {
-            includeAbortedMessages: true,
-            includeUploadedFilesMetadata: true,
-          }),
+        budgetContext: withPlanModeContext(
+          withSubagentRuntimeContext(
+            buildPreparedContext(tempState, combinedTools, {
+              includeAbortedMessages: true,
+              includeUploadedFilesMetadata: true,
+            }),
+          ),
         ),
         tools: combinedTools,
         includeAbortedMessages: true,
@@ -928,6 +983,8 @@ export async function runAgentConversationTurn(params: RunAgentConversationTurnP
       });
 
       if (compactedContext) {
+        // Compaction returns a Context; plan/subagent suffixes are re-applied
+        // at the top of the next loop via withPlanModeContext / withSubagent…
         pendingAgentContext = compactedContext;
       } else {
         // 压缩与 prune 均不可用：本轮禁用 mid-stream 保护，带原上下文续跑，

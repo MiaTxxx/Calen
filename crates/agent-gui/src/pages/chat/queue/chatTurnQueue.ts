@@ -21,6 +21,8 @@ export type QueuedChatTurn = {
   draft: MentionComposerDraft;
   uploadedFiles: PendingUploadedFile[];
   executionMode: ExecutionMode;
+  /** Session-level Plan Mode for this turn (read-only tools + plan prompt). */
+  planMode: boolean;
   workdir: string;
   selectedSystemToolIds: SystemToolId[];
   runtimeControls: ChatRuntimeControls;
@@ -68,6 +70,7 @@ export function createQueuedChatTurn(input: QueuedChatTurnInput): QueuedChatTurn
     draft: input.draft,
     uploadedFiles: input.uploadedFiles.slice(),
     executionMode: input.executionMode,
+    planMode: input.planMode === true,
     workdir: input.workdir.trim(),
     selectedSystemToolIds: input.selectedSystemToolIds.slice(),
     runtimeControls: { ...input.runtimeControls },
@@ -90,6 +93,8 @@ export function buildQueuedChatTurnPreview(draft: MentionComposerDraft) {
         return segment.paste.label;
       case "skillMention":
         return `/${segment.skill.name}`;
+      case "planCommand":
+        return `/${segment.command}`;
       case "commitMention":
         return segment.commit.subject || segment.commit.shortSha || segment.commit.sha;
       case "gitFileMention":

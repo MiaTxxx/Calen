@@ -224,6 +224,10 @@ export const ChatComposerBar = memo(function ChatComposerBar(props: {
   workdir: string;
   enabledSkills: MentionComposerSkill[];
   isAgentMode: boolean;
+  /** Session-level Plan Mode indicator + approve/exit actions. */
+  isPlanMode?: boolean;
+  onApprovePlanExecute?: () => void;
+  onExitPlanMode?: () => void;
   chatRuntimeControls: ChatRuntimeControls;
   reasoningOptions: ReasoningLevel[];
   thinkingAlwaysOn: boolean;
@@ -263,6 +267,9 @@ export const ChatComposerBar = memo(function ChatComposerBar(props: {
     workdir,
     enabledSkills,
     isAgentMode,
+    isPlanMode = false,
+    onApprovePlanExecute,
+    onExitPlanMode,
     chatRuntimeControls,
     reasoningOptions,
     thinkingAlwaysOn,
@@ -743,6 +750,38 @@ export const ChatComposerBar = memo(function ChatComposerBar(props: {
           />
 
           <div className="relative px-4 pt-3.5">
+            {isAgentMode && isPlanMode ? (
+              <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.08] px-2.5 py-1.5 text-[calc(11px*var(--zone-font-scale,1))] text-amber-900 dark:border-amber-300/20 dark:bg-amber-300/[0.08] dark:text-amber-100">
+                <span className="inline-flex items-center gap-1 font-medium">
+                  <Lightbulb className="h-3.5 w-3.5 shrink-0 opacity-90" />
+                  {t("chat.plan.badge")}
+                </span>
+                <span className="min-w-0 flex-1 text-amber-900/75 dark:text-amber-100/75">
+                  {t("chat.plan.badgeHint")}
+                </span>
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  {onExitPlanMode ? (
+                    <button
+                      type="button"
+                      onClick={onExitPlanMode}
+                      className="rounded-md px-2 py-0.5 text-amber-900/80 transition-colors hover:bg-amber-500/15 hover:text-amber-950 dark:text-amber-100/80 dark:hover:bg-amber-300/15 dark:hover:text-amber-50"
+                    >
+                      {t("chat.plan.exit")}
+                    </button>
+                  ) : null}
+                  {onApprovePlanExecute ? (
+                    <button
+                      type="button"
+                      onClick={onApprovePlanExecute}
+                      disabled={isSending || isInputDisabled}
+                      className="rounded-md bg-amber-600 px-2 py-0.5 font-medium text-white transition-colors hover:bg-amber-700 disabled:pointer-events-none disabled:opacity-40 dark:bg-amber-500 dark:text-amber-950 dark:hover:bg-amber-400"
+                    >
+                      {t("chat.plan.approveExecute")}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             {onEditorHeightChange ? (
               <button
                 type="button"

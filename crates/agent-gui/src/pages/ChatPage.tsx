@@ -106,6 +106,11 @@ import {
   getFirstUserMessageText,
   isAbortLikeError,
 } from "../lib/chat/page/chatPageHelpers";
+import {
+  composerDraftFromText,
+  PLAN_EXECUTE_DEFAULT_PROMPT,
+  resolvePlanComposerInput,
+} from "../lib/chat/planMode";
 import type { ScrollFollowHandle } from "../lib/chat-scroll/useScrollFollow";
 import { createStreamDebugLogger } from "../lib/debug/agentDebug";
 import { tauriGitClient } from "../lib/git/tauriGitClient";
@@ -457,23 +462,26 @@ function buildTextFromComposerDraft(
 ) {
   return draft.segments
     .map((segment) => {
-      if (segment.type === "text") {
-        return segment.text;
+      switch (segment.type) {
+        case "text":
+          return segment.text;
+        case "fileMention":
+          return formatFileMentionToken(segment.reference);
+        case "skillMention":
+          return `/${segment.skill.name}`;
+        case "planCommand":
+          return `/${segment.command}`;
+        case "commitMention":
+          return formatComposerCommitMention(segment.commit);
+        case "gitFileMention":
+          return formatComposerGitFileMention(segment.file);
+        case "largePaste": {
+          const file = pastedFileById?.get(segment.paste.id);
+          return file ? `[${segment.paste.label}: ${file.relativePath}]` : segment.paste.text;
+        }
+        default:
+          return "";
       }
-      if (segment.type === "fileMention") {
-        return formatFileMentionToken(segment.reference);
-      }
-      if (segment.type === "skillMention") {
-        return `/${segment.skill.name}`;
-      }
-      if (segment.type === "commitMention") {
-        return formatComposerCommitMention(segment.commit);
-      }
-      if (segment.type === "gitFileMention") {
-        return formatComposerGitFileMention(segment.file);
-      }
-      const file = pastedFileById?.get(segment.paste.id);
-      return file ? `[${segment.paste.label}: ${file.relativePath}]` : segment.paste.text;
     })
     .join("")
     .replace(/\u00A0/g, " ");
@@ -644,6 +652,10 @@ export function ChatPage(props: ChatPageProps) {
     phase: "idle",
   });
   const [isSending, setIsSending] = useState(false);
+  /** Per-conversation Plan Mode (session-scoped; not a global ExecutionMode). */
+  const [planModeByConversation, setPlanModeByConversation] = useState<Record<string, boolean>>({});
+  const planModeByConversationRef = useRef(planModeByConversation);
+  planModeByConversationRef.current = planModeByConversation;
   const [isImportingPastedText, setIsImportingPastedText] = useState(false);
   const isImportingPastedTextRef = useRef(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -709,6 +721,8 @@ export function ChatPage(props: ChatPageProps) {
 
   const isAgentMode = isAgentExecutionMode(settings.system.executionMode);
   const isAgentDevExecutionMode = isAgentDevMode(settings.system.executionMode);
+  const isCurrentConversationPlanMode =
+    isAgentMode && planModeByConversation[currentConversationId] === true;
   const skillsConfigured = settings.skills.enabled;
   const skillsEnabled = skillsConfigured && isAgentMode;
   const activeAgentPrompt = useMemo(() => {
@@ -1842,6 +1856,50 @@ export function ChatPage(props: ChatPageProps) {
     setNotifyItems((prev) => [...prev, { id, type, message }]);
   }, []);
 
+  const getConversationPlanMode = useCallback((conversationId: string) => {
+    const key = conversationId.trim();
+    if (!key) return false;
+    return planModeByConversationRef.current[key] === true;
+  }, []);
+
+  const setConversationPlanMode = useCallback((conversationId: string, enabled: boolean) => {
+    const key = conversationId.trim();
+    if (!key) return;
+    setPlanModeByConversation((prev) => {
+      const currentlyOn = prev[key] === true;
+      if (enabled) {
+        if (currentlyOn) return prev;
+        return { ...prev, [key]: true };
+      }
+      if (!currentlyOn && !(key in prev)) return prev;
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  const notifyPlanModeChange = useCallback(
+    (notice: "entered" | "exited" | "already_on" | "already_off" | undefined) => {
+      if (!notice) return;
+      switch (notice) {
+        case "entered":
+          addNotify("info", t("chat.plan.entered"));
+          break;
+        case "exited":
+          addNotify("info", t("chat.plan.exited"));
+          break;
+        case "already_on":
+          addNotify("info", t("chat.plan.alreadyOn"));
+          break;
+        case "already_off":
+          addNotify("info", t("chat.plan.alreadyOff"));
+          break;
+      }
+    },
+    [addNotify, t],
+  );
+
   const dismissNotify = useCallback((id: string) => {
     setNotifyItems((prev) => prev.filter((item) => item.id !== id));
   }, []);
@@ -1899,6 +1957,7 @@ export function ChatPage(props: ChatPageProps) {
         originalId: string;
         createdAt: number;
         executionMode: ExecutionMode;
+        planMode: boolean;
         workdir: string;
         selectedSystemToolIds: SystemToolId[];
         runtimeControls: ChatRuntimeControls;
@@ -2404,7 +2463,7 @@ export function ChatPage(props: ChatPageProps) {
 
   function enqueueCurrentComposerTurn(position: "end" | "edit") {
     const conversationId = currentConversationIdRef.current.trim();
-    const draft = composerRef.current?.getDraft() ?? null;
+    let draft = composerRef.current?.getDraft() ?? null;
     const uploadedFiles = pendingUploadedFiles.slice();
     if (!conversationId || !queuedChatTurnHasContent(draft, uploadedFiles)) {
       return false;
@@ -2426,12 +2485,47 @@ export function ChatPage(props: ChatPageProps) {
           settings.system.workdir
         ).trim()
       : "";
+
+    // Resolve /plan|/execute before the turn sits in the queue so the stored
+    // draft is model-ready and planMode matches the intended tool profile.
+    let planModeForTurn =
+      editSlot?.planMode ??
+      (isAgentExecutionMode(executionMode) && getConversationPlanMode(conversationId));
+    if (isAgentExecutionMode(executionMode) && !editSlot) {
+      const planResolution = resolvePlanComposerInput({
+        draft,
+        sessionPlanMode: getConversationPlanMode(conversationId),
+        hasUploads: uploadedFiles.length > 0,
+      });
+      setConversationPlanMode(conversationId, planResolution.sessionPlanMode);
+      notifyPlanModeChange(
+        planResolution.kind === "command_only"
+          ? planResolution.notice
+          : planResolution.kind === "send"
+            ? planResolution.notice
+            : undefined,
+      );
+      if (planResolution.kind === "command_only") {
+        clearCurrentComposerDraftForQueuedTurn(conversationId);
+        return false;
+      }
+      if (planResolution.kind === "send") {
+        draft = planResolution.draft;
+        if (!queuedChatTurnHasContent(draft, uploadedFiles)) {
+          // /execute with empty remainder still becomes a default prompt draft.
+          return false;
+        }
+      }
+      planModeForTurn = planResolution.turnPlanMode;
+    }
+
     const queuedTurn = createQueuedChatTurn({
       id: editSlot?.originalId,
       conversationId,
       draft,
       uploadedFiles,
       executionMode,
+      planMode: planModeForTurn,
       workdir: workdirForTurn,
       selectedSystemToolIds: editSlot?.selectedSystemToolIds ?? settings.system.selectedSystemTools,
       runtimeControls: editSlot?.runtimeControls ?? settings.chatRuntimeControls,
@@ -2514,6 +2608,7 @@ export function ChatPage(props: ChatPageProps) {
           uploadedFilesOverride: queuedTurn.uploadedFiles,
           conversationIdOverride: targetConversationId,
           executionModeOverride: queuedTurn.executionMode,
+          planModeOverride: queuedTurn.planMode,
           workdirOverride: queuedTurn.workdir,
           selectedSystemToolIdsOverride: queuedTurn.selectedSystemToolIds,
           runtimeControlsOverride: queuedTurn.runtimeControls,
@@ -2627,6 +2722,7 @@ export function ChatPage(props: ChatPageProps) {
       originalId: queuedTurn.id,
       createdAt: queuedTurn.createdAt,
       executionMode: queuedTurn.executionMode,
+      planMode: queuedTurn.planMode,
       workdir: queuedTurn.workdir,
       selectedSystemToolIds: queuedTurn.selectedSystemToolIds.slice(),
       runtimeControls: { ...queuedTurn.runtimeControls },
@@ -2711,6 +2807,9 @@ export function ChatPage(props: ChatPageProps) {
       draft: createTextComposerDraft(message),
       uploadedFiles,
       executionMode,
+      // Remote WebUI turns inherit the local session Plan Mode flag when present.
+      planMode:
+        isAgentExecutionMode(executionMode) && getConversationPlanMode(targetConversationId),
       workdir: isAgentExecutionMode(executionMode) ? workdir : "",
       selectedSystemToolIds:
         selectedSystemToolIds.length > 0
@@ -3779,6 +3878,8 @@ export function ChatPage(props: ChatPageProps) {
     uploadedFilesOverride?: PendingUploadedFile[];
     conversationIdOverride?: string;
     executionModeOverride?: ExecutionMode;
+    /** Explicit turn Plan Mode (queued turns / 批准执行). */
+    planModeOverride?: boolean;
     workdirOverride?: string;
     selectedSystemToolIdsOverride?: SystemToolId[];
     runtimeControlsOverride?: ChatRuntimeControls;
@@ -3968,18 +4069,54 @@ export function ChatPage(props: ChatPageProps) {
     const textOverride =
       typeof overrides?.textOverride === "string" ? overrides.textOverride : null;
     const hasTextOverride = textOverride !== null;
-    const composerDraft = hasTextOverride
-      ? null
+    // When textOverride is present, treat it as a synthetic draft so /plan works
+    // for empty-state suggestions and other text-only entry points too.
+    let composerDraft: MentionComposerDraft | null = hasTextOverride
+      ? composerDraftFromText(textOverride)
       : (overrides?.composerDraftOverride ?? composerRef.current?.getDraft() ?? null);
-    let text = hasTextOverride
-      ? textOverride.trim()
-      : composerDraft
-        ? (effectiveIsAgentMode && composerDraft.largePastes.length > 0
-            ? composerDraft.textWithoutLargePastes
-            : buildTextFromComposerDraft(composerDraft)
-          ).trim()
-        : "";
     let uploadedFiles = overrides?.uploadedFilesOverride ?? pendingUploadedFiles;
+
+    // Session Plan Mode + slash commands (/plan, /execute, /exit-plan).
+    // Queued turns pass planModeOverride and a pre-stripped draft so we do not
+    // re-parse. Live composer / textOverride sends resolve here.
+    let turnPlanMode =
+      overrides?.planModeOverride !== undefined
+        ? overrides.planModeOverride === true
+        : getConversationPlanMode(conversationId);
+    if (effectiveIsAgentMode && composerDraft && overrides?.planModeOverride === undefined) {
+      const planResolution = resolvePlanComposerInput({
+        draft: composerDraft,
+        sessionPlanMode: getConversationPlanMode(conversationId),
+        hasUploads: uploadedFiles.length > 0,
+      });
+      setConversationPlanMode(conversationId, planResolution.sessionPlanMode);
+      notifyPlanModeChange(
+        planResolution.kind === "command_only"
+          ? planResolution.notice
+          : planResolution.kind === "send"
+            ? planResolution.notice
+            : undefined,
+      );
+      if (planResolution.kind === "command_only") {
+        // Avoid relying on isConversationVisible() (declared later in send()).
+        if (!hasTextOverride && currentConversationIdRef.current === conversationId) {
+          composerRef.current?.clear();
+          clearCachedComposerDraft(conversationId);
+        }
+        return false;
+      }
+      if (planResolution.kind === "send") {
+        composerDraft = planResolution.draft;
+      }
+      turnPlanMode = planResolution.turnPlanMode;
+    }
+
+    let text = composerDraft
+      ? (effectiveIsAgentMode && composerDraft.largePastes.length > 0
+          ? composerDraft.textWithoutLargePastes
+          : buildTextFromComposerDraft(composerDraft)
+        ).trim()
+      : "";
 
     // 本轮若带图片且当前主模型不支持 vision，则按 visionRoutingMode 处理。
     const hasImageUpload = uploadedFiles.some((file) => file.kind === "image");
@@ -4719,6 +4856,7 @@ export function ChatPage(props: ChatPageProps) {
             memoryExtractionStatusText,
             effectiveWorkdir,
             effectiveSkillsEnabled,
+            planModeEnabled: effectiveIsAgentMode && turnPlanMode,
             showSilentMemoryExtraction: effectiveIsAgentDevExecutionMode,
             skillsRootDir: skillsRootDirForTools,
             skillAccessPolicy: skillAccessPolicyForTools,
@@ -5287,6 +5425,26 @@ export function ChatPage(props: ChatPageProps) {
     void sendActionRef.current();
   }, [enqueueCurrentComposerTurn, isConversationRunning]);
 
+  const handleApprovePlanExecute = useCallback(() => {
+    const conversationId = currentConversationIdRef.current.trim();
+    if (!conversationId) return;
+    setConversationPlanMode(conversationId, false);
+    notifyPlanModeChange("exited");
+    void sendActionRef.current({
+      textOverride: PLAN_EXECUTE_DEFAULT_PROMPT,
+      planModeOverride: false,
+      conversationIdOverride: conversationId,
+    });
+  }, [notifyPlanModeChange, setConversationPlanMode]);
+
+  const handleExitPlanMode = useCallback(() => {
+    const conversationId = currentConversationIdRef.current.trim();
+    if (!conversationId) return;
+    const wasOn = getConversationPlanMode(conversationId);
+    setConversationPlanMode(conversationId, false);
+    notifyPlanModeChange(wasOn ? "exited" : "already_off");
+  }, [getConversationPlanMode, notifyPlanModeChange, setConversationPlanMode]);
+
   const handleStopSending = useCallback(() => {
     stopSendingActionRef.current();
   }, []);
@@ -5511,9 +5669,11 @@ export function ChatPage(props: ChatPageProps) {
       ? "正在补全完整历史，请稍候..."
       : isConversationHydrationFailed
         ? "当前会话完整历史加载失败，请重新打开会话..."
-        : enabledComposerSkills.length > 0
-          ? t("chat.inputHintWithSkills")
-          : t("chat.inputHint");
+        : isCurrentConversationPlanMode
+          ? t("chat.plan.inputHint")
+          : enabledComposerSkills.length > 0
+            ? t("chat.inputHintWithSkills")
+            : t("chat.inputHint");
   const isComposerInputDisabled =
     isCompactionRunning ||
     isConversationHydrating ||
@@ -5853,6 +6013,9 @@ export function ChatPage(props: ChatPageProps) {
                 workdir={displayedConversationWorkdir}
                 enabledSkills={enabledComposerSkills}
                 isAgentMode={isAgentMode}
+                isPlanMode={isCurrentConversationPlanMode}
+                onApprovePlanExecute={handleApprovePlanExecute}
+                onExitPlanMode={handleExitPlanMode}
                 chatRuntimeControls={chatRuntimeControlsForCurrentProvider}
                 reasoningOptions={chatRuntimeReasoningOptions}
                 thinkingAlwaysOn={chatRuntimeThinkingAlwaysOn}

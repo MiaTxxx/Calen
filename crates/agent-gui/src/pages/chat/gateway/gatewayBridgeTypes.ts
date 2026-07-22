@@ -81,6 +81,8 @@ export type SendChatAction = (overrides?: {
   uploadedFilesOverride?: PendingUploadedFile[];
   conversationIdOverride?: string;
   executionModeOverride?: ExecutionMode;
+  /** Session-level Plan Mode for this turn (read-only tools + plan prompt). */
+  planModeOverride?: boolean;
   workdirOverride?: string;
   selectedSystemToolIdsOverride?: SystemToolId[];
   runtimeControlsOverride?: ChatRuntimeControls;

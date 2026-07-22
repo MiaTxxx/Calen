@@ -27,6 +27,12 @@ import {
   formatFileMentionToken,
   formatMarkdownReferenceDestination,
 } from "../../lib/chat/messages/mentionReferences";
+import {
+  isReservedPlanSlashToken,
+  listPlanSlashMenuItems,
+  type PlanSlashCommand,
+  type PlanSlashMenuItem,
+} from "../../lib/chat/planMode";
 import { cn } from "../../lib/shared/utils";
 import { invokeFs } from "../../lib/tools/fsBackend";
 import {
@@ -100,7 +106,8 @@ export type MentionComposerGitFileMention = {
 
 type MentionSuggestion =
   | { type: "file"; entry: MentionFileEntry }
-  | { type: "skill"; skill: MentionComposerSkill };
+  | { type: "skill"; skill: MentionComposerSkill }
+  | { type: "plan"; item: PlanSlashMenuItem };
 
 type ComposerContextMenuState = {
   x: number;
@@ -150,6 +157,7 @@ export type MentionComposerDraftSegment =
   | { type: "fileMention"; reference: FileMentionReference }
   | { type: "largePaste"; paste: MentionComposerLargePaste }
   | { type: "skillMention"; skill: MentionComposerSkillMention }
+  | { type: "planCommand"; command: PlanSlashCommand }
   | { type: "commitMention"; commit: MentionComposerCommitMention }
   | { type: "gitFileMention"; file: MentionComposerGitFileMention };
 
@@ -192,6 +200,7 @@ const SKILL_MENTION_NAME_ATTR = "data-skill-name";
 const SKILL_MENTION_FILE_ATTR = "data-skill-file";
 const SKILL_MENTION_BASE_DIR_ATTR = "data-skill-base-dir";
 const SKILL_MENTION_DESCRIPTION_ATTR = "data-skill-description";
+const PLAN_COMMAND_ATTR = "data-plan-command";
 const COMMIT_MENTION_SHA_ATTR = "data-commit-sha";
 const COMMIT_MENTION_SHORT_SHA_ATTR = "data-commit-short-sha";
 const COMMIT_MENTION_SUBJECT_ATTR = "data-commit-subject";
@@ -231,6 +240,9 @@ const IME_COMPOSITION_END_ENTER_TAIL_MS = 80;
 const TYPEWRITER_CHAR_FADE_MS = 220;
 const GITHUB_ICON_SVG =
   '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.6 7.6 0 0 1 8 3.86c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>';
+// Lucide-style lightbulb for plan-command chips (distinct from skill icon).
+const PLAN_ICON_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>';
 
 /* ------------------------------------------------------------------ */
 /*  DOM helpers                                                        */
@@ -238,6 +250,21 @@ const GITHUB_ICON_SVG =
 
 function formatSkillMentionToken(skill: Pick<MentionComposerSkillMention, "name">) {
   return `/${skill.name}`;
+}
+
+function formatPlanCommandToken(command: PlanSlashCommand) {
+  return `/${command}`;
+}
+
+function parsePlanCommandAttr(value: string | null): PlanSlashCommand | null {
+  switch (value?.trim()) {
+    case "plan":
+    case "execute":
+    case "exit-plan":
+      return value.trim() as PlanSlashCommand;
+    default:
+      return null;
+  }
 }
 
 function formatCommitMentionToken(
@@ -336,6 +363,11 @@ function serializeChildrenToSegments(
             },
           });
         }
+      } else if (el.hasAttribute(PLAN_COMMAND_ATTR)) {
+        const command = parsePlanCommandAttr(el.getAttribute(PLAN_COMMAND_ATTR));
+        if (command) {
+          parts.push({ type: "planCommand", command });
+        }
       } else {
         const largePasteId = el.getAttribute(LARGE_PASTE_TAG_ATTR);
         const largePaste = largePasteId ? largePastes.get(largePasteId) : undefined;
@@ -373,6 +405,7 @@ function serializeChildren(
       if (segment.type === "fileMention") return formatFileMentionToken(segment.reference);
       if (segment.type === "largePaste") return segment.paste.text;
       if (segment.type === "skillMention") return formatSkillMentionToken(segment.skill);
+      if (segment.type === "planCommand") return formatPlanCommandToken(segment.command);
       if (segment.type === "commitMention") return formatCommitMentionToken(segment.commit);
       if (segment.type === "gitFileMention") return formatGitFileMentionToken(segment.file);
       return segment.text;
@@ -820,11 +853,16 @@ function createSkillMentionIcon() {
   return createMentionIcon(SKILL_ICON_SVG_MARKUP);
 }
 
+function createPlanCommandIcon() {
+  return createMentionIcon(PLAN_ICON_SVG);
+}
+
 function isComposerChipElement(node: Node | null): node is HTMLElement {
   return (
     node instanceof HTMLElement &&
     (node.hasAttribute(MENTION_TAG_ATTR) ||
       node.hasAttribute(SKILL_MENTION_NAME_ATTR) ||
+      node.hasAttribute(PLAN_COMMAND_ATTR) ||
       node.hasAttribute(COMMIT_MENTION_SHA_ATTR) ||
       node.hasAttribute(GIT_FILE_MENTION_PATH_ATTR) ||
       node.hasAttribute(LARGE_PASTE_TAG_ATTR))
@@ -1003,8 +1041,12 @@ function selectionTextPosition(root: HTMLElement): { textNode: Text; offset: num
   return null;
 }
 
-/** Detect an in-progress @file or /skill mention at the cursor position. */
-function detectMention(root: HTMLElement, skillsEnabled: boolean): MentionContext | null {
+/**
+ * Detect an in-progress @file or / slash mention at the cursor.
+ * Slash palette always opens (Plan commands + Skills). Skills may be empty;
+ * plan items still appear so `/plan` works without any enabled skill.
+ */
+function detectMention(root: HTMLElement, slashEnabled: boolean): MentionContext | null {
   const position = selectionTextPosition(root);
   if (!position) return null;
 
@@ -1020,8 +1062,10 @@ function detectMention(root: HTMLElement, skillsEnabled: boolean): MentionContex
       trigger = "file";
       break;
     }
-    if (before[i] === "/" && skillsEnabled) {
+    if (before[i] === "/" && slashEnabled) {
       triggerIdx = i;
+      // Reuses the "skill" trigger channel for the unified `/` palette
+      // (plan commands + skills). File search stays on `@`.
       trigger = "skill";
       break;
     }
@@ -1044,9 +1088,14 @@ function detectMention(root: HTMLElement, skillsEnabled: boolean): MentionContex
     }
   }
 
+  // `/plan`, `/execute`, `/exit-plan` stay plain text while typing, but the
+  // popup still lists them as first-class mode commands (not Skills). Exact
+  // reserved tokens should not force-close the list until the user selects one
+  // or continues typing a non-command skill name — handled in suggestions.
+  const query = before.slice(triggerIdx + 1);
   return {
     trigger,
-    query: before.slice(triggerIdx + 1),
+    query,
     textNode: node as Text,
     triggerOffset: triggerIdx,
   };
@@ -1131,6 +1180,28 @@ function createSkillMentionChip(skill: MentionComposerSkillMention) {
 function insertSkillMentionChip(ctx: MentionContext, skill: MentionComposerSkill) {
   const chip = createSkillMentionChip(skill);
   insertMentionChipElement(ctx, chip);
+}
+
+function createPlanCommandChip(command: PlanSlashCommand) {
+  const chip = document.createElement("span");
+  chip.setAttribute(PLAN_COMMAND_ATTR, command);
+  chip.contentEditable = "false";
+  chip.className = mentionChipClassName("plan", { selectable: false });
+  chip.title =
+    command === "plan"
+      ? "Plan mode · read-only"
+      : command === "execute"
+        ? "Approve plan & execute"
+        : "Exit plan mode";
+  chip.appendChild(createPlanCommandIcon());
+  chip.appendChild(document.createTextNode(command));
+  return chip;
+}
+
+function insertPlanCommandChip(ctx: MentionContext, command: PlanSlashCommand) {
+  const chip = createPlanCommandChip(command);
+  // Keep a trailing space so users can type a task after `/plan `.
+  insertMentionChipElement(ctx, chip, { ensureSpaceAfterChip: true });
 }
 
 function createCommitMentionChip(commitInput: MentionComposerCommitMention) {
@@ -1442,6 +1513,7 @@ function Popup({
   emptyLabel: string;
   onSelect: (suggestion: MentionSuggestion) => void;
 }) {
+  const { locale } = useLocale();
   const popupRef = useRef<HTMLDivElement>(null);
   const hlRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1493,19 +1565,27 @@ function Popup({
         {error && !isLoading && <div className="px-3 py-2 text-xs text-destructive">{error}</div>}
         {suggestions.map((suggestion, i) => {
           const isSkill = suggestion.type === "skill";
+          const isPlan = suggestion.type === "plan";
           const entry = suggestion.type === "file" ? suggestion.entry : null;
           const skill = suggestion.type === "skill" ? suggestion.skill : null;
+          const planItem = suggestion.type === "plan" ? suggestion.item : null;
           const isDir = entry?.kind === "dir";
           const parts = entry ? entry.path.split("/") : [];
           const fileName = parts.pop() || "";
           const dirPath = parts.join("/");
           const Icon = entry ? getFileTypeIcon(entry.path, entry.kind) : null;
-          const title = skill?.name ?? fileName;
-          const subtitle = skill?.description ?? (dirPath ? `${dirPath}/` : "");
+          const title = planItem?.label ?? skill?.name ?? fileName;
+          const planDescription =
+            locale === "en-US" ? planItem?.descriptionEn : planItem?.descriptionZh;
+          const subtitle = planDescription ?? skill?.description ?? (dirPath ? `${dirPath}/` : "");
           return (
             <div
               key={
-                entry ? `${entry.kind}:${entry.path}` : `skill:${skill?.skillFile ?? skill?.name}`
+                entry
+                  ? `${entry.kind}:${entry.path}`
+                  : planItem
+                    ? `plan:${planItem.token}`
+                    : `skill:${skill?.skillFile ?? skill?.name}`
               }
               ref={i === highlightIndex ? hlRef : undefined}
               className={cn(
@@ -1522,14 +1602,26 @@ function Popup({
               <span
                 className={cn(
                   "flex h-5 w-5 shrink-0 items-center justify-center rounded-md",
-                  isSkill
-                    ? "bg-violet-500/10 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300"
-                    : isDir
-                      ? "bg-amber-500/10 dark:bg-amber-400/15"
-                      : "bg-foreground/[0.04] dark:bg-white/[0.05]",
+                  isPlan
+                    ? "bg-orange-500/10 text-orange-700 dark:bg-orange-400/15 dark:text-orange-300"
+                    : isSkill
+                      ? "bg-violet-500/10 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300"
+                      : isDir
+                        ? "bg-amber-500/10 dark:bg-amber-400/15"
+                        : "bg-foreground/[0.04] dark:bg-white/[0.05]",
                 )}
               >
-                {Icon ? <Icon width={12} height={12} /> : <SkillIcon width={12} height={12} />}
+                {Icon ? (
+                  <Icon width={12} height={12} />
+                ) : isPlan ? (
+                  <span
+                    className="inline-flex h-3 w-3 items-center justify-center [&>svg]:h-3 [&>svg]:w-3"
+                    // biome-ignore lint/security/noDangerouslySetInnerHtml: static SVG markup
+                    dangerouslySetInnerHTML={{ __html: PLAN_ICON_SVG }}
+                  />
+                ) : (
+                  <SkillIcon width={12} height={12} />
+                )}
               </span>
               <span className="min-w-0 flex-1 truncate">
                 <span className="font-medium tracking-tight text-foreground/95">{title}</span>
@@ -1539,7 +1631,11 @@ function Popup({
                   </span>
                 )}
               </span>
-              {isSkill ? (
+              {isPlan ? (
+                <span className="shrink-0 text-[calc(10px*var(--zone-font-scale,1))] uppercase tracking-wider text-orange-700/70 dark:text-orange-300/70">
+                  plan
+                </span>
+              ) : isSkill ? (
                 <span className="shrink-0 text-[calc(10px*var(--zone-font-scale,1))] uppercase tracking-wider text-muted-foreground/60">
                   skill
                 </span>
@@ -1947,11 +2043,17 @@ export const MentionComposer = memo(
 
       if (mentionCtx.trigger === "skill") {
         const next: MentionSuggestion[] = [];
+        // Plan mode commands sit above Skills so `/` feels like one palette.
+        for (const item of listPlanSlashMenuItems(normalizedMentionQuery)) {
+          next.push({ type: "plan", item });
+        }
         for (const skill of enabledSkills) {
           const haystack = `${skill.name}\n${skill.description}\n${skill.baseDir}`.toLowerCase();
           if (normalizedMentionQuery && !haystack.includes(normalizedMentionQuery)) {
             continue;
           }
+          // Never surface a skill that collides with a reserved plan token.
+          if (isReservedPlanSlashToken(skill.name)) continue;
           next.push({ type: "skill", skill });
           if (next.length >= MAX_SUGGESTIONS) {
             break;
@@ -1983,7 +2085,7 @@ export const MentionComposer = memo(
     const popupLoading = mentionSessionLoading;
     const popupError = suggestions.length === 0 ? mentionSessionError : null;
     const popupEmptyLabel =
-      mentionCtx?.trigger === "skill" ? "No matching enabled Skills" : "No matching files";
+      mentionCtx?.trigger === "skill" ? "No matching plan commands or Skills" : "No matching files";
     const showEmpty =
       mentionCtx !== null && !popupLoading && !popupError && suggestions.length === 0;
     const popupVisible =
@@ -2188,11 +2290,12 @@ export const MentionComposer = memo(
         }
       };
 
-      applyContext(detectMention(el, enabledSkills.length > 0));
+      // Always enable `/` so Plan commands appear even with zero Skills selected.
+      applyContext(detectMention(el, true));
       window.requestAnimationFrame(() => {
         const nextEl = editorRef.current;
         if (!nextEl || document.activeElement !== nextEl) return;
-        applyContext(detectMention(nextEl, enabledSkills.length > 0));
+        applyContext(detectMention(nextEl, true));
       });
     }, [closeMentionSession, enabledSkills.length, startMentionSession]);
 
@@ -2247,6 +2350,8 @@ export const MentionComposer = memo(
               if (chip) el.appendChild(chip);
             } else if (segment.type === "skillMention") {
               el.appendChild(createSkillMentionChip(segment.skill));
+            } else if (segment.type === "planCommand") {
+              el.appendChild(createPlanCommandChip(segment.command));
             } else if (segment.type === "commitMention") {
               el.appendChild(createCommitMentionChip(segment.commit));
             } else if (segment.type === "gitFileMention") {
@@ -2410,6 +2515,8 @@ export const MentionComposer = memo(
         }
         if (suggestion.type === "skill") {
           insertSkillMentionChip(mentionCtx, suggestion.skill);
+        } else if (suggestion.type === "plan") {
+          insertPlanCommandChip(mentionCtx, suggestion.item.command);
         } else {
           insertMentionChip(mentionCtx, suggestion.entry.path, suggestion.entry.kind);
         }

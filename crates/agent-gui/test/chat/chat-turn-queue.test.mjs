@@ -25,6 +25,7 @@ function turn(id, conversationId, text) {
     draft: draft(text),
     uploadedFiles: [],
     executionMode: "tools",
+    planMode: false,
     workdir: "/workspace",
     selectedSystemToolIds: ["shell"],
     runtimeControls: {

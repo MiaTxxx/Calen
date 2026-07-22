@@ -8,6 +8,21 @@
 | `tools`     | `runAgentConversationTurn.ts` | 启用 builtin tool registry                          | 常规 Agent 模式，支持文件、Shell、MCP、Skills、Memory、Cron 等。 |
 | `agent-dev` | `runAgentConversationTurn.ts` | 启用工具，并展示更多 debug/usage/silent memory 细节 | 开发调试与可观测性更强的 Agent 模式。                            |
 
+## Plan Mode（会话级）
+
+会话级 **Plan Mode** 不是第四种 `ExecutionMode`，而是叠在 `tools` / `agent-dev` 之上的只读规划开关：
+
+| 项          | 约定                                                                                                                                            |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 入口        | 输入 `/plan` 或 `/plan <任务>`；composer 条显示「规划模式」徽标。                                                                               |
+| 退出 / 执行 | `/execute`（可带补充说明）、`/exit-plan`（或 `/unplan`）、或 UI「批准执行」/「退出规划」。                                                      |
+| 作用域      | 按 `conversationId` 保存在 GUI 内存（刷新后丢失）；不改 `settings.system.executionMode`。                                                       |
+| 工具        | 注册完整 registry 后按 `metadata.isReadOnly` 过滤，并额外保留 `TodoWrite`；不暴露 `Agent` / `SendMessage`。写类调用若仍出现则 executor 硬拒绝。 |
+| Prompt      | 注入 `PLAN_MODE_SYSTEM_PROMPT`（`lib/chat/planMode.ts`），指导模型只探索与写方案。                                                              |
+| 队列        | 入队时解析 slash 并写入 `QueuedChatTurn.planMode`，避免排队项带着原始 `/plan` 文本执行。                                                        |
+
+关键实现：`src/lib/chat/planMode.ts`、`ChatPage.tsx`、`runAgentConversationTurn.ts`、`ChatComposerBar.tsx`。
+
 ## 主流程
 
 | 步骤 | 说明                                                                                  | 关键模块                                                                  |
