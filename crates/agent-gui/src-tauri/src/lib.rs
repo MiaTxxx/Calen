@@ -487,6 +487,13 @@ pub fn run() {
         .expect("failed to install Calen app network manager");
 
     let app = tauri::Builder::default()
+        // Must be registered first so a second launch exits before other
+        // plugins (and the system tray) initialize.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Err(error) = show_main_window(app) {
+                eprintln!("failed to show Calen window for existing instance: {error}");
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_mcp_bridge::init())

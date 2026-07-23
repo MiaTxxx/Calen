@@ -68,6 +68,7 @@ wait-timeout = "0.2.1"
 russh = "0.62.2"
 russh-sftp = "2.3.0"
 tauri-plugin-global-shortcut = "2.3.2"
+tauri-plugin-single-instance = "2.4.3"
 xcap = { version = "0.9.6", default-features = false, features = ["image"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 

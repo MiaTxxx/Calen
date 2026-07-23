@@ -350,29 +350,46 @@ fn probe_file_prefix(path: &Path, max_bytes: usize) -> Result<Vec<u8>, String> {
     Ok(buffer)
 }
 
-fn is_probably_utf8_text_file(path: &Path) -> Result<bool, String> {
+/// Probe whether a file is "probably text" for upload acceptance.
+///
+/// Strict UTF-8 is too narrow: Chinese Windows Notepad often saves `.txt` as
+/// GBK/GB18030, which fails `str::from_utf8` and was previously rejected as
+/// binary. We accept:
+/// - empty files
+/// - valid UTF-8 (optional BOM)
+/// - non-UTF-8 multi-byte text with no NULs and almost no non-whitespace C0
+///   controls (covers GBK/GB18030, Big5, Shift_JIS, Windows-1252, …)
+fn is_probably_text_file(path: &Path) -> Result<bool, String> {
     let buffer = probe_file_prefix(path, 32 * 1024)?;
-    if buffer.is_empty() {
-        return Ok(true);
-    }
-    if buffer.contains(&0) {
-        return Ok(false);
-    }
-    let bytes = buffer
-        .strip_prefix(&[0xEF, 0xBB, 0xBF])
-        .unwrap_or(buffer.as_slice());
-    Ok(std::str::from_utf8(bytes).is_ok())
+    Ok(is_probably_text_bytes(&buffer))
 }
 
-fn is_probably_utf8_text_bytes(bytes: &[u8]) -> bool {
+fn is_probably_text_bytes(bytes: &[u8]) -> bool {
     if bytes.is_empty() {
         return true;
     }
+    // Embedded NUL is the strongest binary signal for typical text uploads.
     if bytes.contains(&0) {
         return false;
     }
-    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
-    std::str::from_utf8(bytes).is_ok()
+    let bytes = bytes
+        .strip_prefix(&[0xEF, 0xBB, 0xBF])
+        .unwrap_or(bytes);
+    if std::str::from_utf8(bytes).is_ok() {
+        return true;
+    }
+
+    // Legacy encodings (e.g. GBK on Chinese Windows) use high bytes freely.
+    // Reject only when non-whitespace C0 controls / DEL are common.
+    let mut suspicious = 0usize;
+    for &b in bytes {
+        let is_c0_control = b < 0x20 && !matches!(b, b'\t' | b'\n' | b'\r');
+        if is_c0_control || b == 0x7F {
+            suspicious += 1;
+        }
+    }
+    let max_suspicious = (bytes.len() / 100).max(8);
+    suspicious <= max_suspicious
 }
 
 fn detect_upload_file_kind(path: &Path) -> Result<&'static str, String> {
@@ -394,7 +411,7 @@ fn detect_upload_file_kind(path: &Path) -> Result<&'static str, String> {
     if is_archive_upload(path) {
         return Ok("archive");
     }
-    if is_probably_utf8_text_file(path)? {
+    if is_probably_text_file(path)? {
         return Ok("text");
     }
     Err(format!(
@@ -439,7 +456,7 @@ fn detect_uploaded_bytes_kind(
     if is_archive_upload(path) || is_archive_upload_mime(mime_type) {
         return Ok("archive");
     }
-    if is_probably_utf8_text_bytes(bytes) {
+    if is_probably_text_bytes(bytes) {
         return Ok("text");
     }
 
@@ -1718,4 +1735,87 @@ mod tests {
         );
     }
 
+    #[test]
+    fn detects_gbk_and_utf8_text_and_rejects_nul_binary() {
+        // "中文GBK" in GBK/GB18030 (common for .txt on Chinese Windows).
+        // Built at runtime so the invalid UTF-8 sequence is not a compile-time
+        // string/byte-literal constant.
+        let gbk_chinese = vec![0xD6, 0xD0, 0xCE, 0xC4, 0x47, 0x42, 0x4B];
+        assert!(
+            std::str::from_utf8(&gbk_chinese).is_err(),
+            "fixture must be invalid UTF-8 so the legacy path is exercised"
+        );
+        assert_eq!(
+            detect_uploaded_bytes_kind("notes.txt", Some("text/plain"), &gbk_chinese)
+                .expect("GBK text should be accepted"),
+            "text"
+        );
+        assert_eq!(
+            detect_uploaded_bytes_kind("notes.txt", None, b"hello\nworld")
+                .expect("UTF-8 text should be accepted"),
+            "text"
+        );
+        assert_eq!(
+            detect_uploaded_bytes_kind("notes.txt", None, b"\xEF\xBB\xBFhello")
+                .expect("UTF-8 BOM text should be accepted"),
+            "text"
+        );
+
+        let error = detect_uploaded_bytes_kind("blob.bin", None, b"ab\0cd")
+            .expect_err("NUL bytes mark binary content");
+        assert!(
+            error.contains("不是当前 Read 支持解析"),
+            "error = {error}"
+        );
+
+        // Non-UTF-8 with many C0 controls is still binary-like.
+        let mut noisy = vec![0x80u8; 64];
+        for i in 0..16 {
+            noisy[i] = (i + 1) as u8; // 0x01..0x10
+        }
+        let error = detect_uploaded_bytes_kind("blob.bin", None, &noisy)
+            .expect_err("high control ratio should be rejected");
+        assert!(
+            error.contains("不是当前 Read 支持解析"),
+            "error = {error}"
+        );
+    }
+
+    #[test]
+    fn import_readable_file_paths_accepts_gbk_txt() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let temp_root = std::env::temp_dir().join(format!(
+            "liveagent-upload-gbk-test-{}-{unique}",
+            std::process::id()
+        ));
+        let workdir = temp_root.join("workspace");
+        let external = temp_root.join("external");
+        fs::create_dir_all(&workdir).expect("create test workdir");
+        fs::create_dir_all(&external).expect("create external dir");
+
+        // "测试" in GBK.
+        let gbk_txt = external.join("测试.txt");
+        fs::write(&gbk_txt, [0xB2, 0xE2, 0xCA, 0xD4]).expect("write gbk txt");
+
+        let response = system_import_readable_file_paths_sync(
+            workdir.to_string_lossy().into_owned(),
+            vec![gbk_txt.to_string_lossy().into_owned()],
+            Some(9),
+        )
+        .expect("import gbk txt");
+
+        assert!(
+            response.skipped.is_empty(),
+            "skipped = {:?}",
+            response.skipped
+        );
+        assert_eq!(response.files.len(), 1);
+        assert_eq!(response.files[0].kind, "text");
+        assert!(response.files[0].relative_path.starts_with("uploads/"));
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
 }
